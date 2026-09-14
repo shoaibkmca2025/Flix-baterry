@@ -1,0 +1,9 @@
+{
+  "expo": {
+    "name": "Felix Batteries", "slug": "felix-batteries", "version": "1.0.0", "orientation": "default", "userInterfaceStyle": "light",
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.felixbatteries.platform" },
+    "android": { "package": "com.felixbatteries.platform" },
+    "web": { "bundler": "metro", "name": "Felix | Dealer Workspace" },
+    "plugins": [["expo-image-picker", {"photosPermission":"Attach battery label photos to an entry.","cameraPermission":"Capture battery evidence."}], ["expo-camera", {"cameraPermission":"Scan battery QR codes and barcodes."}], ["expo-location", {"locationWhenInUsePermission":"Attach your location to an entry when you choose."}]]
+  }
+}
