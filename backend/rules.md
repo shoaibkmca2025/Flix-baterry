@@ -13,7 +13,7 @@ These rules are binding for every commit in `backend/` and `packages/domain/`. T
 1. Read `memory.md` fully (10 minutes; it is the source of truth for decisions, ids, enums, credentials).
 2. Read the last five entries of `logs.md`.
 3. Open `phases.md`, find the current phase, pick the next unchecked item — do not skip ahead unless the log says why.
-4. Skim the section of `architecture.md` that covers the item.
+4. Skim the section of `architecture.md` that covers the item, and the module's block in `modules.md` (owner tables, dependencies, endpoints).
 
 **During the session**
 

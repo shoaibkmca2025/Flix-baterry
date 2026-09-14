@@ -6,6 +6,8 @@ The phases follow the PRD roadmap (§30: P0–P5) but are cut for the **backend*
 
 Legend: **DB** migration · **DOM** shared domain code · **API** endpoints · **JOB** worker · **TEST** tests · **APP** change in the Expo app · **OPS** infrastructure.
 
+Where each item's code lives, which tables it may write and which screens it serves: `modules.md`.
+
 Current phase: **P0** (see `logs.md` for the latest state).
 
 ---

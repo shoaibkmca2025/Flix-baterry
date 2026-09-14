@@ -42,7 +42,7 @@ src/dealer/                  dealer app: theme.ts (colour tokens, fonts), kit.ts
 src/admin/                   admin console: ui.tsx (Page, Table, Dialog, ReasonDialog, filters), AdminApp.tsx (nav, sidebar, tabs, switcher),
                              Home.tsx, Entries.tsx (approvals, register, corrections, detail, record-an-entry), Dealers.tsx (registrations, directory, profile, customers),
                              Batteries.tsx (search, detail/chain, warranty, catalogue/import), Stock.tsx (stock, returns), Reports.tsx, Governance.tsx (audit, admins, notifications, settings, sign-in)
-backend/                     this plan: architecture.md · phases.md · rules.md · memory.md · logs.md
+backend/                     this plan: architecture.md · modules.md · phases.md · rules.md · memory.md · logs.md
 tmp/prd.txt                  PRD v3.0 text
 C:\Users\shoai\Downloads\Felix-Dealer-App-Only.html          client-approved dealer design (also contains head-office panel designs A.* and admin phone app M.*)
 C:\Users\shoai\Downloads\Felix-Batteries-Platform-Prototype.html   earlier full prototype

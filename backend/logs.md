@@ -20,12 +20,13 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 ---
 
 ### 2026-09-14 · P0 · planning (Claude Code with Vaibhav)
-**Worked on:** backend plan — `architecture.md`, `phases.md`, `rules.md`, `memory.md`, `logs.md`.
+**Worked on:** backend plan — `architecture.md`, `modules.md`, `phases.md`, `rules.md`, `memory.md`, `logs.md`.
 **Done:**
 - Read PRD v3.0 in full (`tmp/prd.txt`) and mapped every section to a backend module, table or job. Acceptance criteria AC-01…AC-12 mapped to named tests (`rules.md §9`, `phases.md` cross-phase table).
 - Chose the stack: Node 22 + TypeScript, Fastify 5 + Zod, PostgreSQL 16 + Drizzle, Redis 7 + BullMQ, S3-compatible storage, Argon2id/JWT/OTP auth. Rationale recorded in `architecture.md §3`; the deciding factor is sharing `src/domain.ts` rules between app and server.
 - Designed the schema (35 tables, append-only triggers, numbering counters, indexes for the 500k-record search target), the validation pipeline, the approval transaction, the warranty engine, the offline sync protocol, evidence storage, notifications (outbox), exports (text-cell XLSX, provenance), import/migration and the full endpoint catalogue.
 - Cut delivery into P0–P5 with item ids and exit gates aligned to PRD §30; baseline estimate 56–71 developer-days for P0–P4.
+- Wrote `modules.md`: 24 modules in 4 layers with a dependency diagram and a no-cycle rule, a single-writer table ownership matrix, and for each module its files, endpoints, service functions, events, errors, tests and phase items, plus a screen→module matrix for both apps. Added `credits` as its own module, put the exception queue in `approvals` and analytics in `reports`; added `stock_alerts` and `push_tokens` tables and a few endpoints (`/entries/validate`, `/batteries/lookup`, `/returns/{claimId}/stage`, `/approvals/queue`, `/claims/summary`) to `architecture.md` to match.
 **Decisions:** D-01, D-02, D-03, D-04, D-05, D-09 recorded as *assumed* with defaults; D-06, D-07, D-08, D-10 *open* (client input needed). See `memory.md §9`.
 **Blockers / decisions needed:**
 - Client to confirm D-07 (Sales Return type), D-08 (credit rates), D-10 (providers; start DLT registration now — 2–3 weeks lead time).

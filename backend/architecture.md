@@ -2,7 +2,7 @@
 
 Version 1.0 · 14 September 2026 · Status: **approved for build** (pending the Phase 0 decisions listed in `memory.md`)
 
-This is the technical design for the server side of the Felix Batteries "Battery Lifecycle & Dealer Management Platform" (PRD v3.0). It is written so one developer can implement it module by module, in the order given in `phases.md`, without having to re-derive decisions. Engineering conventions live in `rules.md`; project context and glossary in `memory.md`; the running work log in `logs.md`.
+This is the technical design for the server side of the Felix Batteries "Battery Lifecycle & Dealer Management Platform" (PRD v3.0). It is written so one developer can implement it module by module, in the order given in `phases.md`, without having to re-derive decisions. Engineering conventions live in `rules.md`; module-by-module ownership, endpoints and dependencies in `modules.md`; project context and glossary in `memory.md`; the running work log in `logs.md`.
 
 ---
 
@@ -19,6 +19,7 @@ This is the technical design for the server side of the Felix Batteries "Battery
 | Run it in production | §16–§18 |
 | Wire endpoints | §19 |
 | Connect the existing Expo app | §20 |
+| Know which module owns a table, endpoint or screen | `modules.md` |
 
 Terms: **Entry** = one transaction header submitted by a dealer; **Item** = one battery line inside an entry; **Battery code** = the full 8-digit printed code (e.g. `21030047`); **Serial** = the short serial derived from it (`0047`); **Chain** = the linked list of batteries from the first sale through every replacement; **Cover** = the warranty period that belongs to the chain, not to the battery; **Claim** = the commercial warranty decision attached to a replacement item; **Challan** = the material-return document for old batteries going back to the company. Full glossary in `memory.md`.
 
@@ -120,6 +121,7 @@ Flix baterry/
         serials.ts                   # normalise(), deriveCode(), pattern checks per family
         warranty.ts                  # expiryFrom(), warrantyStatus(), remaining(), inherit()
         entryRules.ts                # validateEntry() — the authoritative rule set
+        dates.ts                     # todayKolkata(), monthKey(), withinBackdateWindow()
         stock.ts                     # STATES, TRANSITIONS, effectOf(entryType)
         status.ts                    # entry / claim / dealer / admin state machines
         schemas/*.ts                 # Zod schemas for API payloads (shared)
@@ -152,11 +154,11 @@ Flix baterry/
       plugins/
         requestId.ts auth.ts accountStatus.ts rbac.ts dealerScope.ts
         zod.ts openapi.ts errorHandler.ts etag.ts idempotency.ts
-      modules/
-        auth/ users/ dealers/ masters/ batteries/ entries/ approvals/
-        corrections/ warranty/ claims/ returns/ stock/ customers/ evidence/
-        sync/ search/ reports/ imports/ notifications/ audit/ admins/
-        settings/ health/
+      modules/                       # one folder per module — ownership and dependencies in modules.md
+        health/ auth/ users/ admins/ dealers/ masters/ settings/ audit/
+        batteries/ warranty/ stock/ evidence/ customers/
+        entries/ approvals/ (exception queue lives here) corrections/ claims/ credits/ returns/
+        sync/ search/ reports/ (analytics lives here) imports/ notifications/
           routes.ts   # Fastify routes (thin)
           service.ts  # use-cases; every write = one transaction
           repo.ts     # SQL via drizzle; dealer scope enforced here
@@ -495,6 +497,8 @@ credit_notes           id uuid pk · no text uq! ('CN-26-09-0188') · dealer_id 
                        status enum(issued, settled, reversed)! · settled_ref text · created_at
 
 -- STOCK -------------------------------------------------------------------
+stock_alerts           id uuid pk · model_id fk→battery_models! · dealer_id fk→dealers null (null = company-wide) · available int! · threshold int!
+                       raised_at! · acknowledged_by fk→users · acknowledged_at · uq(model_id, dealer_id) where acknowledged_at is null
 stock_movements        id uuid pk · battery_id fk→batteries! · from_state · to_state (enum as batteries.state, from may be null)
                        from_custodian · to_custodian · from_dealer_id · to_dealer_id · from_location_id · to_location_id
                        entry_id · entry_item_id · claim_id · challan_id · reason_code_id fk→reason_codes · reason_text text
@@ -529,6 +533,7 @@ notifications          id uuid pk · user_id fk→users null · dealer_id fk→d
                        title text! · body text! · data jsonb (route, ids) · created_at · scheduled_for · sent_at · delivered_at
                        read_at · state enum(queued, sent, delivered, failed, read)! · provider_ref text · error text
                        idx(user_id, read_at), idx(dealer_id, created_at)
+push_tokens            id uuid pk · user_id fk→users! · token text uq! · platform enum(android, ios, web)! · device_id text · updated_at!
 announcements          id uuid pk · subject text! · body text! · audience jsonb! ({dealerIds|cityIds|roles|all}) · channels text[]!
                        scheduled_for · sent_at · sent_by fk→users! · recipients int · template_version int · created_at
 outbox                 id bigserial pk · event_type text! · aggregate_type text! · aggregate_id uuid! · payload jsonb!
@@ -973,6 +978,7 @@ Role column: **D** dealer principals · **A** head-office principals (with the n
 | GET `/dealers/me` · PATCH `/dealers/me` (editable fields only) · POST `/dealers/me/documents` | D | shop profile & documents |
 | GET `/dealers` · GET `/dealers/{id}` · PATCH `/dealers/{id}` | A `dealers.read/edit` | directory, profile, locked fields (name, city, code) audited |
 | POST `/dealers/{id}/approve` {dealerCode, reason} · `/reject` · `/suspend` · `/activate` | A `dealers.approve/suspend` | lifecycle with reason |
+| GET `/dealers/{id}/suggest-code` | A `dealers.approve` | code suggested from the shop name |
 | GET `/dealers/{id}/staff` · POST · PATCH `/staff/{userId}` · POST `/staff/{userId}/status` | A `dealers.staff.manage` / D manager (own) | dealer staff accounts |
 | GET `/dealers/{id}/summary` | A | counts, waiting items, credits, old batteries at shop |
 
@@ -987,33 +993,38 @@ Role column: **D** dealer principals · **A** head-office principals (with the n
 | Method · Path | Who | Purpose |
 |---|---|---|
 | POST `/entries` | D A `entries.create` | create + submit (`Idempotency-Key` / `clientKey`); admins may pass `status: draft`, `dealerId` |
+| POST `/entries/validate` | D A `entries.create` | dry run → `{errors, warnings, exceptions}`; the review screen calls it when online |
 | GET `/entries` · GET `/entries/{idOrRef}` | D (own) A | register with filters; detail includes items, evidence, claim, corrections, audit |
 | PATCH `/entries/{id}` (draft only) · POST `/entries/{id}/submit` | A | admin drafts |
 | POST `/entries/{id}/review` · `/approve` · `/reject` · `/void` {reason} | A `entries.review/approve/reject/void` | decisions (§9.4) |
 | POST `/entries/{id}/handover` · `/cover-told` · `/evidence/attach` | D A | post-submission facts |
 | GET `/entries/{id}/acknowledgement.pdf` | D A | printable acknowledgement |
 | GET `/exceptions` · POST `/exceptions/{id}/override` {reason} · `/reject` · `/request-correction` | A `entries.exceptions.resolve` | exception queue |
+| GET `/approvals/queue` | A `entries.read` | counts by bucket for dashboards |
 | POST `/entries/{id}/corrections` | D A `corrections.request` | request a change |
-| GET `/corrections` · POST `/corrections/{id}/apply` {changes, reason} · `/decline` {reason} | A `corrections.decide` | §9.8 |
+| GET `/corrections` · POST `/corrections/{id}/apply` {changes, reason} · `/decline` {reason} · POST `/entries/{id}/correct` | A `corrections.decide` | §9.8; the last one is an admin-initiated correction without a request |
 | GET `/entries/{id}/audit` | A `audit.read` / D (own, redacted) | trail |
 
 ### Batteries, warranty, chains
 | Method · Path | Who | Purpose |
 |---|---|---|
 | GET `/batteries` · GET `/batteries/{code}` | D (own) A | register; detail = battery + chain + warranty + events + related entries + movements |
+| GET `/batteries/lookup?code=` | D A `entries.create` | capture-time lookup: found, model, mfg month, custody (yours / other / customer — never the other dealer's identity), cover summary |
 | GET `/batteries/{code}/chain` | D A | ordered chain with cover summary |
 | GET `/warranty/policies` · POST (publish new version) | A `warranty.read` / `warranty.policy.manage` | versions |
 | GET `/warranty/overrides` · POST `/batteries/{code}/overrides` · POST `/warranty/overrides/{id}/approve` · `/reject` | D/A request · A approve | §9.5 |
 | GET `/warranty/continuity` | A | proof page: chains, refused writes, overrides |
+| GET `/warranty/expiring?days=` | D (own) A | cover ending within the window |
 
 ### Claims, challans, credits
 | Method · Path | Who | Purpose |
 |---|---|---|
-| GET `/claims` · GET `/claims/{idOrRef}` | D (own) A | claim status & history |
+| GET `/claims` · GET `/claims/{idOrRef}` · GET `/claims/summary` | D (own) A | claim status & history; counts and rupees this month |
 | POST `/claims/{id}/accept` · `/refuse-upfront` · `/check` · `/decide` | A `claims.accept/decide` | §9.7 |
 | GET `/returns/pending` | D (own) A | old batteries still at dealer(s), ageing |
 | POST `/challans` · GET `/challans` · GET `/challans/{no}` · GET `/challans/{no}/document.pdf` | D `returns.dispatch` A | dispatch & document |
 | POST `/challans/{no}/receive` {lines:[{batteryCode, scanned}], shortages} | A `returns.receive` | arrival |
+| POST `/returns/{claimId}/stage` {stage: testing | repaired | scrapped | closed, reason} · GET `/returns/overview` | A `returns.process` / D A | physical processing after receipt; counts by stage and overdue |
 | GET `/credit-notes` · GET `/credit-notes/{no}` · GET `/credit-notes/statement.pdf` | D (own) A | credits |
 | POST `/credit-notes/{no}/settle` · `/reverse` {reason} | A `credits.adjust` | accounts |
 
@@ -1027,7 +1038,7 @@ Role column: **D** dealer principals · **A** head-office principals (with the n
 ### Customers
 | Method · Path | Who | Purpose |
 |---|---|---|
-| GET `/customers` · POST · GET `/customers/{id}` · PATCH · POST `/customers/{id}/merge` {into, reason} | D (own) A | profiles; duplicate warning on create; merge keeps both |
+| GET `/customers` · POST · GET `/customers/{id}` · PATCH · POST `/customers/{id}/merge` {into, reason} · GET `/customers/{id}/history` | D (own) A | profiles; duplicate warning on create; merge keeps both; service history |
 
 ### Evidence
 | Method · Path | Who | Purpose |
@@ -1047,12 +1058,12 @@ Role column: **D** dealer principals · **A** head-office principals (with the n
 | GET `/reports/preview` | D A `reports.run` | filter → rows (paginated) + count |
 | POST `/reports/exports` · GET `/reports/exports` · GET `/reports/exports/{id}` · GET `/reports/exports/{id}/download` | D A `reports.export` | §13 |
 | CRUD `/reports/saved` · POST `/reports/saved/{id}/run` | A `reports.schedule` | saved & scheduled |
-| GET `/analytics/overview` · `/analytics/replacements` · `/analytics/dealers` · `/analytics/warranty-exposure` · `/analytics/returns` | A | dashboards |
+| GET `/analytics/overview` · `/analytics/replacements` · `/analytics/dealers` · `/analytics/warranty-exposure` · `/analytics/returns` · `/analytics/exceptions` | A | dashboards |
 
 ### Imports
 | Method · Path | Who | Purpose |
 |---|---|---|
-| POST `/imports` · GET `/imports/{id}` · GET `/imports/{id}/rows` · PATCH `/imports/{id}/rows/{rowNo}` · POST `/imports/{id}/commit` · `/discard` · GET `/imports/{id}/reconciliation.xlsx` | A `batteries.import` (commit: main_admin) | §14 |
+| POST `/imports` · GET `/imports` · GET `/imports/{id}` · GET `/imports/{id}/rows` · PATCH `/imports/{id}/rows/{rowNo}` · POST `/imports/{id}/validate` · POST `/imports/{id}/commit` · `/discard` · GET `/imports/{id}/reconciliation.xlsx` | A `batteries.import` (commit: main_admin) | §14 |
 
 ### Notifications
 | Method · Path | Who | Purpose |
