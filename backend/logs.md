@@ -38,6 +38,60 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-16 · masters module (cities) + closes the city id/name gap (Claude Code)
+**Worked on:** P1-01 (partial — cities only; models/entry-types/reason-codes land with batteries/entries), frontend integration for the city picker and dealer bridging.
+**Done:**
+- `masters` module: `GET /masters` (public bundle — a not-yet-registered dealer needs the city list before they have any token, for d04's picker) and admin-managed `GET/POST/PATCH /masters/cities` (`masters.manage` permission; retire via `active:false`, never delete, per architecture.md convention).
+- Fixed a real ownership bug introduced in the dealers session: `findCityByName` existed in both `dealers.repository.ts` and the new `masters.repository.ts` — removed the duplicate from `dealers`, which now calls into `masters` (matches modules.md's single-writer rule: masters owns `cities`, dealers only reads it).
+- Fixed `co_admin`'s seeded permissions — `masters.*` was missing even though architecture.md says co_admin gets everything except `admins.manage`/`warranty.policy.manage`/`settings.manage`.
+- **Frontend**: `src/api/masters.ts` + a `useCities()` hook in `Access.tsx`. `d04`'s city picker now calls the real backend instead of the hardcoded local list. Closed the exact gap flagged at the end of the previous session: `d02`'s sign-in bridge now resolves the dealer's `cityId` to a real name via the fetched city list, instead of dropping the raw uuid into the local store's `city` field.
+- 6 new tests, 50 total passing. Verified against a booted server (bundle reachable, admin routes correctly 401 without a token) and confirmed the Expo web bundle still compiles with the new frontend code included.
+**Next:** `batteries`/`entries` — the actual replacement flow the team described (scan → warranty check → submit). This is the natural point to also add `battery_models`/`serial_rules` to the masters module, since entries needs them.
+
+---
+
+### 2026-09-16 · RBAC + dealers lifecycle (approve/reject/suspend/activate) (Claude Code)
+**Worked on:** P1-06 (rbac plugin, minimal), P1-08 (dealer lifecycle) — closing the gap flagged at the end of the previous session: dealers could register but nothing could approve them.
+**Done:**
+- `middleware/rbac.ts`: `getEffectivePermissions(userId, role)` (role's `templatePermissions` ∪ individual `user_permissions` grants — temporary home, moves to `users.service` once that module exists, same pattern as other cross-module gaps this project has hit) and `requirePermission(permission)`, a route preHandler. Supports exact match, `'*'` (main_admin), `'domain.*'`, and `'*.verb'` (read_only) — 5 pure unit tests.
+- `database/seed/masters.ts` now also seeds the 7 role templates from `architecture.md §7.3` (dealer_user, dealer_manager, main_admin, co_admin, operations, inventory_manager, read_only) — not yet a 100% exhaustive match to every permission string in that section, filled in as each module that owns those permissions gets built.
+- `dealers` module finished: `PATCH /dealers/me` (contact/email/address/place — the fields architecture.md marks editable, name/city/code stay locked), `GET /dealers` (cursor-paginated, admin), `GET /dealers/{id}` (admin), and the full lifecycle — `approve` (assigns the dealer code, checked for format and uniqueness, only from `pending_approval`/`rejected`), `reject` (`pending_approval` only), `suspend` (`active` only), `activate` (`suspended` only) — each enforcing the exact transition table in `architecture.md §9.9` and requiring its own permission (`dealers.approve` or `dealers.suspend`).
+- Closed part of the I-8 gap ("account status checked on every request") for the one case that matters most right now: `suspend` immediately revokes every session belonging to the dealer's users, so a suspended dealer's existing token stops working right away instead of silently working until it expires. The general per-request account-status check (the documented `accountStatus` plugin) still doesn't exist — noted, not hidden.
+- 21 new tests (16 dealers + 5 rbac), 44 total passing. Verified against a booted server: every lifecycle route correctly returns 401 with no/garbage token, and 422 on a malformed body — including confirming the auth guard itself fires (not just validation) by sending a garbage token with an otherwise-valid body.
+**Known gap, flagged not hidden:** role/permission seeding covers the 7 templates but isn't a byte-for-byte match to every permission string architecture.md lists per role — it'll need topping up as `entries`, `claims`, `stock`, etc. get built and start actually checking their own permissions.
+**Next:** `masters` module (closes the `city` id-vs-name gap flagged last session) or push into `batteries`/`entries` for the core replacement flow.
+
+---
+
+### 2026-09-16 · dealers module (register + me) + frontend integration (Claude Code)
+**Worked on:** P1-07 (partial) — `dealers` module scoped to registration and profile; first real wiring of `src/dealer/Access.tsx` to the live backend instead of the local demo store.
+**Done:**
+- `POST /dealers/register` (consumes `auth`'s `verifiedToken`, checked against the submitted mobile so a token can't be replayed for a different number; resolves city name → `cityId`; creates the dealer + its first `dealer_manager` user in one transaction) and `GET /dealers/me` (first protected route — needed `middleware/auth.ts`, a JWT-verification guard, built now since it's genuinely foundational, not dealers-specific).
+- Improved `auth.service.verifyOtp`: a pending/suspended/rejected dealer used to get one generic `dealer_suspended` error; now throws `dealer_not_active` with the real status in `details`, so the app can route a pending dealer straight to the "waiting for approval" screen instead of showing a dead end.
+- `database/seed/masters.ts` (the 4 demo cities, matching `src/seed.ts` exactly) and `database/seed/demo.ts` (Main Admin, Co-Admin, and the demo dealers FPP-014/NBH-007/Vidyut Power Centre from `memory.md §10`, fixed demo password `Password123` since a real backend needs one real hash, not "any password"). Guarded to refuse running in production.
+- 6 new unit tests (repository/token-verification mocked): rejects a `verifiedToken` issued for a different mobile, rejects an already-registered mobile, rejects an unknown city, creates the dealer correctly on a valid submission, and `/me` correctly requires a signed-in dealer.
+- **Frontend**: `src/api/{config,client,auth,dealers,session}.ts` — a fetch wrapper matching the backend's error envelope exactly, typed calls for every auth/dealers endpoint built so far, and a bridge layer (`dealerStatusLabel`) converting the backend's snake_case enums to the app's existing Title Case labels. Rewired `d02` (sign-in) and `d04` (registration) in `Access.tsx` to call these for real; `d03` (reset password) deliberately left on local-only logic for now (flagged with a comment) since it wasn't in this pass's scope.
+- Found and fixed a real, unrelated bug while typechecking the frontend: the root `tsconfig.json` had no `backend` exclusion, so it was silently trying to typecheck the backend's own independent TypeScript project (different module settings, different vitest globals) every time anyone ran the frontend's typecheck. Fixed by excluding `backend/`.
+- Verified against a booted server (not just typecheck): missing fields → 422 with details, a token signed for the wrong mobile → 401 before touching the database, `/dealers/me` with no/garbage bearer token → 401. Verified the Expo web bundle still compiles with the new `src/api/` code included. 29 backend tests + frontend typecheck all green throughout.
+**Known gap, flagged not hidden:** the bridged dealer object stores `cityId` (a uuid) in the local store's `city` field, which the rest of the app expects to be a city *name* — there's no way yet to resolve one from the other client-side, since `GET /masters` (which would hand the app the id→name bundle) doesn't exist yet. Harmless for now (nothing currently renders that field from a freshly-registered/signed-in dealer), but worth remembering before it causes a confusing display bug later.
+**Next:** `masters` module (would also resolve the city-name gap above) or continue deeper into `entries`/`batteries` for the core replacement flow — whichever the team prioritizes. Docker/Postgres still not available on the dev machine, so still no live end-to-end run; everything above is proven via unit tests + a booted server correctly failing at the DB boundary.
+
+---
+
+### 2026-09-16 · auth module — OTP, admin login, password reset (Claude Code)
+**Worked on:** P1-03/P1-05 (partial) — the `auth` module, scoped to exactly what `src/dealer/Access.tsx` (d02 sign-in, d03 reset, d04 register's verify-mobile step) and the admin `SignIn` component need.
+**Done:**
+- `POST /auth/otp/request`, `POST /auth/otp/verify`, `POST /auth/login`, `POST /auth/password/forgot`, `POST /auth/password/reset` — all public, all Zod-validated.
+- `utils/crypto.ts` (Argon2id via `@node-rs/argon2`, sha256, random tokens, numeric OTP codes), `modules/auth/auth.tokens.ts` (JWT access tokens via `jose`, opaque rotating refresh tokens, and a short-lived "verifiedToken" that lets `register`/`reset`/`verify_mobile` OTP checks hand off to a later step without re-entering the code).
+- `utils/context.ts` (the shared `Ctx` type every module will use) and `utils/audit.ts` (the sole writer of `audit_events`, per rules.md §6) — both foundational, not auth-specific, built now because auth is the first module that needed them.
+- Same-response-regardless-of-existence for OTP requests (architecture.md §7.2 — no phone-number/email enumeration); a DB-backed stand-in for the Redis rate limit (5 requests/15 min per target) and admin lockout (10 bad passwords/15 min), both clearly commented as temporary until `ratelimit.ts`/Redis are wired.
+- 10 new unit tests (repository and audit layers mocked — no real DB touched), covering: wrong OTP increments attempts, expired/exhausted challenges are rejected, a suspended dealer is blocked even with the right code, register-purpose challenges return a `verifiedToken` not tokens, and admin login never reveals whether the email exists.
+- Fixed two real bugs found while testing against a booted server (not just typecheck): `package.json`'s `db:migrate` script still pointed at the pre-rename `src/db/migrate.ts` path; the error handler didn't recognize Fastify's own schema-validation failures (a plain `Error` with a `.validation` array, not a `ZodError` instance) and was reporting them as 500s instead of 422s with field paths. Both fixed and verified against a live-booted server.
+**Decisions:** Dealer registration itself (creating the `dealers` row) is deliberately left to the next module (`dealers`) — `auth` only proves mobile ownership and hands back a `verifiedToken`. `/auth/refresh`, `/auth/logout`, `/auth/sessions`, `/auth/password/change` deferred — none of the two referenced screens need them yet; natural next increment within this same module.
+**Next:** `dealers` module (registration using the `verifiedToken` from `auth`, approval lifecycle, profile) — once Docker is available, this is also the point to actually apply the migrations and test the whole flow against a real Postgres instead of unit-test mocks.
+
+---
+
 ### 2026-09-16 · Folder restructure + identity schema (Claude Code)
 **Worked on:** module folder convention (team preference), P1-02 schema (dealers, users, roles, user_permissions, sessions, otp_challenges, login_attempts) + a minimal `cities` master.
 **Done:**

@@ -1,1 +1,1 @@
-{"extends":"expo/tsconfig.base","compilerOptions":{"strict":true,"noEmit":true},"exclude":["node_modules","dist"]}
+{"extends":"expo/tsconfig.base","compilerOptions":{"strict":true,"noEmit":true},"exclude":["node_modules","dist","backend"]}
