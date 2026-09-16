@@ -1,6 +1,6 @@
 # Felix BMS — Project Memory
 
-Last updated: 14 September 2026 · Owner: 4AM Global Media (Vaibhav Pasi, Co-Founder) · Client: Felix Batteries Industries, Nashik
+Last updated: 16 September 2026 · Owner: 4AM Global Media (Vaibhav Pasi, Co-Founder) · Client: Felix Batteries Industries, Nashik
 
 This file is the **long-term memory** of the project: the facts, decisions, identifiers and credentials that every developer and every AI assistant must have in mind before touching code. It is short on purpose. Read it fully at the start of each session (`rules.md §1`). If something here is wrong, fix it here first — the code follows this file, not the other way round.
 
@@ -14,18 +14,31 @@ Two surfaces, one Expo (React Native) codebase, one backend:
 
 * **Dealer app** — phone-first, also installable on the web. Design approved by the client as `C:\Users\shoai\Downloads\Felix-Dealer-App-Only.html` (screens d01–d37). The app matches it screen for screen.
 * **Head-office console** — desktop sidebar layout, phone bottom tabs. Rebuilt on 14 Sep 2026 in the same design language; every function of the earlier admin workspace kept.
-* **Backend** — Node/TypeScript API + worker, PostgreSQL, Redis, S3-compatible storage. Design: `backend/architecture.md`. Not yet built (planning completed 14 Sep 2026).
+* **Backend** — Node/TypeScript API + worker, PostgreSQL, Redis, Cloudinary (evidence/PDF storage — see D-10 update below, superseding the original S3-compatible plan). Design: `backend/architecture.md`. Skeleton scaffolded 15 Sep 2026 (see `logs.md`); business modules not yet built.
 
-## 2. Current state (14 Sep 2026)
+## 1a. V1 scope — battery replacement only (decided with the team, 16 Sep 2026)
+
+The client's team has scoped the first shippable version down to **one flow**: a dealer replaces a battery under warranty, sends the old one back, and eventually gets credited. Everything else in `modules.md`'s 24-module plan (customers, corrections, sync, search, reports, imports, notification channels beyond in-app, admin governance beyond basic roles) is explicitly **deferred past V1** unless it blocks this flow. V1 module set: `auth`, `dealers`, `users`, `masters` (models + serial rules only), `batteries`, `warranty` (simplified — see D-03), `entries`, `stock`, `claims`, `returns` (challans), `credits`, `audit` (kept from day one — it's cheap and every invariant test depends on it).
+
+V1 flow (statuses are existing enum values from `architecture.md §8.3`, not new ones):
+
+1. Dealer scans the old battery's code at the counter (camera) → app extracts `mfgMonth` (first 4 digits, `YYMM`) and `serialNo` (last 4 digits) → server checks warranty (see D-03) → blocks the flow if expired.
+2. Dealer submits the replacement: old battery code + new battery code + customer → `entries` (status `submitted`); new battery → `sold`/`replacement`; old battery → `returned`, custody `dealer`; a `warranty_claims` row is created (`raised`).
+3. Dealer raises a pickup request for the old battery → `challans` created, status `in_transit`.
+4. Company vehicle collects it; on arrival, head office marks the challan `received` → old battery custody → `company`; claim status → `received`.
+5. An engineer inspects the battery (`POST /claims/{id}/check`): records the finding and disposition. If the fault disqualifies the claim, status → `refused` ("rejected" in the team's words). Otherwise status stays `checked` ("in review"/"verification") awaiting a second person's sign-off.
+6. A second person decides (`POST /claims/{id}/decide`): `approved` issues a `credit_notes` row (the "claim refund") the dealer can see; `refused` records a reason. (Whether "engineer" and "decider" must be different people, or can be the same role for V1, is a permissions-config choice, not a schema one — default for now: same `claims.decide` permission can do both steps.)
+
+## 2. Current state (16 Sep 2026)
 
 | Area | State |
 |---|---|
 | Dealer app UI | Complete against the client HTML; works in a browser; camera/GPS/signature untested on real phones |
 | Admin UI | Complete; desktop + phone layouts; tested in a browser |
-| Shared rules | `src/domain.ts` (validation, warranty maths, chain resolution, approval effects) with 8 passing tests in `tests/domain.test.ts` |
+| Shared rules | `src/domain.ts` (validation, warranty maths, chain resolution, approval effects) with 8 passing tests in `tests/domain.test.ts`; not yet moved into a shared `packages/domain` package (planned P0-03/P0-08, deliberately deferred so the working demo app isn't touched mid-refactor) |
 | Data | Local demo store (`src/store.tsx` + `src/seed.ts` in AsyncStorage); no server |
-| Backend | Planning documents only (`backend/*.md`) |
-| Repo | **Not a git repository yet.** First backend task after reading this: `git init`, commit the current tree, add `.gitignore` entries for `node_modules`, `.expo`, `dist`, `tmp/*.png`, `.env` |
+| Backend | `backend/` scaffolded (Fastify skeleton, env config, error handling, health/ready routes, Drizzle + first migration for `counters`/`settings`/`audit_events`) but unverified end-to-end — local Postgres/Docker not yet installed on the dev machine. No business modules (auth, entries, claims, etc.) built yet. |
+| Repo | Git-initialized, remote at `github.com/shoaibkmca2025/Flix-baterry`. |
 | Old admin code | Kept unrendered in `src/legacy/Workspace.tsx` and the older `src/*.tsx` screens; delete only after client sign-off of the new admin |
 
 ## 3. Where things are
@@ -122,7 +135,7 @@ Status: **closed** (agreed with the client in writing) · **assumed** (our defau
 |---|---|---|---|---|
 | D-01 | Submission grain | One entry, many items; single item is the default state; export one row per item | assumed (PRD §9 already specifies this) | — |
 | D-02 | Entry-type catalogue and required fields | PRD §9.1 table as seeded master data; dealers see Replacement + Sales Return; admins see all | assumed | P2 |
-| D-03 | Warranty anchor and term | Original **sale date**, 24 months, expiry = anniversary − 1 day | assumed (matches the PRD worked example and the client HTML) | P3-01 |
+| D-03 | Warranty anchor and term | Original **sale date**, 24 months, expiry = anniversary − 1 day, **inherited unchanged across replacements** (chain never restarts) | assumed (matches the PRD worked example and the client HTML) — **but for V1 scope (2026-09-16) the team asked to build the simpler stateless rule instead: each battery's own warranty = its own serial's manufacture date (`YYMM` prefix) + 24 months, recalculated fresh on every replacement, no chain table.** Team has not yet confirmed which is the real long-term rule — **open**, needs a decision before V2 (multi-replacement chains) is built, since retrofitting chain-based inheritance after batteries already carry independent warranty dates is a real migration, not a toggle. | P3-01 (V1: `warranty.expiryFrom()` isolated as a pure function so the anchor can change later without touching callers) |
 | D-04 | Serial format per family; duplicate override | Default `^\d{8}$` for all families, short serial = last 4, mfg from `YYMM`; duplicates **blocked** (no exception queue) unless the client asks | assumed | P2-07 |
 | D-05 | Approval workflow | Dealer entries enter `submitted`; admins approve; the customer already has the battery. Claim decided after inspection (`claim_decision_mode = after_inspection`); the current admin UI approves in one step — a settings toggle keeps both possible | assumed | P3-05 |
 | D-06 | Customer data policy | Customer module ships in P5-02; until then: name + mobile captured with dealer consent flag, retention 5 years after the last entry, contact fields hidden from `read_only` and from dealer exports | **open** — client must confirm before P5-02 | P5-02 |

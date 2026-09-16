@@ -69,16 +69,19 @@ flowchart TD
 
 ## 2. Conventions every module follows
 
+**Naming update (16 Sep 2026):** each module's files are prefixed with the module name (`auth.routes.ts`, not bare `routes.ts`) and a `controller.ts` sits between `routes.ts` and `service.ts`, per the team's preferred layered style. `repo.ts` → `<name>.repository.ts`, `schemas.ts` → `<name>.validation.ts`. Everything else below (the `Ctx` shape, the transaction/audit/outbox rule, the layering/dependency rules in §1) is unchanged.
+
 ```
 modules/<name>/
-  routes.ts      Fastify routes only: parse → service → reply. Declares { permission } per route. No SQL, no rules.
-  service.ts     Use-cases. Public functions come in pairs:
-                   fn(ctx, input)              opens withTransaction() itself (used by routes, jobs)
-                   fnInTx(tx, ctx, input)      composable version for other services (same transaction)
-  repo.ts        SQL via drizzle. Every dealer-owned query takes ctx and applies dealer scope. Named columns only.
-  schemas.ts     Zod for params/query/body/response; imports shared payload schemas from @felix/domain.
-  *.test.ts      Unit (service with fake repo) + integration (real Postgres) tests for this module.
-  index.ts       export { register } — registers routes on the app with prefix '/api/v1'.
+  <name>.routes.ts       Fastify route registration only: wires an HTTP path+method to a controller function. No parsing, no SQL, no rules. Declares { permission } per route.
+  <name>.controller.ts   Parses the request (already Zod-validated by the route schema), calls the service, shapes the reply. Still thin — no business rules, no SQL.
+  <name>.service.ts      Use-cases — the only place business rules run. Public functions come in pairs:
+                            fn(ctx, input)              opens withTransaction() itself (used by routes, jobs)
+                            fnInTx(tx, ctx, input)      composable version for other services (same transaction)
+  <name>.repository.ts   SQL via drizzle. Every dealer-owned query takes ctx and applies dealer scope. Named columns only.
+  <name>.validation.ts   Zod for params/query/body/response; imports shared payload schemas from @felix/domain.
+  <name>.test.ts          Unit (service with fake repository) + integration (real Postgres) tests for this module.
+  index.ts                export { register } — registers routes on the app with prefix '/api/v1'.
 ```
 
 `ctx` is the same object everywhere:

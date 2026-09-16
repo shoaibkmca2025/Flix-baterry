@@ -19,6 +19,52 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-15 · P0 · foundation scaffold (Claude Code)
+**Worked on:** P0-04 (backend skeleton, partial), P0-05 (drizzle + first migration, partial), P0-09 (local setup runbook).
+**Done:**
+- `backend/package.json` + `tsconfig.json`: standalone Node/TypeScript project (Fastify 5, Zod, Drizzle ORM + drizzle-kit, pg, pino). Deliberately **not** yet wired into a pnpm workspace with the Expo app (P0-03/P0-08 — moving `src/domain.ts` into `packages/domain`) to avoid touching the app's already-working, already-demoed setup in the same pass. That move is the next foundation step, done separately with the app's tests as the safety net.
+- `backend/src/config/env.ts`: Zod-validated env, fails fast on a missing/invalid var.
+- `backend/src/lib/logger.ts` (pino + redaction list per `rules.md §7`/`logs.md Part B.1`), `backend/src/lib/errors.ts` (`AppError`, the only throwable error type per `rules.md §5`).
+- `backend/src/app.ts` (`buildApp()`), `backend/src/server.ts`, `backend/src/plugins/errorHandler.ts` (maps `AppError`/`ZodError`/unknown → the `architecture.md §6.1` envelope), `backend/src/modules/health/routes.ts` (`GET /api/v1/health`, `GET /api/v1/ready`).
+- `backend/src/db/client.ts` (pg Pool + drizzle + `withTransaction`), `backend/src/db/schema/governance.ts` (`counters`, `settings`, `audit_events` per `architecture.md §8.3`), `backend/src/db/migrate.ts` (migration runner).
+- First migration generated (`drizzle-kit generate`) and hand-edited to add the three Postgres extensions (`pgcrypto`, `pg_trgm`, `citext`) and the `forbid_change()` trigger function + trigger on `audit_events`, per `architecture.md §8.4`. **Not yet applied to a real database** — see blocker below.
+- `backend/docker-compose.yml` (Postgres 16 + Redis 7 — MinIO dropped from the original plan since evidence storage will be Cloudinary, not self-hosted S3; see `memory.md §9 D-10` follow-up needed), `.env.example`, `runbooks/local-setup.md`.
+- Verified locally: `tsc --noEmit` clean, `npm run dev` boots, `GET /health` → 200, `GET /ready` → 503 with `{database:false}` (correct — no DB running yet).
+**Decisions:** Evidence/object storage will be Cloudinary (signed direct upload, `type:authenticated` delivery), not the originally planned S3-compatible bucket — updates the still-open D-10 in `memory.md`, partially. SMS/email/hosting provider parts of D-10 remain open. Local dev + first shared-schema handoff to the other developer will be via committed migration files + each person running their own `docker compose up`, not a shared hosted database (matches the "developer only needs to see table structure, not data" requirement).
+**Blockers / decisions needed:**
+- Neither Docker nor a local Postgres is installed on this machine. Docker Desktop needs WSL2, which also isn't installed — both require admin rights + a restart, so this is a manual step for the developer (exact commands in `runbooks/local-setup.md`). Until then, `npm run db:migrate` is written but unverified against a live database, and `/ready` will keep reporting `database:false`.
+- `memory.md §9 D-10` needs updating once Cloudinary is confirmed as final (currently only decided in conversation, not yet written back into `memory.md`).
+**Next:** once Docker is confirmed running — `docker compose up -d` + `npm run db:migrate`, verify `/ready` goes green and the `forbid_change()` trigger actually rejects an `UPDATE`/`DELETE` on `audit_events`. Then P0-03/P0-08 (pnpm workspace, move `src/domain.ts` → `packages/domain`), then P1-01/P1-02 schema (masters + identity tables).
+
+---
+
+### 2026-09-16 · Folder restructure + identity schema (Claude Code)
+**Worked on:** module folder convention (team preference), P1-02 schema (dealers, users, roles, user_permissions, sessions, otp_challenges, login_attempts) + a minimal `cities` master.
+**Done:**
+- Restructured `backend/src`: `db/schema` → `models/` (Drizzle table defs, `<group>.model.ts`), `db/{client,migrate,migrations}` → `database/`, `plugins/` → `middleware/`, `lib/` → `utils/`. `modules.md §2` and `architecture.md §4` updated to match.
+- Module file convention finalized: `<name>.routes.ts` → `<name>.controller.ts` → `<name>.service.ts` → `<name>.repository.ts` → `<name>.validation.ts`, one folder per module under `modules/`. Documented in `modules.md §2`.
+- Confirmed with the team: full permission system (`roles` + `user_permissions`, grantor-bounded), not a simplified role enum — built as originally documented in `architecture.md §7.3`/`§8.3`, not trimmed for V1.
+- `src/models/masters.model.ts` (`cities` only — the rest of masters lands with the batteries/entries modules) and `src/models/identity.model.ts` (`dealers`, `users`, `roles`, `user_permissions`, `sessions`, `otp_challenges`, `login_attempts`) — 11 tables total now, migration `0001_identity.sql` generated and hand-verified.
+- Fixed a real drizzle-kit limitation: its CLI can't resolve cross-file relative imports written with an explicit `.js` extension (Node's ESM/NodeNext convention) — it uses a plain CJS `require()` internally that only understands extensionless or bundler-style resolution. Switched `tsconfig.json` to `module: ESNext` / `moduleResolution: Bundler` and stripped `.js` from every relative import project-wide. tsx and Vitest are unaffected (both resolve extensionless TS imports natively); this only matters again once a real `tsc` production build is set up (Phase 4), not before.
+- Caught and fixed two schema authoring mistakes before they reached a real database: the `users` CHECK constraint (`scope='dealer' = (dealer_id is not null)`) was written with the wrong Drizzle API shape and silently generated nothing — fixed with the real `check()` helper; `user_permissions`'s `uq(user_id, permission)` was built with `index()` instead of `uniqueIndex()`, which would have allowed duplicate grants — fixed. Migration regenerated clean (safe to do — nothing had been applied to a real database yet, so no forward-only concern).
+- All 12 domain tests still green, full typecheck clean, server still boots and responds correctly after every change in this session.
+**Next:** build the `auth` module itself (OTP request/verify with a console SMS adapter for now, JWT access + rotating refresh sessions, admin email+password+2FA) — the first module with actual business logic, once Docker is available to test against a real database.
+
+---
+
+### 2026-09-16 · V1 scope + first domain logic (Claude Code)
+**Worked on:** V1 scope confirmation with the team (battery-replacement-only), `memory.md` update (D-03 flagged open, new "V1 scope" section), first pure domain functions (`deriveCode`, `checkWarranty`).
+**Done:**
+- Confirmed with the team: V1 is the replacement→claim→credit flow only. Full module list and the exact status flow written into `memory.md §1a`.
+- `memory.md` D-03 (warranty anchor) marked **open**: V1 uses a stateless "battery's own manufacture month + 24 months" rule instead of the documented sale-date-anchored, chain-inherited rule. Team has not yet confirmed which is the permanent design — flagged for a decision before any V2 work that needs warranty to survive multiple replacements.
+- `backend/src/domain/serials.ts` (`normalise`, `deriveCode`) and `backend/src/domain/warranty.ts` (`expiryFrom`, `checkWarranty`) — pure functions, no DB, ported from `src/domain.ts`'s existing `deriveCode`/`expiryFrom`/`warranty` so the app's demo logic and the backend agree. `checkWarranty` isolates the V1 rule in one function specifically so switching to chain-based inheritance later doesn't ripple into callers.
+- 12 Vitest tests, all passing, including the exact `expiryFrom` edge cases already proven for the frontend (10 Jan 2026 +24mo, 29 Feb 2024 +12mo, 31 Jan 2026 +1mo) and the team's own example (`26041212` → mfg `2026-04`, serial `1212`).
+- These files live at `backend/src/domain/` for now, not `packages/domain/`, since the pnpm workspace move (P0-03/P0-08) is still deferred — they'll relocate there without changing behaviour once that move happens.
+**Blockers / decisions needed:** same as previous entry (Docker/WSL install still pending on the dev machine); D-03 warranty-anchor decision still open.
+**Next:** once Docker is confirmed working, apply the P0-05 migration for real; then build the V1 module set in order — `auth` → `dealers`/`users` → `masters` (models + serial rules) → `batteries` → `entries` → `stock` → `claims`/`returns` → `credits`.
+
+---
+
 ### 2026-09-14 · P0 · planning (Claude Code with Vaibhav)
 **Worked on:** backend plan — `architecture.md`, `modules.md`, `phases.md`, `rules.md`, `memory.md`, `logs.md`.
 **Done:**

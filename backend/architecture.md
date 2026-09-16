@@ -135,12 +135,13 @@ Flix baterry/
       worker.ts                      # boots BullMQ workers + schedules
       app.ts                         # buildApp(): registers plugins + modules (used by tests)
       config/env.ts                  # typed env (Zod), fails fast on missing keys
-      db/
+      database/                      # renamed from db/ (16 Sep 2026)
         client.ts                    # pg Pool + drizzle, withTransaction()
-        schema/*.ts                  # one file per table group
+        migrate.ts                   # migration runner
         migrations/                  # drizzle-kit SQL, forward-only
         seed/                        # masters, first Main Admin, demo data (dev only)
-      lib/
+      models/                        # renamed from db/schema/ (16 Sep 2026) — one file per table group, `<group>.model.ts`
+      utils/                         # renamed from lib/ (16 Sep 2026)
         errors.ts                    # AppError(code, status, message, field?, nextAction?)
         ids.ts                       # uuidv7(), nextRef(kind, tx)
         crypto.ts                    # argon2, sha256, random tokens, OTP
@@ -151,7 +152,7 @@ Flix baterry/
         pagination.ts                # cursor helpers
         logger.ts                    # pino with redaction
         ratelimit.ts                 # Redis token buckets
-      plugins/
+      middleware/                    # renamed from plugins/ (16 Sep 2026)
         requestId.ts auth.ts accountStatus.ts rbac.ts dealerScope.ts
         zod.ts openapi.ts errorHandler.ts etag.ts idempotency.ts
       modules/                       # one folder per module — ownership and dependencies in modules.md
@@ -159,11 +160,12 @@ Flix baterry/
         batteries/ warranty/ stock/ evidence/ customers/
         entries/ approvals/ (exception queue lives here) corrections/ claims/ credits/ returns/
         sync/ search/ reports/ (analytics lives here) imports/ notifications/
-          routes.ts   # Fastify routes (thin)
-          service.ts  # use-cases; every write = one transaction
-          repo.ts     # SQL via drizzle; dealer scope enforced here
-          schemas.ts  # Zod I/O (imports shared schemas where possible)
-          *.test.ts
+          <name>.routes.ts       # Fastify route registration (thin) — see modules.md §2 (updated 16 Sep 2026)
+          <name>.controller.ts   # parses request, calls service, shapes reply (thin)
+          <name>.service.ts      # use-cases; every write = one transaction
+          <name>.repository.ts   # SQL via drizzle; dealer scope enforced here
+          <name>.validation.ts   # Zod I/O (imports shared schemas where possible)
+          <name>.test.ts
       jobs/
         exports.ts scheduledReports.ts notificationsDispatch.ts
         warrantyExpiring.ts lowStock.ts syncReconcile.ts retention.ts evidenceScan.ts
