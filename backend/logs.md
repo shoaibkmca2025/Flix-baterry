@@ -38,6 +38,20 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-17 · batteries module — the actual scan-and-check-warranty step (Claude Code)
+**Worked on:** P2-01/P2-13 (trimmed) — `batteries` module, the first module that wires the already-built pure domain logic (`domain/serials.ts`, `domain/warranty.ts`) into a real endpoint.
+**Done:**
+- `masters` extended with `battery_models` (M3/M5/M7/B5/S5/I700, matching the demo credit-rate names in `memory.md` D-08) — needed as a FK target before `batteries` could exist.
+- `batteries` table — trimmed for V1 per the plan: no `location_id`/`customer_id` (their modules don't exist yet), no `chain_id`/`replaced_from_id`/`replaced_by_id` (V1's warranty rule is stateless per D-03, computed live off the battery's own serial rather than tracked through a chain).
+- `GET /batteries/lookup?code=` — the actual "dealer scans a battery" step: parses the code, checks if it's already in the system, and returns a live warranty check either way (a not-yet-seen code still gets a real warranty preview, computed off its own manufacture-date prefix). Never reveals *which* other dealer holds a battery to a dealer caller (I-3) — an admin caller additionally gets the real `dealerId`.
+- `GET /batteries` — dealer-scoped list (cursor-paginated, same shape as `dealers`' list).
+- 10 new tests (own-dealer vs other-dealer masking, admin visibility, expired vs in-warranty, malformed code rejected before the database is touched), 61 total passing.
+- **Verified against the live Neon database with the team's own example**: `26041212` → `mfgMonth: "2026-04"`, in warranty, 561 days remaining. An old code (`21040097`) correctly came back expired (`daysRemaining: -1266`). Both exactly matched the manual calculation from when this rule was first specified.
+**Known gap, flagged not hidden:** there's still no way to actually *create* a battery record — by design, batteries get created when an entry is approved (architecture.md §9.4), and `entries` doesn't exist yet. `GET /batteries` is correctly empty right now, not broken.
+**Next:** `entries` — the actual replacement submission (old battery + new battery + customer → one entry), which is what will finally populate the `batteries` table for real.
+
+---
+
 ### 2026-09-17 · first live database — Neon connected, real end-to-end verification (Claude Code)
 **Worked on:** unblocking the "no Docker" limitation that every prior session's testing was constrained by.
 **Done:**

@@ -9,6 +9,7 @@ import { registerHealthRoutes } from './modules/health/health.routes';
 import { registerAuthRoutes } from './modules/auth/auth.routes';
 import { registerDealerRoutes } from './modules/dealers/dealers.routes';
 import { registerMastersRoutes } from './modules/masters/masters.routes';
+import { registerBatteryRoutes } from './modules/batteries/batteries.routes';
 
 // architecture.md §4 — buildApp() registers plugins + modules; used by both server.ts and tests (Fastify `inject`).
 export async function buildApp(): Promise<FastifyInstance> {
@@ -28,6 +29,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(registerAuthRoutes, { prefix: '/api/v1/auth' });
   await app.register(registerDealerRoutes, { prefix: '/api/v1/dealers' });
   await app.register(registerMastersRoutes, { prefix: '/api/v1/masters' });
+  await app.register(registerBatteryRoutes, { prefix: '/api/v1/batteries' });
 
   return app;
 }

@@ -15,6 +15,13 @@
       "when": 1789553905951,
       "tag": "0001_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789643431659,
+      "tag": "0002_batteries",
+      "breakpoints": true
     }
   ]
 }

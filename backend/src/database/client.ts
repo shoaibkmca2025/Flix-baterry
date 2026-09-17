@@ -4,8 +4,9 @@ import { env } from '../config/env';
 import * as governance from '../models/governance.model';
 import * as masters from '../models/masters.model';
 import * as identity from '../models/identity.model';
+import * as batteriesModel from '../models/batteries.model';
 
-const schema = { ...governance, ...masters, ...identity };
+const schema = { ...governance, ...masters, ...identity, ...batteriesModel };
 
 export const pool = new Pool({
   connectionString: env.DATABASE_URL,
