@@ -38,6 +38,20 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-17 · warranty-chain inheritance — D-03 closed, built, verified live (Claude Code)
+**Worked on:** P3-01/P3-02 (pulled forward) — the client confirmed the real warranty rule, superseding the V1 stateless placeholder from the day before.
+**Decision closed:** memory.md D-03 — a replacement battery keeps the *original* battery's warranty date, traced back through however many replacements happened, never its own manufacture date. In the client's own words: check the OLD battery's warranty, not the replacement's.
+**Done:**
+- `warranty_chains` (warrantyStart/warrantyExpiry fixed at the chain's creation, termMonths, replacementCount) and `replacement_links` (append-only — old→new battery id pairs, the "table named replaced battery" the client asked for) — both live in `models/warranty.model.ts` together, specifically to avoid a circular import with `batteries.model.ts` (chains need a real FK to batteries; batteries' `chainId`/`replacedFromId`/`replacedById` are plain uuid columns instead, enforced at the application layer — documented inline).
+- `batteries.lookup` now prefers chain-based cover over the mfg-month rule whenever a battery has a `chainId` — the mfg-month shortcut only still applies to a battery that's never been sold/replaced through the system.
+- Two temporary endpoints, `POST /batteries/sell` and `POST /batteries/replace` — explicitly labeled stand-ins for what `entries.create`'s regular-sale and replacement effects will eventually do, gated by the `entries.create` permission it will actually require. The chain data model itself is the real, permanent one; only the "how a sale/replacement gets recorded" path is a placeholder that `entries` will replace outright.
+- 8 new tests, including the exact scenario end to end: sell → replace once → replace again, asserting the chain's dates never change; plus already-replaced, custody-conflict, and expired-chain rejections. 69 tests total.
+- **Verified live against Neon with real dates**: sold 2026-01-15 → chain expires 2028-01-14. Replaced in March, then replaced *that* battery again in June — both times the chain's dates stayed exactly 2026-01-15/2028-01-14, confirmed via the actual API response, not just the test suite. Attempting a third replacement in 2029 was correctly blocked with `warranty_expired`, citing the *original* January dates even though the battery being checked was manufactured in June.
+- **Found and fixed a real, separate bug along the way**: `database/client.ts`'s Postgres pool had no `.on('error', ...)` handler. Neon aggressively drops idle connections, and node-postgres emits that as an unhandled error event on the Pool — with nothing listening, Node treated it as an uncaught exception and killed the *entire server process*, not just the one affected request. This would have caused random full outages in any long-running deployment, not just against Neon. Fixed per node-postgres's own documented pattern; confirmed the server no longer crashes.
+**Next:** `entries` — the real replacement-submission module, which is what will eventually replace `/batteries/sell` and `/batteries/replace` with the full validation pipeline, evidence capture, and approval workflow.
+
+---
+
 ### 2026-09-17 · batteries module — the actual scan-and-check-warranty step (Claude Code)
 **Worked on:** P2-01/P2-13 (trimmed) — `batteries` module, the first module that wires the already-built pure domain logic (`domain/serials.ts`, `domain/warranty.ts`) into a real endpoint.
 **Done:**
