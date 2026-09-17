@@ -1,10 +1,5 @@
 import { z } from 'zod';
 
-export const ClaimCreateBody = z.object({
-  newBatteryCode: z.string().trim().min(1, 'Enter the new battery code.'),
-});
-export type ClaimCreateBody = z.infer<typeof ClaimCreateBody>;
-
 const reason = z.string().trim().min(5, 'Give a short reason (at least 5 characters).');
 
 export const ClaimCheckBody = z.object({

@@ -1,10 +1,9 @@
 import { db, withTransaction } from '../../database/client';
-import { normalise } from '../../domain/serials';
 import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
 import { monthKey, nextFormattedRef } from '../../utils/ids';
-import { findBatteryByCode, findBatteryById } from '../batteries/batteries.repository';
+import { findBatteryById } from '../batteries/batteries.repository';
 import type { claimStatus } from '../../models/claims.model';
 import * as repo from './claims.repository';
 import type { ClaimCheckBody, ClaimDecideBody, ClaimListQuery } from './claims.validation';
@@ -19,36 +18,6 @@ const DEFAULT_CREDIT_RATE = 3000;
 function requireUser(ctx: Ctx) {
   if (!ctx.user) throw new AppError('unauthenticated', 401, 'Sign in required.');
   return ctx.user;
-}
-
-// Temporary stand-in for what the real approval transaction does automatically
-// (architecture.md §9.4 step 3: "if effect.warranty = continues_chain: claim = ...").
-// Reads batteries.repository directly (a read, not a write — same pattern already used
-// elsewhere, e.g. dealers.service reading masters.repository) rather than batteries.service's
-// `lookup`, which returns a custody-redacted view unsuitable for this module's internal use.
-export async function createFromReplacement(ctx: Ctx, newBatteryCode: string) {
-  const user = requireUser(ctx);
-  const battery = await findBatteryByCode(db, normalise(newBatteryCode));
-  if (!battery || !battery.chainId || !battery.replacedFromId) {
-    throw new AppError('not_a_replacement', 422, 'This battery code is not a recorded replacement.', { field: 'newBatteryCode' });
-  }
-  const existing = await repo.findClaimByNewBatteryId(db, battery.id);
-  if (existing) {
-    throw new AppError('claim_already_exists', 409, 'A claim already exists for this replacement.', { field: 'newBatteryCode' });
-  }
-
-  return withTransaction(async (tx) => {
-    const ref = await nextFormattedRef(tx, 'CLM', 'claim', monthKey(ctx.now()));
-    const claim = await repo.insertClaim(tx, {
-      ref,
-      dealerId: battery.dealerId ?? user.dealerId!,
-      chainId: battery.chainId!,
-      oldBatteryId: battery.replacedFromId!,
-      newBatteryId: battery.id,
-    });
-    await audit(tx, { ctx, action: 'claim.raised', entityType: 'claim', entityId: claim.id, entityRef: claim.ref, outcome: 'ok' });
-    return claim;
-  });
 }
 
 async function loadClaimForTransition(id: string, expected: ClaimStatus) {

@@ -38,6 +38,23 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-17 · entries module — the real submission-and-approval module, three stand-ins retired (Claude Code)
+**Worked on:** P3-06/P3-07 — `entries`, the permanent replacement for the three temporary endpoints (`POST /batteries/sell`, `POST /batteries/replace`, `POST /claims`) that stood in for it since the batteries and claims modules were first built.
+**Done:**
+- `entries` + `entry_items` tables (`models/entries.model.ts`). `entryType` is a 3-value enum — `replacement`, `sales_return` (the two a dealer actually submits, per D-02), plus `regular_sales` added specifically because *something* has to open a battery's very first warranty chain now that `/batteries/sell` is gone.
+- Hit a real migration-ordering mistake mid-build: generated and applied a 2-value version of the `entryType` enum to live Neon before realising `regular_sales` was needed. Had to manually drop the tables/enum types and the migration's tracking row, then regenerate and reapply cleanly — a good reminder to fully settle an enum's value set before it ever touches a shared database.
+- `entries.service.ts`: `create()` validates every item's code format and rejects in-entry duplicate codes before opening a transaction (same "errors first" shape as the rest of the codebase), then inserts the entry and all its items in one transaction. `approve()` is now the **single writer** for what used to be three separate write paths — it dispatches each item to `approveReplacementItem` / `approveRegularSaleItem` / `approveSalesReturnItem` based on `entryType`, all inside one transaction:
+  - *replacement* — re-runs the full D-03 chain check (old battery on record, right dealer, not already replaced, chain not expired as of the entry date), creates the new battery on the **same chain**, links old→new, and raises a claim directly (`claimsRepo.insertClaim`) — no more separate `POST /claims` call needed.
+  - *regular_sales* — creates the battery and a **brand-new** chain anchored to the entry date (this is now the only way a chain gets created).
+  - *sales_return* — marks the battery `returned`/`custodian: dealer`. Caught and fixed a real bug here before it shipped: an early version reused `updateBatteryAfterReplacement(tx, id, id)`, which sets `replacedById` — passing a battery's own id as "the battery that replaced it" is nonsense. Added a dedicated `updateBatteryToReturned()` that only touches state/custodian.
+- Removed `POST /batteries/sell`, `POST /batteries/replace` (routes/controller/service/validation in the `batteries` module) and `POST /claims` (`createFromReplacement` in the `claims` module, plus the now-unused `claims.repository.findClaimByNewBatteryId`). Cleaned up both modules' test files to match — 91 tests total now (down from more, since the removed endpoints' tests went with them, but +20 new `entries.service.test.ts` tests more than cover the same ground plus the three-way dispatch logic).
+- Registered `registerEntryRoutes` in `app.ts` under `/api/v1/entries` (previously built but not wired in).
+- **Verified live end to end against Neon**, all three entry types in one continuous story: submitted+approved a `regular_sales` entry for a fresh battery (Jan 15 2026, new chain, expiry Jan 14 2028) → submitted+approved a `replacement` entry against it two months later (new battery landed on the *same* chain id, claim `CLM-26-09-0002` raised referencing both battery ids, `batteries.lookup` on the new battery correctly showed the January dates, not March) → submitted+approved a `sales_return` on that same replacement battery (state → `returned`, `replacedById` correctly left untouched).
+**Decisions:** `entries.service.ts` reads/writes `batteries.repository` and `claims.repository` directly rather than through their service layers — the same pragmatic cross-module pattern already used elsewhere (e.g. `dealers.service` reading `masters.repository`), since those modules don't expose service-level functions shaped for this internal orchestration use.
+**Next:** wire the actual dealer app UI (`src/dealer/Capture.tsx`, screens d10–d17) to these endpoints — this was the original ask that led to building `entries` in the first place ("build entries now, wire the full UI once"). After that: `reports`/`dashboards` modules, or whichever the client prioritises next.
+
+---
+
 ### 2026-09-17 · claims module — the full decision-and-credit workflow (Claude Code)
 **Worked on:** P3-05 (trimmed) — `claims`, completing the flow the team described at the very start of V1 scoping: old battery goes back → engineer checks it → someone decides → dealer gets credited.
 **Done:**

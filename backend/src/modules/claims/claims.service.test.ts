@@ -8,7 +8,6 @@ vi.mock('../../database/client', () => ({
 vi.mock('../../utils/audit', () => ({ audit: vi.fn() }));
 
 vi.mock('../batteries/batteries.repository', () => ({
-  findBatteryByCode: vi.fn(),
   findBatteryById: vi.fn(),
 }));
 
@@ -19,7 +18,6 @@ vi.mock('../../utils/ids', () => ({
 
 vi.mock('./claims.repository', () => ({
   findClaimById: vi.fn(),
-  findClaimByNewBatteryId: vi.fn(),
   insertClaim: vi.fn(),
   updateClaimStatus: vi.fn(),
   updateClaimCheck: vi.fn(),
@@ -28,9 +26,9 @@ vi.mock('./claims.repository', () => ({
   listClaims: vi.fn(),
 }));
 
-import { findBatteryByCode, findBatteryById } from '../batteries/batteries.repository';
+import { findBatteryById } from '../batteries/batteries.repository';
 import * as repo from './claims.repository';
-import { check, createFromReplacement, decide, dispatch, receive } from './claims.service';
+import { check, decide, dispatch, receive } from './claims.service';
 import type { Ctx } from '../../utils/context';
 
 const now = () => new Date('2026-09-17T10:00:00Z');
@@ -43,30 +41,6 @@ const adminCtx: Ctx = { ...dealerCtx, user: { id: 'admin-1', scope: 'admin', rol
 const anonCtx: Ctx = { ...dealerCtx, user: null };
 
 beforeEach(() => vi.clearAllMocks());
-
-describe('createFromReplacement', () => {
-  it('rejects a code that was never created as a replacement', async () => {
-    vi.mocked(findBatteryByCode).mockResolvedValue({ id: 'batt-1', chainId: null, replacedFromId: null } as never);
-    await expect(createFromReplacement(dealerCtx, '26030202')).rejects.toMatchObject({ code: 'not_a_replacement' });
-  });
-
-  it('rejects raising a second claim for the same replacement', async () => {
-    vi.mocked(findBatteryByCode).mockResolvedValue({ id: 'batt-mar', chainId: 'chain-1', replacedFromId: 'batt-jan', dealerId: 'dealer-1' } as never);
-    vi.mocked(repo.findClaimByNewBatteryId).mockResolvedValue({ id: 'claim-existing' } as never);
-    await expect(createFromReplacement(dealerCtx, '26030202')).rejects.toMatchObject({ code: 'claim_already_exists' });
-  });
-
-  it('creates a claim in "raised" status referencing the old and new battery', async () => {
-    vi.mocked(findBatteryByCode).mockResolvedValue({ id: 'batt-mar', chainId: 'chain-1', replacedFromId: 'batt-jan', dealerId: 'dealer-1' } as never);
-    vi.mocked(repo.findClaimByNewBatteryId).mockResolvedValue(undefined);
-    vi.mocked(repo.insertClaim).mockResolvedValue({ id: 'claim-1', ref: 'CLM-26-09-0001', status: 'raised' } as never);
-
-    const result = await createFromReplacement(dealerCtx, '26030202');
-
-    expect(result.status).toBe('raised');
-    expect(repo.insertClaim).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ oldBatteryId: 'batt-jan', newBatteryId: 'batt-mar', dealerId: 'dealer-1' }));
-  });
-});
 
 describe('dispatch / receive — status transitions are enforced in order', () => {
   it('rejects dispatching a claim that is not "raised"', async () => {
@@ -145,7 +119,6 @@ describe('decide — second person, only after checked', () => {
 
 describe('auth guard applies to every action', () => {
   it('rejects an unauthenticated caller on every entry point', async () => {
-    await expect(createFromReplacement(anonCtx, '26030202')).rejects.toMatchObject({ code: 'unauthenticated' });
     await expect(dispatch(anonCtx, 'claim-1')).rejects.toMatchObject({ code: 'unauthenticated' });
   });
 });

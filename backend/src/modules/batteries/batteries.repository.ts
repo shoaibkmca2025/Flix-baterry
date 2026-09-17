@@ -54,6 +54,14 @@ export async function updateBatteryAfterReplacement(tx: Tx, id: string, replaced
   return row!;
 }
 
+// For a sales_return, not a replacement — no replacedById involved, nothing "replaces" this
+// battery. A separate function on purpose so a sales-return can't accidentally set
+// replacedById to the battery's own id (a real bug caught while wiring entries.approve).
+export async function updateBatteryToReturned(tx: Tx, id: string) {
+  const [row] = await tx.update(batteries).set({ state: 'returned', custodian: 'dealer', updatedAt: new Date() }).where(eq(batteries.id, id)).returning();
+  return row!;
+}
+
 export async function updateBatteryChainId(tx: Tx, id: string, chainId: string) {
   const [row] = await tx.update(batteries).set({ chainId, updatedAt: new Date() }).where(eq(batteries.id, id)).returning();
   return row!;

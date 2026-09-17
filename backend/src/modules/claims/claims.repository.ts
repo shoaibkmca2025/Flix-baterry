@@ -8,10 +8,6 @@ export function findClaimById(dbh: DbOrTx, id: string) {
   return dbh.select().from(warrantyClaims).where(eq(warrantyClaims.id, id)).then((r) => r[0]);
 }
 
-export function findClaimByNewBatteryId(dbh: DbOrTx, newBatteryId: string) {
-  return dbh.select().from(warrantyClaims).where(eq(warrantyClaims.newBatteryId, newBatteryId)).then((r) => r[0]);
-}
-
 export type NewClaim = { ref: string; dealerId: string; chainId: string; oldBatteryId: string; newBatteryId: string };
 
 export async function insertClaim(tx: Tx, input: NewClaim) {

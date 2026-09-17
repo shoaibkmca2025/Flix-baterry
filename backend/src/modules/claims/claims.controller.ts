@@ -1,12 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { buildCtx } from '../../middleware/context';
 import * as service from './claims.service';
-import type { ClaimCheckBody, ClaimCreateBody, ClaimDecideBody, ClaimListQuery } from './claims.validation';
-
-export async function create(request: FastifyRequest<{ Body: ClaimCreateBody }>, reply: FastifyReply) {
-  const result = await service.createFromReplacement(buildCtx(request), request.body.newBatteryCode);
-  reply.status(201).send(result);
-}
+import type { ClaimCheckBody, ClaimDecideBody, ClaimListQuery } from './claims.validation';
 
 export async function dispatch(request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
   const result = await service.dispatch(buildCtx(request), request.params.id);

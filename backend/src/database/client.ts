@@ -8,8 +8,9 @@ import * as identity from '../models/identity.model';
 import * as batteriesModel from '../models/batteries.model';
 import * as warrantyModel from '../models/warranty.model';
 import * as claimsModel from '../models/claims.model';
+import * as entriesModel from '../models/entries.model';
 
-const schema = { ...governance, ...masters, ...identity, ...batteriesModel, ...warrantyModel, ...claimsModel };
+const schema = { ...governance, ...masters, ...identity, ...batteriesModel, ...warrantyModel, ...claimsModel, ...entriesModel };
 
 export const pool = new Pool({
   connectionString: env.DATABASE_URL,
