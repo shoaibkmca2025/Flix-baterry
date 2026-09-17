@@ -1,5 +1,5 @@
 import { db } from '../client';
-import { cities } from '../../models/masters.model';
+import { batteryModels, cities } from '../../models/masters.model';
 import { roles } from '../../models/identity.model';
 
 // Matches src/seed.ts's demo `cities` list exactly so the app's demo mode and the real
@@ -69,6 +69,16 @@ const ROLES = [
   { key: 'read_only', label: 'Read-only', scope: 'admin' as const, templatePermissions: ['*.read', 'reports.run'], system: true },
 ];
 
+// memory.md §9 D-08 — demo credit-rate values name these exact models; kept in sync.
+const BATTERY_MODELS = [
+  { id: 'M3', family: 'M', type: 'IT tall tubular', capacity: '135Ah' },
+  { id: 'M5', family: 'M', type: 'IT tall tubular', capacity: '150Ah' },
+  { id: 'M7', family: 'M', type: 'IT tall tubular', capacity: '165Ah' },
+  { id: 'B5', family: 'B', type: 'Standard flat plate', capacity: '88Ah' },
+  { id: 'S5', family: 'S', type: 'SMF', capacity: '35Ah' },
+  { id: 'I700', family: 'I', type: 'Inverter battery', capacity: '150Ah' },
+];
+
 export async function seedMasters() {
   for (const city of CITIES) {
     await db.insert(cities).values(city).onConflictDoNothing({ target: cities.name });
@@ -76,5 +86,8 @@ export async function seedMasters() {
   for (const role of ROLES) {
     await db.insert(roles).values(role).onConflictDoNothing({ target: roles.key });
   }
-  console.log(`Seeded ${CITIES.length} cities and ${ROLES.length} roles.`);
+  for (const model of BATTERY_MODELS) {
+    await db.insert(batteryModels).values(model).onConflictDoNothing({ target: batteryModels.id });
+  }
+  console.log(`Seeded ${CITIES.length} cities, ${ROLES.length} roles, ${BATTERY_MODELS.length} battery models.`);
 }

@@ -1,5 +1,6 @@
 // memory.md §10 — reproduces the app's demo data exactly so the demo mode and a real
 // backend tell the same story. NEVER run in production (guarded in run() below).
+import { pathToFileURL } from 'node:url';
 import { env } from '../../config/env';
 import { hashPassword } from '../../utils/crypto';
 import { db } from '../client';
@@ -103,7 +104,10 @@ async function run() {
   process.exit(0);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// import.meta.url is a file:// URL (forward slashes); process.argv[1] is a native OS path
+// (backslashes on Windows) — comparing them directly never matches there. pathToFileURL
+// normalises both sides before comparing.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   run().catch((err) => {
     console.error(err);
     process.exit(1);

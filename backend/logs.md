@@ -38,6 +38,96 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-17 · dealer app wired to the real entries/batteries endpoints (Claude Code)
+**Worked on:** wiring `src/dealer/Capture.tsx` (screens d10–d17, the replacement/sales-return capture flow) to the backend built this same day, closing the loop the entries module was built for.
+**Done:**
+- `src/api/entries.ts` (`createEntry`, `getEntry`) and `src/api/batteries.ts` (`lookupBattery`) — new API client modules matching the existing `src/api/{auth,dealers,masters}.ts` pattern. `src/api/session.ts` gained `useAccessToken()`, a small hook wrapping the existing `getAccessToken()`.
+- d11 (old battery) and d13 (new/returned battery) now show live custody/warranty data from `GET /batteries/lookup` instead of the local demo store's `findBattery`/`coverOf` — including the duplicate-code and expired-cover feedback the server will actually enforce at submit time. d31 (carry-over) and d16 (review) show the real chain dates for the battery actually being replaced (memory.md D-03), computed from the same live lookup.
+- d16's "Send entry" calls `POST /entries` for a real signed-in dealer session, bridging the server's response (real `ENT-…` ref, status, dates) back into the local demo store so d17 displays the authoritative result under the same id the rest of the flow expects. The original local-only path is kept as a fallback whenever there's no real access token (the "preview approved app" demo path in d05 never calls the backend) or the device is marked offline — unchanged behaviour there, not a regression.
+- Verified: frontend `tsc --noEmit` clean, the Metro/web bundle compiles successfully with all new modules included (fetched and inspected directly), backend's 91 tests still green (untouched this pass).
+**Known gaps, called out rather than silently dropped:** photo evidence captured in the flow still has nowhere to go server-side — no Cloudinary integration yet (D-10 still open) — so photos stay local-only, same as before. A real dealer's entry submitted while `state.offline` is set still just saves a local "Pending sync" draft; there is no outbox that later replays it against the server (a genuine offline-sync design is a separate piece of work, not attempted here).
+**Blockers / decisions needed:** could not click through the actual UI — no browser-automation tool available in this environment. Recommend a manual pass in the browser signed in as the real seeded dealer (mobile `9876543210`, shop FPP-014, already active) submitting a Replacement end to end.
+**Next:** admin console (`src/admin/Entries.tsx` etc.) is still entirely demo-store-driven — approving/rejecting a real dealer-submitted entry from the real admin UI isn't wired yet, only the `POST /entries/{id}/approve` API endpoint itself (already live-tested via curl). That is the natural next piece if the client wants to review real submissions from the console rather than curl.
+
+---
+
+### 2026-09-17 · entries module — the real submission-and-approval module, three stand-ins retired (Claude Code)
+**Worked on:** P3-06/P3-07 — `entries`, the permanent replacement for the three temporary endpoints (`POST /batteries/sell`, `POST /batteries/replace`, `POST /claims`) that stood in for it since the batteries and claims modules were first built.
+**Done:**
+- `entries` + `entry_items` tables (`models/entries.model.ts`). `entryType` is a 3-value enum — `replacement`, `sales_return` (the two a dealer actually submits, per D-02), plus `regular_sales` added specifically because *something* has to open a battery's very first warranty chain now that `/batteries/sell` is gone.
+- Hit a real migration-ordering mistake mid-build: generated and applied a 2-value version of the `entryType` enum to live Neon before realising `regular_sales` was needed. Had to manually drop the tables/enum types and the migration's tracking row, then regenerate and reapply cleanly — a good reminder to fully settle an enum's value set before it ever touches a shared database.
+- `entries.service.ts`: `create()` validates every item's code format and rejects in-entry duplicate codes before opening a transaction (same "errors first" shape as the rest of the codebase), then inserts the entry and all its items in one transaction. `approve()` is now the **single writer** for what used to be three separate write paths — it dispatches each item to `approveReplacementItem` / `approveRegularSaleItem` / `approveSalesReturnItem` based on `entryType`, all inside one transaction:
+  - *replacement* — re-runs the full D-03 chain check (old battery on record, right dealer, not already replaced, chain not expired as of the entry date), creates the new battery on the **same chain**, links old→new, and raises a claim directly (`claimsRepo.insertClaim`) — no more separate `POST /claims` call needed.
+  - *regular_sales* — creates the battery and a **brand-new** chain anchored to the entry date (this is now the only way a chain gets created).
+  - *sales_return* — marks the battery `returned`/`custodian: dealer`. Caught and fixed a real bug here before it shipped: an early version reused `updateBatteryAfterReplacement(tx, id, id)`, which sets `replacedById` — passing a battery's own id as "the battery that replaced it" is nonsense. Added a dedicated `updateBatteryToReturned()` that only touches state/custodian.
+- Removed `POST /batteries/sell`, `POST /batteries/replace` (routes/controller/service/validation in the `batteries` module) and `POST /claims` (`createFromReplacement` in the `claims` module, plus the now-unused `claims.repository.findClaimByNewBatteryId`). Cleaned up both modules' test files to match — 91 tests total now (down from more, since the removed endpoints' tests went with them, but +20 new `entries.service.test.ts` tests more than cover the same ground plus the three-way dispatch logic).
+- Registered `registerEntryRoutes` in `app.ts` under `/api/v1/entries` (previously built but not wired in).
+- **Verified live end to end against Neon**, all three entry types in one continuous story: submitted+approved a `regular_sales` entry for a fresh battery (Jan 15 2026, new chain, expiry Jan 14 2028) → submitted+approved a `replacement` entry against it two months later (new battery landed on the *same* chain id, claim `CLM-26-09-0002` raised referencing both battery ids, `batteries.lookup` on the new battery correctly showed the January dates, not March) → submitted+approved a `sales_return` on that same replacement battery (state → `returned`, `replacedById` correctly left untouched).
+**Decisions:** `entries.service.ts` reads/writes `batteries.repository` and `claims.repository` directly rather than through their service layers — the same pragmatic cross-module pattern already used elsewhere (e.g. `dealers.service` reading `masters.repository`), since those modules don't expose service-level functions shaped for this internal orchestration use.
+**Next:** wire the actual dealer app UI (`src/dealer/Capture.tsx`, screens d10–d17) to these endpoints — this was the original ask that led to building `entries` in the first place ("build entries now, wire the full UI once"). After that: `reports`/`dashboards` modules, or whichever the client prioritises next.
+
+---
+
+### 2026-09-17 · claims module — the full decision-and-credit workflow (Claude Code)
+**Worked on:** P3-05 (trimmed) — `claims`, completing the flow the team described at the very start of V1 scoping: old battery goes back → engineer checks it → someone decides → dealer gets credited.
+**Done:**
+- `warranty_claims` + `credit_notes` tables (trimmed for V1: no `entry_id`/`entry_item_id` — a claim is raised directly off a replacement instead of through an approval transaction, since `entries` doesn't exist yet; no `credit_rates` table — amounts come from a hardcoded demo map matching `memory.md` D-08, still open).
+- `utils/ids.ts` — `nextRef`/`nextFormattedRef`, the atomic reference-number generator (`CLM-26-09-0001`, `CN-26-09-0001`) architecture.md always specified, built now since claims is the first module that actually numbers things.
+- Scoping call: folded the physical-transport-tracking step (architecture's separate `returns`/challan module — vehicle number, driver, multi-battery dispatch) into the claim's own status instead of building a full challan system for V1. `raised → awaiting_return → received → checked → approved/refused`, all on the claim itself. A real multi-item challan module is still the documented design if that level of tracking is ever needed.
+- `POST /claims/{id}/check` implements the exact rule the client described: the engineer can refuse a claim themselves right there if the fault disqualifies it (no second person needed), or move it to `checked` to wait for one. `POST /claims/{id}/decide` is that second person's call — approving issues a credit note automatically, refusing doesn't touch credits at all.
+- `POST /claims` is another explicit, documented stand-in (matching the pattern from `/batteries/sell`/`/replace`) for what `entries`/`approvals` will eventually create automatically.
+- 12 new tests (81 total), including the two-path check behavior (disqualify-now vs. defer-to-second-person) and confirming a refusal never touches `insertCreditNote`.
+- **Verified live end to end against Neon**, continuing the exact chain from the previous session's example: raised a claim on battery C's replacement → dispatched → received → checked (passed) → approved → a real credit note (`CN-26-09-0001`, ₹4250 — the seeded M5 rate) came back in the response. Then confirmed both guard rails live: a dealer trying to `check` a claim gets `permission_denied`; dispatching an already-approved claim gets `invalid_transition`.
+**Next:** `entries` — the real replacement-submission module. At this point `/batteries/sell`, `/batteries/replace`, and `/claims` (create) are the three temporary stand-ins `entries`/`approvals` will eventually absorb into one proper multi-item, evidence-backed submission with a formal approval step; the data model underneath (chains, links, claims) doesn't change when that happens.
+
+---
+
+### 2026-09-17 · warranty-chain inheritance — D-03 closed, built, verified live (Claude Code)
+**Worked on:** P3-01/P3-02 (pulled forward) — the client confirmed the real warranty rule, superseding the V1 stateless placeholder from the day before.
+**Decision closed:** memory.md D-03 — a replacement battery keeps the *original* battery's warranty date, traced back through however many replacements happened, never its own manufacture date. In the client's own words: check the OLD battery's warranty, not the replacement's.
+**Done:**
+- `warranty_chains` (warrantyStart/warrantyExpiry fixed at the chain's creation, termMonths, replacementCount) and `replacement_links` (append-only — old→new battery id pairs, the "table named replaced battery" the client asked for) — both live in `models/warranty.model.ts` together, specifically to avoid a circular import with `batteries.model.ts` (chains need a real FK to batteries; batteries' `chainId`/`replacedFromId`/`replacedById` are plain uuid columns instead, enforced at the application layer — documented inline).
+- `batteries.lookup` now prefers chain-based cover over the mfg-month rule whenever a battery has a `chainId` — the mfg-month shortcut only still applies to a battery that's never been sold/replaced through the system.
+- Two temporary endpoints, `POST /batteries/sell` and `POST /batteries/replace` — explicitly labeled stand-ins for what `entries.create`'s regular-sale and replacement effects will eventually do, gated by the `entries.create` permission it will actually require. The chain data model itself is the real, permanent one; only the "how a sale/replacement gets recorded" path is a placeholder that `entries` will replace outright.
+- 8 new tests, including the exact scenario end to end: sell → replace once → replace again, asserting the chain's dates never change; plus already-replaced, custody-conflict, and expired-chain rejections. 69 tests total.
+- **Verified live against Neon with real dates**: sold 2026-01-15 → chain expires 2028-01-14. Replaced in March, then replaced *that* battery again in June — both times the chain's dates stayed exactly 2026-01-15/2028-01-14, confirmed via the actual API response, not just the test suite. Attempting a third replacement in 2029 was correctly blocked with `warranty_expired`, citing the *original* January dates even though the battery being checked was manufactured in June.
+- **Found and fixed a real, separate bug along the way**: `database/client.ts`'s Postgres pool had no `.on('error', ...)` handler. Neon aggressively drops idle connections, and node-postgres emits that as an unhandled error event on the Pool — with nothing listening, Node treated it as an uncaught exception and killed the *entire server process*, not just the one affected request. This would have caused random full outages in any long-running deployment, not just against Neon. Fixed per node-postgres's own documented pattern; confirmed the server no longer crashes.
+**Next:** `entries` — the real replacement-submission module, which is what will eventually replace `/batteries/sell` and `/batteries/replace` with the full validation pipeline, evidence capture, and approval workflow.
+
+---
+
+### 2026-09-17 · batteries module — the actual scan-and-check-warranty step (Claude Code)
+**Worked on:** P2-01/P2-13 (trimmed) — `batteries` module, the first module that wires the already-built pure domain logic (`domain/serials.ts`, `domain/warranty.ts`) into a real endpoint.
+**Done:**
+- `masters` extended with `battery_models` (M3/M5/M7/B5/S5/I700, matching the demo credit-rate names in `memory.md` D-08) — needed as a FK target before `batteries` could exist.
+- `batteries` table — trimmed for V1 per the plan: no `location_id`/`customer_id` (their modules don't exist yet), no `chain_id`/`replaced_from_id`/`replaced_by_id` (V1's warranty rule is stateless per D-03, computed live off the battery's own serial rather than tracked through a chain).
+- `GET /batteries/lookup?code=` — the actual "dealer scans a battery" step: parses the code, checks if it's already in the system, and returns a live warranty check either way (a not-yet-seen code still gets a real warranty preview, computed off its own manufacture-date prefix). Never reveals *which* other dealer holds a battery to a dealer caller (I-3) — an admin caller additionally gets the real `dealerId`.
+- `GET /batteries` — dealer-scoped list (cursor-paginated, same shape as `dealers`' list).
+- 10 new tests (own-dealer vs other-dealer masking, admin visibility, expired vs in-warranty, malformed code rejected before the database is touched), 61 total passing.
+- **Verified against the live Neon database with the team's own example**: `26041212` → `mfgMonth: "2026-04"`, in warranty, 561 days remaining. An old code (`21040097`) correctly came back expired (`daysRemaining: -1266`). Both exactly matched the manual calculation from when this rule was first specified.
+**Known gap, flagged not hidden:** there's still no way to actually *create* a battery record — by design, batteries get created when an entry is approved (architecture.md §9.4), and `entries` doesn't exist yet. `GET /batteries` is correctly empty right now, not broken.
+**Next:** `entries` — the actual replacement submission (old battery + new battery + customer → one entry), which is what will finally populate the `batteries` table for real.
+
+---
+
+### 2026-09-17 · first live database — Neon connected, real end-to-end verification (Claude Code)
+**Worked on:** unblocking the "no Docker" limitation that every prior session's testing was constrained by.
+**Done:**
+- Team connected a Neon Postgres instance (shared dev/staging, not local Docker) — `DATABASE_URL` updated in `backend/.env` (gitignored, not committed).
+- Found and fixed a real bug while running the seed script for the first time: `database/seed/demo.ts`'s "am I the entry point" check (`import.meta.url === file://${process.argv[1]}`) silently never matched on Windows, because `process.argv[1]` is a native path (backslashes) and `import.meta.url` is a proper `file://` URL — the script ran, did nothing, and exited 0 with no error. Fixed with `pathToFileURL()`.
+- **First real, live, end-to-end verification of everything built so far — not mocks, not a booted-but-DB-less server:**
+  - `npm run db:migrate` applied both migrations cleanly to Neon.
+  - `npm run db:seed` populated real data: 4 cities, 7 roles, the demo admin/dealers.
+  - `GET /ready` → `{"ready":true,"checks":{"database":true}}` — the first time this has ever been true.
+  - `GET /masters` returned the real seeded cities with real UUIDs.
+  - Full OTP login for the seeded active dealer (FPP-014) worked end-to-end: request → real code in the console → verify → real JWT + refresh token + dealer record.
+  - `GET /dealers/me` with that real access token returned the real dealer.
+  - The seeded suspended dealer (NBH-007) was correctly blocked with `dealer_not_active`, the real reason (`"Demo suspended dealer"`) surfaced in the response — proving the lifecycle work from two sessions ago is actually correct against a real database, not just against mocks.
+  - Admin login (`admin@example.com` / `Password123`) correctly kicked off the 2FA challenge.
+**Next:** wire the admin app's "New dealers" screen to the real approve/reject endpoints (flagged as a gap yesterday), or push into `batteries`/`entries` for the core replacement flow. Backend test server left running against Neon for continued Thunder Client testing.
+
+---
+
 ### 2026-09-16 · masters module (cities) + closes the city id/name gap (Claude Code)
 **Worked on:** P1-01 (partial — cities only; models/entry-types/reason-codes land with batteries/entries), frontend integration for the city picker and dealer bridging.
 **Done:**

@@ -38,9 +38,11 @@ export async function requestOtp(ctx: Ctx, input: RequestOtpInput) {
   const now = ctx.now();
   await assertNotRateLimited(input.target, input.purpose, now);
 
-  // login/reset need an existing user; register/verify_mobile don't (no dealer exists yet).
+  // login/reset/admin_2fa need an existing user; register/verify_mobile don't (no dealer
+  // exists yet). Missing 'admin_2fa' here was a real bug: the 2FA challenge would be
+  // created with no userId, so a correct code still failed verifyOtp's `!challenge.userId` check.
   const user =
-    input.purpose === 'login' || input.purpose === 'reset'
+    input.purpose === 'login' || input.purpose === 'reset' || input.purpose === 'admin_2fa'
       ? input.target.includes('@')
         ? await repo.findUserByEmail(db, input.target)
         : await repo.findUserByMobile(db, input.target)
