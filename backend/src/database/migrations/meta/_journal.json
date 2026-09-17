@@ -29,6 +29,13 @@
       "when": 1789644573859,
       "tag": "0003_warranty_chains",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789645680649,
+      "tag": "0004_claims",
+      "breakpoints": true
     }
   ]
 }

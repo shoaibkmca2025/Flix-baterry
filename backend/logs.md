@@ -38,6 +38,20 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-17 · claims module — the full decision-and-credit workflow (Claude Code)
+**Worked on:** P3-05 (trimmed) — `claims`, completing the flow the team described at the very start of V1 scoping: old battery goes back → engineer checks it → someone decides → dealer gets credited.
+**Done:**
+- `warranty_claims` + `credit_notes` tables (trimmed for V1: no `entry_id`/`entry_item_id` — a claim is raised directly off a replacement instead of through an approval transaction, since `entries` doesn't exist yet; no `credit_rates` table — amounts come from a hardcoded demo map matching `memory.md` D-08, still open).
+- `utils/ids.ts` — `nextRef`/`nextFormattedRef`, the atomic reference-number generator (`CLM-26-09-0001`, `CN-26-09-0001`) architecture.md always specified, built now since claims is the first module that actually numbers things.
+- Scoping call: folded the physical-transport-tracking step (architecture's separate `returns`/challan module — vehicle number, driver, multi-battery dispatch) into the claim's own status instead of building a full challan system for V1. `raised → awaiting_return → received → checked → approved/refused`, all on the claim itself. A real multi-item challan module is still the documented design if that level of tracking is ever needed.
+- `POST /claims/{id}/check` implements the exact rule the client described: the engineer can refuse a claim themselves right there if the fault disqualifies it (no second person needed), or move it to `checked` to wait for one. `POST /claims/{id}/decide` is that second person's call — approving issues a credit note automatically, refusing doesn't touch credits at all.
+- `POST /claims` is another explicit, documented stand-in (matching the pattern from `/batteries/sell`/`/replace`) for what `entries`/`approvals` will eventually create automatically.
+- 12 new tests (81 total), including the two-path check behavior (disqualify-now vs. defer-to-second-person) and confirming a refusal never touches `insertCreditNote`.
+- **Verified live end to end against Neon**, continuing the exact chain from the previous session's example: raised a claim on battery C's replacement → dispatched → received → checked (passed) → approved → a real credit note (`CN-26-09-0001`, ₹4250 — the seeded M5 rate) came back in the response. Then confirmed both guard rails live: a dealer trying to `check` a claim gets `permission_denied`; dispatching an already-approved claim gets `invalid_transition`.
+**Next:** `entries` — the real replacement-submission module. At this point `/batteries/sell`, `/batteries/replace`, and `/claims` (create) are the three temporary stand-ins `entries`/`approvals` will eventually absorb into one proper multi-item, evidence-backed submission with a formal approval step; the data model underneath (chains, links, claims) doesn't change when that happens.
+
+---
+
 ### 2026-09-17 · warranty-chain inheritance — D-03 closed, built, verified live (Claude Code)
 **Worked on:** P3-01/P3-02 (pulled forward) — the client confirmed the real warranty rule, superseding the V1 stateless placeholder from the day before.
 **Decision closed:** memory.md D-03 — a replacement battery keeps the *original* battery's warranty date, traced back through however many replacements happened, never its own manufacture date. In the client's own words: check the OLD battery's warranty, not the replacement's.
