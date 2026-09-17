@@ -1,6 +1,6 @@
 # Felix BMS — Project Memory
 
-Last updated: 16 September 2026 · Owner: 4AM Global Media (Vaibhav Pasi, Co-Founder) · Client: Felix Batteries Industries, Nashik
+Last updated: 17 September 2026 · Owner: 4AM Global Media (Vaibhav Pasi, Co-Founder) · Client: Felix Batteries Industries, Nashik
 
 This file is the **long-term memory** of the project: the facts, decisions, identifiers and credentials that every developer and every AI assistant must have in mind before touching code. It is short on purpose. Read it fully at the start of each session (`rules.md §1`). If something here is wrong, fix it here first — the code follows this file, not the other way round.
 
@@ -29,16 +29,16 @@ V1 flow (statuses are existing enum values from `architecture.md §8.3`, not new
 5. An engineer inspects the battery (`POST /claims/{id}/check`): records the finding and disposition. If the fault disqualifies the claim, status → `refused` ("rejected" in the team's words). Otherwise status stays `checked` ("in review"/"verification") awaiting a second person's sign-off.
 6. A second person decides (`POST /claims/{id}/decide`): `approved` issues a `credit_notes` row (the "claim refund") the dealer can see; `refused` records a reason. (Whether "engineer" and "decider" must be different people, or can be the same role for V1, is a permissions-config choice, not a schema one — default for now: same `claims.decide` permission can do both steps.)
 
-## 2. Current state (16 Sep 2026)
+## 2. Current state (17 Sep 2026)
 
 | Area | State |
 |---|---|
-| Dealer app UI | Complete against the client HTML; works in a browser; camera/GPS/signature untested on real phones |
-| Admin UI | Complete; desktop + phone layouts; tested in a browser |
+| Dealer app UI | Complete against the client HTML; works in a browser; camera/GPS/signature untested on real phones. Sign-in (`d02`) and registration (`d04`) now call the real backend instead of local demo logic; `d03` (reset password) still local-only. |
+| Admin UI | Complete; desktop + phone layouts; tested in a browser. Not yet wired to the real backend — dealer approval, entries, etc. still read the local demo store. |
 | Shared rules | `src/domain.ts` (validation, warranty maths, chain resolution, approval effects) with 8 passing tests in `tests/domain.test.ts`; not yet moved into a shared `packages/domain` package (planned P0-03/P0-08, deliberately deferred so the working demo app isn't touched mid-refactor) |
-| Data | Local demo store (`src/store.tsx` + `src/seed.ts` in AsyncStorage); no server |
-| Backend | `backend/` scaffolded (Fastify skeleton, env config, error handling, health/ready routes, Drizzle + first migration for `counters`/`settings`/`audit_events`) but unverified end-to-end — local Postgres/Docker not yet installed on the dev machine. No business modules (auth, entries, claims, etc.) built yet. |
-| Repo | Git-initialized, remote at `github.com/shoaibkmca2025/Flix-baterry`. |
+| Data | Local demo store (`src/store.tsx` + `src/seed.ts`) still backs everything except the two screens above. |
+| Backend | **Live and verified end-to-end for the first time (17 Sep 2026)** against a real Neon Postgres — migrations applied, demo data seeded, real OTP login, real JWT issuance, real dealer/claim data round-tripped. Three modules built: `auth` (OTP login, admin 2FA, password reset), `dealers` (register, profile, full approve/reject/suspend/activate lifecycle), `masters` (cities). RBAC (`middleware/rbac.ts`) enforces permissions on every admin action. 50 automated tests passing. Local Docker still not installed — Neon is filling that role for now as a shared dev database. |
+| Repo | Git-initialized. `origin` → `github.com/shoaibkmca2025/Flix-baterry` (collaborator access granted 17 Sep 2026), `backup` → `github.com/Pratham2310/Felix`. `git pushall` pushes both. |
 | Old admin code | Kept unrendered in `src/legacy/Workspace.tsx` and the older `src/*.tsx` screens; delete only after client sign-off of the new admin |
 
 ## 3. Where things are
@@ -165,8 +165,8 @@ The backend seed (`backend/src/db/seed/demo.ts`) must reproduce exactly this dat
 | Item | Value |
 |---|---|
 | Node / pnpm | 22.x / 9.x |
-| Postgres / Redis | 16 / 7 |
-| Repo remote | — |
+| Postgres / Redis | Neon (shared dev/staging, connected 17 Sep 2026 — `DATABASE_URL` in `backend/.env`, not committed) / not yet provisioned |
+| Repo remote | `origin` → github.com/shoaibkmca2025/Flix-baterry (colleague, write access granted 17 Sep 2026), `backup` → github.com/Pratham2310/Felix (personal). Local git alias `pushall` pushes both. |
 | Staging API / app URLs | — |
 | Production API / app URLs | — |
 | Object storage | — (bucket names: `felix-evidence`, `felix-exports`, `felix-backups`) |

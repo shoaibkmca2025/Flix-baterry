@@ -38,6 +38,24 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-17 · first live database — Neon connected, real end-to-end verification (Claude Code)
+**Worked on:** unblocking the "no Docker" limitation that every prior session's testing was constrained by.
+**Done:**
+- Team connected a Neon Postgres instance (shared dev/staging, not local Docker) — `DATABASE_URL` updated in `backend/.env` (gitignored, not committed).
+- Found and fixed a real bug while running the seed script for the first time: `database/seed/demo.ts`'s "am I the entry point" check (`import.meta.url === file://${process.argv[1]}`) silently never matched on Windows, because `process.argv[1]` is a native path (backslashes) and `import.meta.url` is a proper `file://` URL — the script ran, did nothing, and exited 0 with no error. Fixed with `pathToFileURL()`.
+- **First real, live, end-to-end verification of everything built so far — not mocks, not a booted-but-DB-less server:**
+  - `npm run db:migrate` applied both migrations cleanly to Neon.
+  - `npm run db:seed` populated real data: 4 cities, 7 roles, the demo admin/dealers.
+  - `GET /ready` → `{"ready":true,"checks":{"database":true}}` — the first time this has ever been true.
+  - `GET /masters` returned the real seeded cities with real UUIDs.
+  - Full OTP login for the seeded active dealer (FPP-014) worked end-to-end: request → real code in the console → verify → real JWT + refresh token + dealer record.
+  - `GET /dealers/me` with that real access token returned the real dealer.
+  - The seeded suspended dealer (NBH-007) was correctly blocked with `dealer_not_active`, the real reason (`"Demo suspended dealer"`) surfaced in the response — proving the lifecycle work from two sessions ago is actually correct against a real database, not just against mocks.
+  - Admin login (`admin@example.com` / `Password123`) correctly kicked off the 2FA challenge.
+**Next:** wire the admin app's "New dealers" screen to the real approve/reject endpoints (flagged as a gap yesterday), or push into `batteries`/`entries` for the core replacement flow. Backend test server left running against Neon for continued Thunder Client testing.
+
+---
+
 ### 2026-09-16 · masters module (cities) + closes the city id/name gap (Claude Code)
 **Worked on:** P1-01 (partial — cities only; models/entry-types/reason-codes land with batteries/entries), frontend integration for the city picker and dealer bridging.
 **Done:**
