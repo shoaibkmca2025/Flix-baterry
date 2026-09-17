@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useEffect, useState } from 'react';
 
 const ACCESS_KEY = 'felix-access-token';
 const REFRESH_KEY = 'felix-refresh-token';
@@ -15,6 +16,14 @@ export async function getAccessToken(): Promise<string | null> {
 
 export async function clearTokens() {
   await AsyncStorage.multiRemove([ACCESS_KEY, REFRESH_KEY]).catch(() => {});
+}
+
+// null while loading AND once loaded-but-signed-out (e.g. the "preview approved app" demo
+// path, which never calls the real backend) — callers fall back to local-only behaviour then.
+export function useAccessToken(): string | null {
+  const [token, setToken] = useState<string | null>(null);
+  useEffect(() => { getAccessToken().then(setToken); }, []);
+  return token;
 }
 
 // backend enums are snake_case (architecture.md §8.3); the app's local demo store uses
