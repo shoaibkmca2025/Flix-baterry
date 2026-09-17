@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, ScrollView, Pressable, BackHandler, StatusBar, ActivityIndicator } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useStore } from '../store';
-import { Role, State } from '../domain';
+import { State } from '../domain';
+import type { Session } from '../api/session';
 import { T, useDealerFonts } from '../dealer/theme';
 import { X, Ic, IconName, Btn, Line, Avatar, Chip } from '../dealer/kit';
 import { ACtx, AdminCtx, ARoute, Dialog, Page, useA, useWide } from './ui';
@@ -39,12 +40,12 @@ const SCREENS: Record<string, React.ComponentType<{ id?: string }>> = {
 };
 
 /** Head office workspace — same design language as the dealer app, every admin function kept. */
-export function AdminApp({ onDealer }: { onDealer: () => void }) {
+export function AdminApp({ session, onSignedIn, onSignOut, onDealerSignIn }: { session: Session | null; onSignedIn: (session: Session) => void; onSignOut: () => void; onDealerSignIn: () => void }) {
   const [fontsLoaded, fontError] = useDealerFonts();
-  const { state, role, setRole } = useStore();
+  const { role } = useStore();
   const wide = useWide();
   const [route, setRoute] = useState<ARoute>({ r: 'home' }), [history, setHistory] = useState<ARoute[]>([]);
-  const [signedIn, setSignedIn] = useState(true), [switcher, setSwitcher] = useState(false), [toastMsg, setToastMsg] = useState('');
+  const [account, setAccount] = useState(false), [toastMsg, setToastMsg] = useState('');
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const toast = useCallback((m: string) => { setToastMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setToastMsg(''), 3400); }, []);
   const go = (r: string, id?: string) => { if (ROOTS.includes(r) && !id) { setHistory([]); } else setHistory(h => [...h, route]); setRoute({ r, id }); };
@@ -54,9 +55,11 @@ export function AdminApp({ onDealer }: { onDealer: () => void }) {
     return () => sub.remove();
   }, [route, history]);
 
-  const ctx: AdminCtx = { route, go, root: (r: string) => { setHistory([]); setRoute({ r }); }, back, canBack: history.length > 0, toast, wide, openMenu: () => go('more'), openSwitcher: () => setSwitcher(true), signOut: () => { setSignedIn(false); setSwitcher(false); } };
+  const user = { name: session?.user.name || '', role };
+  const ctx: AdminCtx = { route, go, root: (r: string) => { setHistory([]); setRoute({ r }); }, back, canBack: history.length > 0, toast, wide, openMenu: () => go('more'), openSwitcher: () => setAccount(true), signOut: () => { setAccount(false); onSignOut(); }, user };
   if (!fontsLoaded && !fontError) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: T.ink }}><ActivityIndicator color={T.volt} /></View>;
-  if (!signedIn) return <ACtx.Provider value={ctx}><SignIn onDone={(r: Role) => { setRole(r); setSignedIn(true); setHistory([]); setRoute({ r: 'home' }); }} onDealer={onDealer} /></ACtx.Provider>;
+  // No login, no console: until a head-office session exists only the sign-in screen renders.
+  if (!session) return <ACtx.Provider value={ctx}><SignIn onDone={onSignedIn} onDealer={onDealerSignIn} /></ACtx.Provider>;
 
   const allowed = route.r !== 'team' || role === 'Main Admin';
   const Screen = allowed ? SCREENS[route.r] || Home : NoAccess;
@@ -71,15 +74,13 @@ export function AdminApp({ onDealer }: { onDealer: () => void }) {
       {!!toastMsg && <View pointerEvents="none" accessibilityRole="alert" style={{ position: 'absolute', left: wide ? 250 : 15, right: 15, bottom: wide ? 24 : 84, alignItems: 'center' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: T.ink, paddingVertical: 13, paddingHorizontal: 15, borderRadius: 11, maxWidth: 560, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 12 }}>
           <Ic n="check" size={19} color={T.volt} /><X s={13.5} c={T.white} style={{ flexShrink: 1 }}>{toastMsg}</X></View></View>}
-      <Dialog open={switcher} title="Switch workspace" sub="Demo only — see the app as a different person" onClose={() => setSwitcher(false)} width={460}>
-        {(['Main Admin', 'Co-Admin', 'Read-only'] as Role[]).map(r => <Pressable key={r} accessibilityRole="button" onPress={() => { setRole(r); setSwitcher(false); setHistory([]); setRoute({ r: 'home' }); }}
-          style={{ flexDirection: 'row', gap: 11, alignItems: 'center', backgroundColor: T.white, borderWidth: 1.5, borderColor: role === r ? T.steel : T.zinc2, borderRadius: 10, padding: 13, marginBottom: 9 }}>
-          <Avatar n={r === 'Read-only' ? 'eye' : 'shield'} tone={role === r ? 'blue' : 'mute'} />
-          <View style={{ flex: 1 }}><X s={15} w={7}>{r}</X><X s={12.5} c={T.slate}>{r === 'Main Admin' ? 'Everything, including admin users and warranty policy' : r === 'Co-Admin' ? 'Dealers, entries, stock and reports' : 'Look at everything, change nothing'}</X></View>
-          {role === r && <Chip tone="info" icon="check" label="Current" />}</Pressable>)}
-        <Pressable accessibilityRole="button" onPress={() => { setSwitcher(false); onDealer(); }} style={{ flexDirection: 'row', gap: 11, alignItems: 'center', backgroundColor: T.voltSoft, borderWidth: 1.5, borderColor: '#EBD49C', borderRadius: 10, padding: 13, marginBottom: 14 }}>
-          <Avatar n="shop" tone="amber" /><View style={{ flex: 1 }}><X s={15} w={7}>Dealer app</X><X s={12.5} c={T.slate}>Felix Power Point, Dhule — the phone app dealers use</X></View><Ic n="chev" size={22} color={T.zinc3} /></Pressable>
-        <Btn kind="ghost" icon="lock" label="Show the admin sign-in screen" onPress={ctx.signOut} />
+      <Dialog open={account} title="Your account" onClose={() => setAccount(false)} width={460}>
+        <View style={{ flexDirection: 'row', gap: 11, alignItems: 'center', backgroundColor: T.white, borderWidth: 1, borderColor: T.zinc2, borderRadius: 10, padding: 13, marginBottom: 14 }}>
+          <Avatar n="user" tone="amber" />
+          <View style={{ flex: 1 }}><X s={15} w={7}>{user.name}</X><X s={12.5} c={T.slate}>{role}</X></View>
+          <Chip tone="live" icon="check" label="Signed in" /></View>
+        <X s={13} c={T.slate} style={{ marginBottom: 14 }}>Your role comes from your account and is checked by the server on every action. To work as someone else, sign out and sign in with their account.</X>
+        <Btn kind="ghost" icon="logout" label="Sign out" color={T.terminal} borderColor="#F0C7BC" onPress={ctx.signOut} />
       </Dialog>
     </SafeAreaView>
   </ACtx.Provider>;
@@ -108,10 +109,10 @@ function Sidebar() {
         </View>)}
         <View style={{ height: 12 }} />
       </ScrollView>
-      <Pressable accessibilityRole="button" accessibilityLabel="Switch workspace" onPress={a.openSwitcher} style={{ marginTop: 'auto', paddingVertical: 12, paddingHorizontal: 9, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)', flexDirection: 'row', gap: 9, alignItems: 'center' }}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Your account" onPress={a.openSwitcher} style={{ marginTop: 'auto', paddingVertical: 12, paddingHorizontal: 9, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)', flexDirection: 'row', gap: 9, alignItems: 'center' }}>
         <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: T.volt, alignItems: 'center', justifyContent: 'center' }}><Ic n="user" size={18} color="#2A1F02" /></View>
-        <View style={{ flex: 1 }}><X s={12} w={7} c={T.white} lh={1.3}>S. Deshpande</X><X s={12} c="#AEBCCC" lh={1.3}>{role} · {state.offline ? 'offline' : 'online'}</X></View>
-        <Ic n="swap" size={16} color="#AEBCCC" />
+        <View style={{ flex: 1 }}><X s={12} w={7} c={T.white} lh={1.3} numberOfLines={1}>{a.user.name}</X><X s={12} c="#AEBCCC" lh={1.3}>{role} · {state.offline ? 'offline' : 'online'}</X></View>
+        <Ic n="logout" size={16} color="#AEBCCC" />
       </Pressable>
     </View>;
   }
@@ -132,7 +133,7 @@ function More() {
   const { state, role } = useStore(); const a = useA();
   return <Page title="Everything">
     <Pressable accessibilityRole="button" onPress={a.openSwitcher} style={{ flexDirection: 'row', gap: 12, alignItems: 'center', backgroundColor: T.white, borderWidth: 1, borderColor: T.zinc2, borderRadius: 10, padding: 14 }}>
-      <Avatar n="user" tone="amber" /><View style={{ flex: 1 }}><X s={17} w={7}>S. Deshpande</X><X s={12.5} c={T.slate}>{role} · tap to switch</X></View><Ic n="swap" color={T.slate} /></Pressable>
+      <Avatar n="user" tone="amber" /><View style={{ flex: 1 }}><X s={17} w={7}>{a.user.name}</X><X s={12.5} c={T.slate}>{role} · account & sign out</X></View><Ic n="logout" color={T.slate} /></Pressable>
     {NAV.map(([group, items]) => <View key={group}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 20, marginBottom: 9 }}><X s={13} w={7} c={T.slate}>{group}</X><View style={{ flex: 1, height: 1, backgroundColor: T.zinc2 }} /></View>
       <View style={{ backgroundColor: T.white, borderWidth: 1, borderColor: T.zinc2, borderRadius: 10, paddingHorizontal: 14 }}>

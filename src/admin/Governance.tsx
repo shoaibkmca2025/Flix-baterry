@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { View, Pressable, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { adminLogin, passwordForgot, passwordReset, verifyOtp } from '../api/auth';
+import { ApiError } from '../api/client';
+import { saveSession, type Session } from '../api/session';
 import { useStore } from '../store';
 import { Role, Staff, uid, validateEntry } from '../domain';
 import { printHtml, escapeHtml } from '../reports';
@@ -131,10 +134,10 @@ export function Settings() {
     <Cols>
       <Stack>
         <Card><CardH title="Your account" right={<Chip tone="info" icon="shield" label={role} />} />
-          <KV pairs={[['Name', 'S. Deshpande'], ['Role', role], ['Sign-in', 'Preview session'], ['Two-step code', 'Needs server']]} />
+          <KV pairs={[['Name', a.user.name], ['Role', role], ['Sign-in', 'Email, password + two-step code'], ['Session', 'Ends after 15 minutes']]} />
           <View style={{ height: 12 }} />
           <Select label="Language for menus" value={state.language} options={['English', 'मराठी']} onChange={v => setState(s => ({ ...s, language: v as any }))} hint="Menu labels switch to Marathi. Record details stay in English." />
-          <View style={{ flexDirection: 'row', gap: 9, flexWrap: 'wrap' }}><Btn kind="ghost" sm icon="swap" label="Switch workspace" onPress={a.openSwitcher} /><Btn kind="ghost" sm icon="logout" label="Sign out" onPress={a.signOut} /></View>
+          <View style={{ flexDirection: 'row', gap: 9, flexWrap: 'wrap' }}><Btn kind="ghost" sm icon="logout" label="Sign out" onPress={a.signOut} /></View>
         </Card>
         <Card><CardH title="Sync & offline" right={state.offline ? <Chip tone="warn" icon="cloud" label="Offline" /> : <Chip tone="live" icon="wifi" label="Online" />} />
           <ToggleRow label="Work offline (practice)" sub="See how the app behaves without signal" value={state.offline} onChange={v => setState(s => ({ ...s, offline: v }))} />
@@ -164,19 +167,58 @@ export function Settings() {
 }
 
 /* ---------- admin sign-in ---------- */
-export function SignIn({ onDone, onDealer }: { onDone: (r: Role) => void; onDealer: () => void }) {
-  const { state, setState, audit } = useStore(); const inset = useSafeAreaInsets();
-  const [mode, setMode] = useState<'in' | 'reset'>('in'), [role, setRole] = useState<Role>('Main Admin'), [email, setEmail] = useState(''), [pw, setPw] = useState(''), [code, setCode] = useState(''), [err, setErr] = useState(''), [done, setDone] = useState('');
-  const submit = () => {
-    const staff = state.staff.find(u => u.email.toLowerCase() === email.trim().toLowerCase() && !u.dealerId);
-    if (!/^\S+@\S+\.\S+$/.test(email.trim())) { setErr('Enter your work email.'); return; }
-    if (pw.length < 8) { setErr('The password has at least 8 characters.'); return; }
-    if (code !== '123456') { setErr('That two-step code is not right. In this preview it is 123456.'); return; }
-    if (staff && staff.status !== 'Active') { setErr(`This account is ${staff.status.toLowerCase()}. Ask the Main Admin.`); return; }
-    const r = (staff && ['Main Admin', 'Co-Admin', 'Read-only'].includes(staff.role) ? staff.role : role) as Role;
-    setState(s => audit(s, 'Admin signed in', staff?.id || 'SESSION', `${email.trim()} as ${r}`));
-    onDone(r);
+export function SignIn({ onDone, onDealer }: { onDone: (session: Session) => void; onDealer: () => void }) {
+  const inset = useSafeAreaInsets();
+  const [mode, setMode] = useState<'in' | 'reset'>('in'), [email, setEmail] = useState(''), [pw, setPw] = useState(''), [code, setCode] = useState(''), [err, setErr] = useState(''), [done, setDone] = useState('');
+  const [challenge, setChallenge] = useState<string | null>(null), [busy, setBusy] = useState(false);
+  const fail = (e: unknown, fallback: string) => setErr(e instanceof ApiError ? e.message : fallback);
+  const reset = (m: 'in' | 'reset') => { setMode(m); setChallenge(null); setCode(''); setPw(''); setErr(''); };
+  const validEmail = () => { if (/^\S+@\S+\.\S+$/.test(email.trim())) return true; setErr('Enter your work email.'); return false; };
+
+  // Step 1: email + password → the server sends a two-step code. Step 2: the code → a real session.
+  const signIn = async () => {
+    if (busy) return;
+    if (!challenge) {
+      if (!validEmail()) return;
+      if (pw.length < 8) { setErr('The password has at least 8 characters.'); return; }
+      setBusy(true);
+      try { setChallenge((await adminLogin(email.trim(), pw)).challengeId); setDone(''); setErr(''); }
+      catch (e) { fail(e, 'Could not reach the server. Try again.'); }
+      finally { setBusy(false); }
+      return;
+    }
+    if (code.length < 6) { setErr('Enter the 6-digit code.'); return; }
+    setBusy(true);
+    try {
+      const result = await verifyOtp(challenge, code);
+      if (!('accessToken' in result) || result.user.scope !== 'admin') { setErr('This account cannot open the head office console.'); return; }
+      const session: Session = { user: result.user };
+      await saveSession({ accessToken: result.accessToken, refreshToken: result.refreshToken }, session);
+      onDone(session);
+    } catch (e) { fail(e, 'That code is not right.'); }
+    finally { setBusy(false); }
   };
+
+  // Reset: email → code → verified token → new password.
+  const resetPassword = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (!challenge) {
+        if (!validEmail()) return;
+        setChallenge((await passwordForgot(email.trim())).challengeId); setErr('');
+        return;
+      }
+      if (code.length < 6) { setErr('Enter the 6-digit code.'); return; }
+      if (pw.length < 8) { setErr('Choose a password of at least 8 characters.'); return; }
+      const result = await verifyOtp(challenge, code);
+      if (!('verifiedToken' in result)) { setErr('That code cannot be used to reset a password.'); return; }
+      await passwordReset(result.verifiedToken, pw);
+      reset('in'); setDone('Password changed. Sign in with your new password.');
+    } catch (e) { fail(e, 'Could not reach the server. Try again.'); }
+    finally { setBusy(false); }
+  };
+
   return <ScrollView style={{ flex: 1, backgroundColor: T.ink }} contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 20, paddingTop: 20 + inset.top }} keyboardShouldPersistTaps="handled">
     <View style={{ width: '100%', maxWidth: 400 }}>
       <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
@@ -184,27 +226,35 @@ export function SignIn({ onDone, onDealer }: { onDone: (r: Role) => void; onDeal
         <View><X s={17} w={7} c={T.white}>Felix Batteries</X><X s={12} c="#8C9BAE">Head office console</X></View></View>
       <View style={{ backgroundColor: T.white, borderRadius: 12, padding: 24 }}>
         {mode === 'in' ? <>
-          <Select label="Sign in as (preview)" value={role} options={[{ v: 'Main Admin', sub: 'Everything' }, { v: 'Co-Admin', sub: 'Dealers, entries, stock, reports' }, { v: 'Read-only', sub: 'Look, not change' }]} onChange={v => setRole(v as Role)} />
-          <Field label="Work email" req value={email} onChange={v => { setEmail(v); setErr(''); }} ph="admin@example.com" />
-          <Field label="Password" req secure value={pw} onChange={v => { setPw(v); setErr(''); }} ph="••••••••••" />
-          <Card style={{ backgroundColor: T.steelSoft, borderColor: '#C3D8F6' }}><CardH title="Two-step code" size={14} right={<Chip tone="mute" icon="lock" label="Preview: 123456" />} /><OtpBoxes value={code} onChange={v => { setCode(v); setErr(''); }} /></Card>
+          <X s={19} w={7} f="c" style={{ marginBottom: 12 }}>Sign in</X>
+          {!challenge ? <>
+            <Field label="Work email" req value={email} onChange={v => { setEmail(v); setErr(''); }} ph="admin@example.com" />
+            <Field label="Password" req secure value={pw} onChange={v => { setPw(v); setErr(''); }} ph="••••••••••" />
+          </> : <Card style={{ backgroundColor: T.steelSoft, borderColor: '#C3D8F6' }}>
+            <CardH title="Two-step code" size={14} />
+            <X s={13} c={T.slate} style={{ marginBottom: 10 }}>We sent a 6-digit code for {email.trim()}.</X>
+            <OtpBoxes value={code} onChange={v => { setCode(v); setErr(''); }} />
+          </Card>}
           {err ? <Hint tone="err">{err}</Hint> : null}
           {done ? <Banner tone="ok" icon="check" style={{ marginTop: 12 }}>{done}</Banner> : null}
-          <Btn kind="blue" icon="lock" label="Sign in" style={{ marginTop: 13 }} onPress={submit} />
-          <Pressable accessibilityRole="button" onPress={() => { setMode('reset'); setErr(''); setCode(''); }} style={{ alignSelf: 'center', padding: 8, marginTop: 4 }}><X s={13} w={6} c={T.steel}>Forgot password?</X></Pressable>
+          <Btn kind="blue" icon="lock" label={busy ? 'Please wait…' : challenge ? 'Sign in' : 'Continue'} style={{ marginTop: 13 }} onPress={signIn} />
+          {challenge
+            ? <Pressable accessibilityRole="button" onPress={() => reset('in')} style={{ alignSelf: 'center', padding: 8, marginTop: 4 }}><X s={13} w={6} c={T.steel}>Use a different account</X></Pressable>
+            : <Pressable accessibilityRole="button" onPress={() => { reset('reset'); setDone(''); }} style={{ alignSelf: 'center', padding: 8, marginTop: 4 }}><X s={13} w={6} c={T.steel}>Forgot password?</X></Pressable>}
           <Hint icon="shield" center>Every admin sign-in is recorded in the audit log.</Hint>
         </> : <>
           <X s={19} w={7} f="c" style={{ marginBottom: 6 }}>Reset your password</X>
-          <X s={13.5} c={T.slate} style={{ marginBottom: 14 }}>We send a code to your work email, then you choose a new password. In this preview nothing is sent and the code is 123456.</X>
-          <Field label="Work email" req value={email} onChange={setEmail} />
-          <X s={13} w={6} c={T.ink3} style={{ marginBottom: 5 }}>Code</X><OtpBoxes value={code} onChange={setCode} />
-          <Field label="New password" req secure value={pw} onChange={setPw} style={{ marginTop: 13 }} hint="At least 8 characters." hintIcon="shield" />
+          <X s={13.5} c={T.slate} style={{ marginBottom: 14 }}>We send a code to your work email, then you choose a new password.</X>
+          {!challenge ? <Field label="Work email" req value={email} onChange={v => { setEmail(v); setErr(''); }} /> : <>
+            <X s={13} w={6} c={T.ink3} style={{ marginBottom: 5 }}>Code sent to {email.trim()}</X><OtpBoxes value={code} onChange={v => { setCode(v); setErr(''); }} />
+            <Field label="New password" req secure value={pw} onChange={v => { setPw(v); setErr(''); }} style={{ marginTop: 13 }} hint="At least 8 characters." hintIcon="shield" />
+          </>}
           {err ? <Hint tone="err">{err}</Hint> : null}
-          <Btn kind="blue" icon="check" label="Save new password" style={{ marginTop: 6 }} onPress={() => { if (!/^\S+@\S+\.\S+$/.test(email.trim()) || code !== '123456' || pw.length < 8) { setErr('Use your email, code 123456 and a password of 8 or more characters.'); return; } setMode('in'); setCode(''); setPw(''); setErr(''); setDone('Password changed (preview — no real account was touched). Sign in with it now.'); }} />
-          <Pressable accessibilityRole="button" onPress={() => { setMode('in'); setErr(''); }} style={{ alignSelf: 'center', padding: 8, marginTop: 4 }}><X s={13} w={6} c={T.steel}>Back to sign in</X></Pressable>
+          <Btn kind="blue" icon="check" label={busy ? 'Please wait…' : challenge ? 'Save new password' : 'Send code'} style={{ marginTop: 6 }} onPress={resetPassword} />
+          <Pressable accessibilityRole="button" onPress={() => reset('in')} style={{ alignSelf: 'center', padding: 8, marginTop: 4 }}><X s={13} w={6} c={T.steel}>Back to sign in</X></Pressable>
         </>}
       </View>
-      <Pressable accessibilityRole="button" onPress={onDealer} style={{ alignSelf: 'center', padding: 10, marginTop: 14 }}><X s={13} w={6} c="#AEBCCC" style={{ textDecorationLine: 'underline' }}>Dealer? Open the dealer app</X></Pressable>
+      <Pressable accessibilityRole="button" onPress={onDealer} style={{ alignSelf: 'center', padding: 10, marginTop: 14 }}><X s={13} w={6} c="#AEBCCC" style={{ textDecorationLine: 'underline' }}>Dealer? Sign in to the dealer app</X></Pressable>
     </View>
   </ScrollView>;
 }

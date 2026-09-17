@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { View, ScrollView, Pressable, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Entry } from '../domain';
+import type { Session } from '../api/session';
 import { useStore } from '../store';
 import { T } from './theme';
 import { X, Ic, IconBtn, IconName } from './kit';
@@ -13,7 +14,7 @@ export type DealerCtx = {
   go: (id: string, p?: string) => void; back: (to: string, p?: string) => void; tab: (id: string) => void;
   toast: (m: string) => void;
   flow: Flow | null; setFlow: React.Dispatch<React.SetStateAction<Flow | null>>;
-  signIn: (dealerId: string) => void; signOut: () => void; headOffice: () => void;
+  signIn: (session: Session) => void; signOut: () => void; headOffice: () => void;
   recent: string[]; addRecent: (code: string) => void;
 };
 export const DCtx = createContext<DealerCtx>(null!);

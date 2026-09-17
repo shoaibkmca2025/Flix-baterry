@@ -89,6 +89,5 @@ export function D09() {
     </Card>
     <Btn kind="ghost" label="Sign out" color={T.terminal} borderColor="#F0C7BC" style={{ marginTop: 13 }} onPress={d.signOut} />
     <X s={12} c={T.slate} style={{ textAlign: 'center', marginTop: 14 }}>Felix Dealer App v1.0 · built by 4AM Global Media</X>
-    <Pressable accessibilityRole="button" onPress={d.headOffice} style={{ alignSelf: 'center', marginTop: 6, padding: 6 }}><X s={12} w={6} c={T.slate} style={{ textDecorationLine: 'underline' }}>Switch to head office workspace (demo)</X></Pressable>
   </Screen>;
 }

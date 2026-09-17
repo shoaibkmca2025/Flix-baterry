@@ -39,6 +39,13 @@ export async function getDeviceId(): Promise<string> {
 
 export type ApiOptions = { accessToken?: string };
 
+// Set by the app root. Called when the server rejects a signed-in request (expired or revoked
+// token), so the app returns to the sign-in screen instead of staying on a dashboard.
+let unauthorizedHandler: (() => void) | null = null;
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  unauthorizedHandler = handler;
+}
+
 export async function apiPost<T>(path: string, body: unknown, options: ApiOptions = {}): Promise<T> {
   const deviceId = await getDeviceId();
   const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Device-Id': deviceId };
@@ -46,6 +53,7 @@ export async function apiPost<T>(path: string, body: unknown, options: ApiOption
 
   const res = await fetch(`${API_BASE_URL}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
   const json = await res.json().catch(() => ({}));
+  if (res.status === 401 && options.accessToken) unauthorizedHandler?.();
   if (!res.ok) {
     throw new ApiError(res.status, json.error ?? { code: 'unknown_error', message: 'Something went wrong. Try again.' });
   }
@@ -59,6 +67,7 @@ export async function apiGet<T>(path: string, options: ApiOptions = {}): Promise
 
   const res = await fetch(`${API_BASE_URL}${path}`, { method: 'GET', headers });
   const json = await res.json().catch(() => ({}));
+  if (res.status === 401 && options.accessToken) unauthorizedHandler?.();
   if (!res.ok) {
     throw new ApiError(res.status, json.error ?? { code: 'unknown_error', message: 'Something went wrong. Try again.' });
   }

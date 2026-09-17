@@ -2,59 +2,50 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, ScrollView, Platform, BackHandler, KeyboardAvoidingView, StatusBar, useWindowDimensions, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useStore } from '../store';
 import { T, useDealerFonts } from './theme';
 import { X, Ic } from './kit';
 import { DCtx, DealerCtx, Flow, Route } from './shell';
+import type { Session } from '../api/session';
 import { D01, D02, D03, D04, D05, D06 } from './Access';
 import { D07, D09 } from './Home';
 import { D10, D11, D12, D13, D15, D16, D17, D31 } from './Capture';
 import { D32, D33, D34, D35, D36, D37 } from './Claims';
 import { D18, D19, D23, D24 } from './Records';
 
-const SESSION = 'felix-dealer-session';
 const SCREENS: Record<string, React.ComponentType<{ p?: string }>> = { d01: D01, d02: D02, d03: D03, d04: D04, d05: D05, d06: D06, d07: D07, d09: D09, d10: D10, d11: D11, d12: D12, d13: D13, d15: D15, d16: D16, d17: D17, d31: D31, d32: D32, d33: D33, d34: D34, d35: D35, d36: D36, d37: D37, d18: D18, d19: D19, d23: D23, d24: D24 };
 const SIGNED_OUT = ['d01', 'd02', 'd03', 'd04', 'd05'];
 const TAB_ROOTS = ['d07', 'd33', 'd18', 'd23', 'd09'];
 
 /** Dealer mobile app — the client-approved dealer UI. Head office keeps its own workspace. */
-export function DealerApp({ startHome, onHeadOffice }: { startHome: boolean; onHeadOffice: () => void }) {
+export function DealerApp({ signedIn, onSignedIn, onSignOut, onHeadOfficeSignIn }: { signedIn: boolean; onSignedIn: (session: Session) => void; onSignOut: () => void; onHeadOfficeSignIn: () => void }) {
   const [fontsLoaded, fontError] = useDealerFonts();
-  const { state, dealerId, setDealerId } = useStore();
+  const { state, dealerId } = useStore();
   const { width } = useWindowDimensions();
   const framed = Platform.OS === 'web' && width >= 700;
-  const [route, setRoute] = useState<Route | null>(startHome ? { id: 'd07' } : null);
+  const [route, setRoute] = useState<Route>(signedIn ? { id: 'd07' } : { id: 'd01' });
   const [history, setHistory] = useState<Route[]>([]);
   const [flow, setFlow] = useState<Flow | null>(null);
   const [toastMsg, setToastMsg] = useState('');
   const [recent, setRecent] = useState<string[]>([]);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  useEffect(() => {
-    if (startHome) { AsyncStorage.setItem(SESSION, dealerId).catch(() => {}); return; }
-    AsyncStorage.getItem(SESSION).then(id => {
-      const dealer = state.dealers.find(x => x.id === id);
-      if (dealer && dealer.status === 'Active') { setDealerId(dealer.id); setRoute({ id: 'd07' }); } else setRoute({ id: 'd01' });
-    }).catch(() => setRoute({ id: 'd01' }));
-  }, []);
-
   const toast = useCallback((m: string) => { setToastMsg(m); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToastMsg(''), 2600); }, []);
-  const go = (id: string, p?: string) => { setHistory(h => route ? [...h, route] : h); setRoute({ id, p }); setToastMsg(''); };
+  const go = (id: string, p?: string) => { setHistory(h => [...h, route]); setRoute({ id, p }); setToastMsg(''); };
   const back = (to: string, p?: string) => {
     const at = history.map(h => h.id).lastIndexOf(to);
     if (at >= 0) { setRoute(history[at]); setHistory(history.slice(0, at)); } else setRoute({ id: to, p });
     setToastMsg('');
   };
   const tab = (id: string) => { setHistory([]); setRoute({ id }); setToastMsg(''); };
-  const signIn = (id: string) => { setDealerId(id); AsyncStorage.setItem(SESSION, id).catch(() => {}); setHistory([]); setRoute({ id: 'd07' }); setToastMsg(''); };
-  const signOut = () => { AsyncStorage.removeItem(SESSION).catch(() => {}); setFlow(null); setHistory([]); setRoute({ id: 'd02' }); };
-  const headOffice = () => { AsyncStorage.removeItem(SESSION).catch(() => {}); onHeadOffice(); };
+  // The root owns the session: signing in or out remounts this app on the right side of the gate.
+  const signIn = (session: Session) => onSignedIn(session);
+  const signOut = () => onSignOut();
+  const headOffice = () => onHeadOfficeSignIn();
   const addRecent = useCallback((code: string) => setRecent(r => [code, ...r.filter(c => c !== code)].slice(0, 5)), []);
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (!route) return false;
       if (history.length) { setRoute(history[history.length - 1]); setHistory(history.slice(0, -1)); return true; }
       if (TAB_ROOTS.includes(route.id) && route.id !== 'd07') { setRoute({ id: 'd07' }); return true; }
       return false;
@@ -62,13 +53,13 @@ export function DealerApp({ startHome, onHeadOffice }: { startHome: boolean; onH
     return () => sub.remove();
   }, [route, history]);
 
-  // A signed-out visitor can only reach the access screens.
+  // No login, no dashboard: without a signed-in session only the access screens can render.
   const dealer = state.dealers.find(x => x.id === dealerId);
-  const guarded = route && !SIGNED_OUT.includes(route.id) && dealer?.status !== 'Active' ? { id: 'd02' } : route;
+  const guarded: Route = !SIGNED_OUT.includes(route.id) && (!signedIn || dealer?.status !== 'Active') ? { id: 'd02' } : route;
 
-  const ctx: DealerCtx = { route: guarded || { id: 'd01' }, framed, go, back, tab, toast, flow, setFlow, signIn, signOut, headOffice, recent, addRecent };
-  const ready = (fontsLoaded || fontError) && guarded;
-  const Current = guarded ? SCREENS[guarded.id] || D07 : null;
+  const ctx: DealerCtx = { route: guarded, framed, go, back, tab, toast, flow, setFlow, signIn, signOut, headOffice, recent, addRecent };
+  const ready = fontsLoaded || fontError;
+  const Current = SCREENS[guarded.id] || D02;
   const phone = <View style={{ flex: 1, backgroundColor: T.zinc, overflow: 'hidden', borderRadius: framed ? 28 : 0 }}>
     {ready && Current ? <Current key={`${guarded!.id}:${guarded!.p || ''}`} p={guarded!.p} /> : <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: T.ink }}><ActivityIndicator color={T.volt} /></View>}
     {!!toastMsg && <View accessibilityRole="alert" pointerEvents="none" style={{ position: 'absolute', left: 15, right: 15, bottom: 84, zIndex: 50, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: T.ink, paddingVertical: 13, paddingHorizontal: 15, borderRadius: 11, shadowColor: '#000', shadowOpacity: 0.6, shadowRadius: 30, shadowOffset: { width: 0, height: 12 }, elevation: 12 }}>

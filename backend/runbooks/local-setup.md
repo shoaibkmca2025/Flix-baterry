@@ -5,7 +5,7 @@
 3. `npm install`
 4. `docker compose up -d` — starts Postgres 16 and Redis 7.
 5. `npm run db:migrate` — applies every migration in `src/db/migrations`, in order.
-6. `npm run dev` — starts the API on `http://localhost:8080`.
+6. `n` — starts the API on `http://localhost:8080`.
 7. Check `http://localhost:8080/api/v1/ready` — should return `{"ready":true,"checks":{"database":true}}`.
 
 ## Windows: enabling Docker Desktop

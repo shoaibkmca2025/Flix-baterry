@@ -10,7 +10,7 @@ import { dLong, tShort } from './data';
 import { requestOtp, verifyOtp, type VerifyOtpLoginResult, type VerifyOtpVerifiedResult } from '../api/auth';
 import { registerDealer } from '../api/dealers';
 import { ApiError } from '../api/client';
-import { saveTokens, dealerStatusLabel } from '../api/session';
+import { saveSession, dealerStatusLabel } from '../api/session';
 import { getMastersBundle, type City } from '../api/masters';
 
 const digits = (v: string, n: number) => v.replace(/\D/g, '').slice(0, n);
@@ -56,7 +56,7 @@ function useCountdown() {
 
 /* d02 · sign in */
 export function D02() {
-  const d = useD(); const { state, setState } = useStore();
+  const d = useD();
   const cities = useCities();
   const [mobile, setMobile] = useState(''), [code, setCode] = useState(''), [sent, setSent] = useState(false), [error, setError] = useState<{ mobile?: string; code?: string }>({});
   const [challengeId, setChallengeId] = useState(''), [busy, setBusy] = useState(false);
@@ -88,9 +88,9 @@ export function D02() {
         place: dealer.place || '', address: dealer.address,
         pin: dealer.pin, state: dealer.state, status: dealerStatusLabel(dealer.status),
       };
-      setState(s => ({ ...s, dealers: [mapped, ...s.dealers.filter(x => x.id !== mapped.id)] }));
-      await saveTokens(result.accessToken, result.refreshToken);
-      d.signIn(dealer.id);
+      const session = { user: result.user, dealer: mapped };
+      await saveSession({ accessToken: result.accessToken, refreshToken: result.refreshToken }, session);
+      d.signIn(session);
     } catch (e) {
       if (e instanceof ApiError && e.code === 'dealer_not_active') {
         const details = e.details as { status?: string; dealerId?: string } | undefined;
@@ -112,7 +112,7 @@ export function D02() {
     </Card>
     <Btn kind="primary" icon="check" label="Sign in" onPress={signIn} disabled={busy} />
     <BtnRow><Btn kind="ghost" sm label="Forgot password" style={{ alignSelf: 'stretch' }} onPress={() => d.go('d03')} /><Btn kind="ghost" sm label="New dealer? Register" style={{ alignSelf: 'stretch' }} onPress={() => d.go('d04')} /></BtnRow>
-    <Pressable accessibilityRole="button" onPress={d.headOffice} style={{ alignSelf: 'center', marginTop: 22, padding: 6 }}><X s={12.5} w={6} c={T.slate} style={{ textDecorationLine: 'underline' }}>Head office staff? Open the admin workspace</X></Pressable>
+    <Pressable accessibilityRole="button" onPress={d.headOffice} style={{ alignSelf: 'center', marginTop: 22, padding: 6 }}><X s={12.5} w={6} c={T.slate} style={{ textDecorationLine: 'underline' }}>Head office staff? Sign in here</X></Pressable>
   </Screen>;
 }
 
@@ -237,8 +237,9 @@ export function D05({ p }: { p?: string }) {
     <X s={15} c={T.slate} style={{ textAlign: 'center', marginBottom: 18 }}>{approved ? 'You can sign in and record entries now.' : 'Felix Batteries will review your shop details. You cannot record entries until then.'}</X>
     {dealer && <Card><KV pairs={[['Shop', dealer.name], ['City', dealer.city], ['Mobile', `+91 ${grouped(digits(dealer.mobile, 10))}`, 'mono'], ['Submitted', sent ? `${dLong(sent)}, ${tShort(sent)}` : '—']]} /></Card>}
     <Banner tone="info" icon="bell" style={{ marginTop: 12 }}>You will get an SMS and an in-app message the moment a decision is made. Most reviews finish the same working day.</Banner>
-    <BtnRow><Btn kind="ghost" label="Back to sign in" onPress={() => d.go('d02')} />
-      {approved ? <Btn kind="blue" label="Sign in now" onPress={() => d.signIn(dealer!.id)} /> : <Btn kind="blue" label="Preview approved app" onPress={() => { d.signIn('FPP-014'); d.toast('Preview: showing the demo shop, Felix Power Point.'); }} />}</BtnRow>
+    {approved
+      ? <Btn kind="blue" icon="check" label="Sign in now" style={{ marginTop: 11 }} onPress={() => d.go('d02')} />
+      : <Btn kind="ghost" label="Back to sign in" style={{ marginTop: 11 }} onPress={() => d.go('d02')} />}
   </Screen>;
 }
 

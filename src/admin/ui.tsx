@@ -11,7 +11,7 @@ import { dShort, avatarTone } from '../dealer/data';
 
 /* ---------- navigation context ---------- */
 export type ARoute = { r: string; id?: string };
-export type AdminCtx = { route: ARoute; go: (r: string, id?: string) => void; root: (r: string) => void; back: () => void; canBack: boolean; toast: (m: string) => void; wide: boolean; openMenu: () => void; openSwitcher: () => void; signOut: () => void };
+export type AdminCtx = { route: ARoute; go: (r: string, id?: string) => void; root: (r: string) => void; back: () => void; canBack: boolean; toast: (m: string) => void; wide: boolean; openMenu: () => void; openSwitcher: () => void; signOut: () => void; user: { name: string; role: string } };
 export const ACtx = createContext<AdminCtx>(null!);
 export const useA = () => useContext(ACtx);
 export const useWide = () => useWindowDimensions().width >= 1000;
