@@ -154,8 +154,26 @@ Status: **closed** (agreed with the client in writing) · **assumed** (our defau
 | Pending dealer | Vidyut Power Centre (mobile `9876543214`) |
 | Old battery with cover | `26050195` (M5, chain root `21030047`, cover 10 Jan 2026 → 09 Jan 2028) |
 | Expired cover | `21040097` (M7, cover ended 08 Feb 2026) |
-| Available stock (FPP-014) | `26080311`, `26080312`, `26080313` (M5), `26080501` (B5), `26080502` (S5), `26080512` (I700) |
-| Battery held by another dealer | `26070400` (GLB-021) — custody conflict case |
+| Available stock (FPP-014) | `26080311`, `26080312`, `26080313` (M5), `26080501` (B5), `26080502` (S5), `26080512` (I700), plus `26090601`–`26090607` (M5, M5, B5, S5, M7, I700, M3) |
+| Battery held by another dealer | `26070400`, `26070402` (GLB-021) — custody conflict case |
+
+**Old batteries for testing a replacement** (added 17 Sep 2026; all FPP-014 unless stated). Each one exercises one branch of the validation pipeline, so a tester can reach every state without editing data:
+
+| Old battery | Model · customer | Cover | What it tests |
+|---|---|---|---|
+| `21020140` | M5 · Nashik Roadlines | active to 14 Jun 2027 | the ordinary happy path |
+| `21030017` | B5 · Patil Travels | active to 29 Feb 2028 | leap-year expiry date |
+| `21040211` | M7 · Shree Transport | active to 19 May 2028 | happy path, second model |
+| `26050195` | M5 · Suresh Transport | active to 09 Jan 2028 | chain that already has one replacement |
+| `21040104` | B5 · Kisan Agro | ending 09 Oct 2026 | "cover ending soon" warning |
+| `21040385` | B5 · Patil Farm | ending 01 Oct 2026 | ending soon + already on an open request |
+| `21050512` | I700 · Deshmukh Farms | ended 31 Jul 2025 | blocked — needs an override |
+| `20120066` | M5 · Sai Travels | ended 14 Jan 2026 | blocked — needs an override |
+| `21040097` | M7 · Deshmukh Auto | ended 08 Feb 2026 | blocked; also the seeded serial-exception entry |
+| `19070123` | M3 · Sunrise Hotel | none on record | allowed, flagged "not on record" |
+| `20110044` → `21030029` → `26060210` | M5 · Jain Logistics | active to 04 Jan 2027 | 3-link chain: the first two are blocked as "already replaced", the last is allowed and raises the replaced-twice flag |
+| `21010188` → `21040367` | S5 · Om Sai Motors | active to 11 Mar 2027 | "already replaced" block; matches seeded entry ENT-26-09-0413 |
+| `26070402` | S5 · GLB-021 | active | blocked — custody belongs to another dealer |
 | Serial exception entry | `ENT-26-09-0409` (old `21040097`, expired) |
 
 The backend seed (`backend/src/db/seed/demo.ts`) must reproduce exactly this data so the app's demo mode and the staging database tell the same story.
