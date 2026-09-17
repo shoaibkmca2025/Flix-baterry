@@ -38,6 +38,19 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-17 · dealer app wired to the real entries/batteries endpoints (Claude Code)
+**Worked on:** wiring `src/dealer/Capture.tsx` (screens d10–d17, the replacement/sales-return capture flow) to the backend built this same day, closing the loop the entries module was built for.
+**Done:**
+- `src/api/entries.ts` (`createEntry`, `getEntry`) and `src/api/batteries.ts` (`lookupBattery`) — new API client modules matching the existing `src/api/{auth,dealers,masters}.ts` pattern. `src/api/session.ts` gained `useAccessToken()`, a small hook wrapping the existing `getAccessToken()`.
+- d11 (old battery) and d13 (new/returned battery) now show live custody/warranty data from `GET /batteries/lookup` instead of the local demo store's `findBattery`/`coverOf` — including the duplicate-code and expired-cover feedback the server will actually enforce at submit time. d31 (carry-over) and d16 (review) show the real chain dates for the battery actually being replaced (memory.md D-03), computed from the same live lookup.
+- d16's "Send entry" calls `POST /entries` for a real signed-in dealer session, bridging the server's response (real `ENT-…` ref, status, dates) back into the local demo store so d17 displays the authoritative result under the same id the rest of the flow expects. The original local-only path is kept as a fallback whenever there's no real access token (the "preview approved app" demo path in d05 never calls the backend) or the device is marked offline — unchanged behaviour there, not a regression.
+- Verified: frontend `tsc --noEmit` clean, the Metro/web bundle compiles successfully with all new modules included (fetched and inspected directly), backend's 91 tests still green (untouched this pass).
+**Known gaps, called out rather than silently dropped:** photo evidence captured in the flow still has nowhere to go server-side — no Cloudinary integration yet (D-10 still open) — so photos stay local-only, same as before. A real dealer's entry submitted while `state.offline` is set still just saves a local "Pending sync" draft; there is no outbox that later replays it against the server (a genuine offline-sync design is a separate piece of work, not attempted here).
+**Blockers / decisions needed:** could not click through the actual UI — no browser-automation tool available in this environment. Recommend a manual pass in the browser signed in as the real seeded dealer (mobile `9876543210`, shop FPP-014, already active) submitting a Replacement end to end.
+**Next:** admin console (`src/admin/Entries.tsx` etc.) is still entirely demo-store-driven — approving/rejecting a real dealer-submitted entry from the real admin UI isn't wired yet, only the `POST /entries/{id}/approve` API endpoint itself (already live-tested via curl). That is the natural next piece if the client wants to review real submissions from the console rather than curl.
+
+---
+
 ### 2026-09-17 · entries module — the real submission-and-approval module, three stand-ins retired (Claude Code)
 **Worked on:** P3-06/P3-07 — `entries`, the permanent replacement for the three temporary endpoints (`POST /batteries/sell`, `POST /batteries/replace`, `POST /claims`) that stood in for it since the batteries and claims modules were first built.
 **Done:**

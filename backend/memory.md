@@ -33,7 +33,7 @@ V1 flow (statuses are existing enum values from `architecture.md §8.3`, not new
 
 | Area | State |
 |---|---|
-| Dealer app UI | Complete against the client HTML; works in a browser; camera/GPS/signature untested on real phones. Sign-in (`d02`) and registration (`d04`) now call the real backend instead of local demo logic; `d03` (reset password) still local-only. |
+| Dealer app UI | Complete against the client HTML; works in a browser; camera/GPS/signature untested on real phones. Sign-in (`d02`), registration (`d04`), and the full replacement/sales-return capture flow (`d10`–`d17`) now call the real backend instead of local demo logic; `d03` (reset password) still local-only. Photo evidence still has nowhere to go server-side (D-10 open) and stays local-only; a real signed-in dealer submitting while `state.offline` is set still just saves a local draft rather than replaying it later. |
 | Admin UI | Complete; desktop + phone layouts; tested in a browser. Not yet wired to the real backend — dealer approval, entries, etc. still read the local demo store. |
 | Shared rules | `src/domain.ts` (validation, warranty maths, chain resolution, approval effects) with 8 passing tests in `tests/domain.test.ts`; not yet moved into a shared `packages/domain` package (planned P0-03/P0-08, deliberately deferred so the working demo app isn't touched mid-refactor) |
 | Data | Local demo store (`src/store.tsx` + `src/seed.ts`) still backs everything except the two screens above. |
