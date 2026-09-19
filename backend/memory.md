@@ -1,6 +1,6 @@
 # Felix BMS — Project Memory
 
-Last updated: 17 September 2026 · Owner: 4AM Global Media (Vaibhav Pasi, Co-Founder) · Client: Felix Batteries Industries, Nashik
+Last updated: 19 September 2026 · Owner: 4AM Global Media (Vaibhav Pasi, Co-Founder) · Client: Felix Batteries Industries, Nashik
 
 This file is the **long-term memory** of the project: the facts, decisions, identifiers and credentials that every developer and every AI assistant must have in mind before touching code. It is short on purpose. Read it fully at the start of each session (`rules.md §1`). If something here is wrong, fix it here first — the code follows this file, not the other way round.
 
@@ -29,7 +29,7 @@ V1 flow (statuses are existing enum values from `architecture.md §8.3`, not new
 5. An engineer inspects the battery (`POST /claims/{id}/check`): records the finding and disposition. If the fault disqualifies the claim, status → `refused` ("rejected" in the team's words). Otherwise status stays `checked` ("in review"/"verification") awaiting a second person's sign-off.
 6. A second person decides (`POST /claims/{id}/decide`): `approved` issues a `credit_notes` row (the "claim refund") the dealer can see; `refused` records a reason. (Whether "engineer" and "decider" must be different people, or can be the same role for V1, is a permissions-config choice, not a schema one — default for now: same `claims.decide` permission can do both steps.)
 
-## 2. Current state (17 Sep 2026)
+## 2. Current state (19 Sep 2026)
 
 | Area | State |
 |---|---|
@@ -37,7 +37,7 @@ V1 flow (statuses are existing enum values from `architecture.md §8.3`, not new
 | Admin UI | Complete; desktop + phone layouts; tested in a browser. Not yet wired to the real backend — dealer approval, entries, etc. still read the local demo store. |
 | Shared rules | `src/domain.ts` (validation, warranty maths, chain resolution, approval effects) with 8 passing tests in `tests/domain.test.ts`; not yet moved into a shared `packages/domain` package (planned P0-03/P0-08, deliberately deferred so the working demo app isn't touched mid-refactor) |
 | Data | Local demo store (`src/store.tsx` + `src/seed.ts`) still backs everything except the two screens above. |
-| Backend | **Live and verified end-to-end** against a real Neon Postgres — migrations applied, demo data seeded, real OTP login, real JWT issuance. Six modules built: `auth` (OTP login, admin 2FA, password reset), `dealers` (register, profile, full approve/reject/suspend/activate lifecycle), `masters` (cities), `batteries` (scan-and-check-warranty lookup only — no longer has write endpoints), `claims` (check/decide/credit-note workflow — claims are now only ever created by `entries.approve`, not a standalone endpoint), `entries` (the real submission-and-approval module: dealer submits replacement/sales_return/regular_sales, admin approves in one transaction that writes batteries + chains + claims together). The three temporary stand-in endpoints (`POST /batteries/sell`, `/batteries/replace`, `POST /claims`) that briefly wrote to the same tables have been removed — `entries.approve` is now the single writer. RBAC (`middleware/rbac.ts`) enforces permissions on every admin action. 91 automated tests passing. Local Docker still not installed — Neon is filling that role for now as a shared dev database. |
+| Backend | **Live and verified end-to-end** against a real Neon Postgres — migrations applied (`0000`–`0007`), demo data seeded, real OTP login, real JWT issuance. **All 12 V1 modules exist** (§1a): `auth`, `dealers`, `masters`, `batteries` (+ `warranty` chains folded in), `entries` (the single writer of batteries/chains/claims on approval), `claims` (+ `returns` folded in: dispatch/receive/check/decide), `credits` (owns `credit_notes`; list/summary/detail for dealers, settle/reverse for admins), `stock` (append-only `stock_movements` ledger — `postMovementInTx` is the single writer of battery state, called by entries and claims), `audit` (read side with viewer-based redaction; `utils/audit.ts` remains the sole writer), `users` (`/me`, dealer staff, admin accounts, roles; `requireAuth` enforces user + dealer status on every request, 30 s cache). RBAC (`middleware/rbac.ts`) enforces permissions on every admin action; denied attempts are audited. **154 automated tests passing.** Deferred past V1: stock thresholds/alerts, role editing, audit export, notifications/outbox (staff-invite SMS etc.). Local Docker still not installed — Neon is the shared dev database. |
 | Repo | Git-initialized. `origin` → `github.com/shoaibkmca2025/Flix-baterry` (collaborator access granted 17 Sep 2026), `backup` → `github.com/Pratham2310/Felix`. `git pushall` pushes both. |
 | Old admin code | Kept unrendered in `src/legacy/Workspace.tsx` and the older `src/*.tsx` screens; delete only after client sign-off of the new admin |
 
