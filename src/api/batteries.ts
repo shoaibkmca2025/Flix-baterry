@@ -10,12 +10,35 @@ export type BatteryCover = {
 
 export type BatteryCustody = 'yours' | 'other' | 'customer' | 'company' | 'transit';
 
+export type BatteryChainInfo = {
+  id: string;
+  purchaseDate: string; // the original sale — every battery in the chain shares it (memory.md D-03)
+  warrantyExpiry: string;
+  termMonths: number;
+  replacementCount: number;
+  isOriginal: boolean; // this battery is the one first sold, not a replacement
+  installedOn: string | null; // when THIS battery was handed over as a replacement
+};
+
 export type BatteryLookupResult =
-  | { found: false; mfgMonth: string | null; serialNo: string; model: null; custody: null; cover: BatteryCover }
+  | { found: false; mfgMonth: string | null; serialNo: string; model: null; custody: null; chain: null; cover: BatteryCover }
   | {
       found: true;
-      battery: { id: string; batteryCode: string; serialNo: string; state: string; dealerId: string | null };
-      model: { id: string; type: string; capacity: string; warrantyMonths: number } | null;
+      mfgMonth: string | null;
+      serialNo: string;
+      battery: {
+        id: string;
+        batteryCode: string;
+        serialNo: string;
+        mfgMonth: string | null;
+        state: string;
+        notOnRecord: boolean;
+        alreadyReplaced: boolean; // entries.approve has already replaced it — cannot be replaced again
+        isReplacement: boolean; // it was itself handed over as a replacement
+        dealerId: string | null;
+      };
+      model: { id: string; family: string; type: string; capacity: string | null; warrantyMonths: number } | null;
+      chain: BatteryChainInfo | null;
       custody: BatteryCustody;
       cover: BatteryCover;
     };
