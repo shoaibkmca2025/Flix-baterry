@@ -12,9 +12,9 @@ function todayIso(ctx: Ctx): string {
   return ctx.now().toISOString().slice(0, 10);
 }
 
-function coverFromChain(chain: { warrantyStart: string; warrantyExpiry: string }, today: string) {
+function coverFromChain(chain: { warrantyStart: string; warrantyExpiry: string }, mfgMonth: string | null, today: string) {
   const daysRemaining = Math.ceil((Date.parse(chain.warrantyExpiry) - Date.parse(today)) / 86_400_000);
-  return { mfgMonth: null, expiryDate: chain.warrantyExpiry, inWarranty: daysRemaining >= 0, daysRemaining, warrantyStart: chain.warrantyStart };
+  return { mfgMonth, expiryDate: chain.warrantyExpiry, inWarranty: daysRemaining >= 0, daysRemaining, warrantyStart: chain.warrantyStart };
 }
 
 // architecture.md §9.9 batteries.lookup — capture-time lookup. Never reveals which OTHER
@@ -22,6 +22,11 @@ function coverFromChain(chain: { warrantyStart: string; warrantyExpiry: string }
 // memory.md D-03 (closed 2026-09-17): a battery that's part of a chain is covered by the
 // CHAIN's original start date, never its own manufacture date — the mfg-month rule below
 // only ever applies to a battery that has never been sold/replaced through the system.
+//
+// The dealer's old-battery screen (d11) shows everything this returns: manufacture month
+// (from the code's YYMM), model/type/capacity, the date it was bought (the chain's start),
+// when it was itself installed as a replacement, how many replacements the chain has had,
+// its current state, and the cover dates.
 export async function lookup(ctx: Ctx, code: string) {
   if (!ctx.user) {
     throw new AppError('unauthenticated', 401, 'Sign in required.');
@@ -38,12 +43,16 @@ export async function lookup(ctx: Ctx, code: string) {
     // Not on record yet — still useful: shows what warranty WOULD be if this code is used
     // for a brand-new sale (chain doesn't exist yet, so this is the mfg-month preview).
     const cover = checkWarranty(derived.mfgMonth!, todayIso(ctx), DEFAULT_WARRANTY_MONTHS);
-    return { found: false as const, mfgMonth: derived.mfgMonth, serialNo: derived.serialNo, model: null, custody: null, cover };
+    return { found: false as const, mfgMonth: derived.mfgMonth, serialNo: derived.serialNo, model: null, custody: null, chain: null, cover };
   }
 
-  const model = await repo.findModelById(db, battery.modelId);
-  const chain = battery.chainId ? await repo.findChainById(db, battery.chainId) : undefined;
-  const cover = chain ? coverFromChain(chain, todayIso(ctx)) : checkWarranty(battery.mfgMonth ?? derived.mfgMonth!, todayIso(ctx), model?.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS);
+  const mfgMonth = battery.mfgMonth ?? derived.mfgMonth;
+  const [model, chain, link] = await Promise.all([
+    repo.findModelById(db, battery.modelId),
+    battery.chainId ? repo.findChainById(db, battery.chainId) : undefined,
+    battery.replacedFromId ? repo.findReplacementLinkByNewBatteryId(db, battery.id) : undefined,
+  ]);
+  const cover = chain ? coverFromChain(chain, mfgMonth, todayIso(ctx)) : checkWarranty(mfgMonth!, todayIso(ctx), model?.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS);
 
   // custody never names which OTHER dealer holds it — 'other' is as specific as a dealer
   // caller gets. An admin caller additionally gets the real dealerId via `battery.dealerId`
@@ -54,14 +63,33 @@ export async function lookup(ctx: Ctx, code: string) {
 
   return {
     found: true as const,
+    mfgMonth,
+    serialNo: battery.serialNo,
     battery: {
       id: battery.id,
       batteryCode: battery.batteryCode,
       serialNo: battery.serialNo,
+      mfgMonth,
       state: battery.state,
+      notOnRecord: battery.notOnRecord,
+      // true once entries.approve has replaced this battery — it cannot be replaced again
+      alreadyReplaced: battery.replacedById !== null,
+      // true when this battery was itself handed over as a replacement (not the original sale)
+      isReplacement: battery.replacedFromId !== null,
       dealerId: ctx.user.scope === 'admin' ? battery.dealerId : custody === 'yours' ? battery.dealerId : null,
     },
-    model: model ? { id: model.id, type: model.type, capacity: model.capacity, warrantyMonths: model.warrantyMonths } : null,
+    model: model ? { id: model.id, family: model.family, type: model.type, capacity: model.capacity, warrantyMonths: model.warrantyMonths } : null,
+    chain: chain
+      ? {
+          id: chain.id,
+          purchaseDate: chain.warrantyStart, // the original sale — every battery in the chain shares it (D-03)
+          warrantyExpiry: chain.warrantyExpiry,
+          termMonths: chain.termMonths,
+          replacementCount: chain.replacementCount,
+          isOriginal: chain.rootBatteryId === battery.id,
+          installedOn: link?.replacedAt ?? null, // when THIS battery was handed over as a replacement
+        }
+      : null,
     custody,
     cover,
   };

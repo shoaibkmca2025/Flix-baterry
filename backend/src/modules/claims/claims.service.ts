@@ -2,18 +2,14 @@ import { db, withTransaction } from '../../database/client';
 import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
-import { monthKey, nextFormattedRef } from '../../utils/ids';
+import { issueInTx as issueCreditNoteInTx } from '../credits/credits.service';
 import { findBatteryById } from '../batteries/batteries.repository';
+import { postMovementInTx } from '../stock/stock.service';
 import type { claimStatus } from '../../models/claims.model';
 import * as repo from './claims.repository';
 import type { ClaimCheckBody, ClaimDecideBody, ClaimListQuery } from './claims.validation';
 
 type ClaimStatus = (typeof claimStatus.enumValues)[number];
-
-// memory.md D-08 — still open (client hasn't supplied real rates). These match the demo
-// values already in the app; swap for a real credit_rates table lookup once D-08 closes.
-const DEMO_CREDIT_RATES: Record<string, number> = { M3: 3800, M5: 4250, M7: 4900, B5: 3600, S5: 1400, I700: 5200 };
-const DEFAULT_CREDIT_RATE = 3000;
 
 function requireUser(ctx: Ctx) {
   if (!ctx.user) throw new AppError('unauthenticated', 401, 'Sign in required.');
@@ -29,10 +25,23 @@ async function loadClaimForTransition(id: string, expected: ClaimStatus) {
   return claim;
 }
 
+async function moveOldBattery(
+  tx: Parameters<typeof postMovementInTx>[0],
+  ctx: Ctx,
+  claim: { id: string; oldBatteryId: string },
+  move: { toState: 'returned' | 'repair' | 'scrap'; toCustodian: 'transit' | 'company'; toDealerId?: null; reasonCode: 'claim_dispatched' | 'claim_received' | 'inspection'; reasonText?: string },
+) {
+  const battery = await findBatteryById(tx, claim.oldBatteryId);
+  if (!battery) throw new AppError('battery_not_found', 500, 'The claim is missing its old battery.');
+  return postMovementInTx(tx, ctx, { battery, claimId: claim.id, ...move });
+}
+
 export async function dispatch(ctx: Ctx, id: string) {
   requireUser(ctx);
   const claim = await loadClaimForTransition(id, 'raised');
   return withTransaction(async (tx) => {
+    // the old battery leaves the dealer's counter — custody transit, state unchanged (stock ledger)
+    await moveOldBattery(tx, ctx, claim, { toState: 'returned', toCustodian: 'transit', reasonCode: 'claim_dispatched' });
     const updated = await repo.updateClaimStatus(tx, claim.id, 'awaiting_return');
     await audit(tx, { ctx, action: 'claim.dispatched', entityType: 'claim', entityId: claim.id, entityRef: claim.ref, before: { status: 'raised' }, after: { status: 'awaiting_return' }, outcome: 'ok' });
     return updated;
@@ -43,6 +52,8 @@ export async function receive(ctx: Ctx, id: string) {
   requireUser(ctx);
   const claim = await loadClaimForTransition(id, 'awaiting_return');
   return withTransaction(async (tx) => {
+    // arrived at the company — custody company, dealer link dropped (V1 flow step 4, memory.md §1a)
+    await moveOldBattery(tx, ctx, claim, { toState: 'returned', toCustodian: 'company', toDealerId: null, reasonCode: 'claim_received' });
     const updated = await repo.updateClaimStatus(tx, claim.id, 'received');
     await audit(tx, { ctx, action: 'claim.received', entityType: 'claim', entityId: claim.id, entityRef: claim.ref, before: { status: 'awaiting_return' }, after: { status: 'received' }, outcome: 'ok' });
     return updated;
@@ -57,6 +68,10 @@ export async function check(ctx: Ctx, id: string, input: ClaimCheckBody) {
   const claim = await loadClaimForTransition(id, 'received');
 
   return withTransaction(async (tx) => {
+    // inspection disposition is a stock movement too: repair → 'repair', scrap → 'scrap', hold stays 'returned'
+    if (input.disposition !== 'hold') {
+      await moveOldBattery(tx, ctx, claim, { toState: input.disposition, toCustodian: 'company', reasonCode: 'inspection', reasonText: input.findingCode });
+    }
     const updated = await repo.updateClaimCheck(tx, claim.id, {
       status: input.disqualify ? 'refused' : 'checked',
       findingCode: input.findingCode,
@@ -90,13 +105,11 @@ export async function decide(ctx: Ctx, id: string, input: ClaimDecideBody) {
       return { claim: updated, creditNote: null };
     }
 
-    const newBattery = await findBatteryById(db, claim.newBatteryId);
-    const amount = (newBattery && DEMO_CREDIT_RATES[newBattery.modelId]) ?? DEFAULT_CREDIT_RATE;
-    const no = await nextFormattedRef(tx, 'CN', 'credit_note', monthKey(ctx.now()));
-    const creditNote = await repo.insertCreditNote(tx, { no, dealerId: claim.dealerId, claimId: claim.id, amount, issuedBy: user.id });
+    // credits owns credit_notes (modules.md §4) — it picks the amount, numbers the note and
+    // writes its own audit row, all inside this transaction.
+    const creditNote = await issueCreditNoteInTx(tx, ctx, { claim });
     const updated = await repo.updateClaimDecision(tx, claim.id, { status: 'approved', decidedBy: user.id, decisionReason: input.reason, creditNoteId: creditNote.id });
-    await audit(tx, { ctx, action: 'claim.approved', entityType: 'claim', entityId: claim.id, entityRef: claim.ref, before: { status: 'checked' }, after: { status: 'approved', creditNoteRef: creditNote.no, amount }, reason: input.reason, outcome: 'ok' });
-    await audit(tx, { ctx, action: 'credit_note.issued', entityType: 'credit_note', entityId: creditNote.id, entityRef: creditNote.no, outcome: 'ok' });
+    await audit(tx, { ctx, action: 'claim.approved', entityType: 'claim', entityId: claim.id, entityRef: claim.ref, before: { status: 'checked' }, after: { status: 'approved', creditNoteRef: creditNote.no, amount: creditNote.amount }, reason: input.reason, outcome: 'ok' });
     return { claim: updated, creditNote };
   });
 }

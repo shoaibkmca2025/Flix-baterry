@@ -12,6 +12,10 @@ import { registerMastersRoutes } from './modules/masters/masters.routes';
 import { registerBatteryRoutes } from './modules/batteries/batteries.routes';
 import { registerClaimRoutes } from './modules/claims/claims.routes';
 import { registerEntryRoutes } from './modules/entries/entries.routes';
+import { registerCreditRoutes } from './modules/credits/credits.routes';
+import { registerAuditRoutes } from './modules/audit/audit.routes';
+import { registerStockRoutes } from './modules/stock/stock.routes';
+import { registerUserRoutes } from './modules/users/users.routes';
 
 // architecture.md §4 — buildApp() registers plugins + modules; used by both server.ts and tests (Fastify `inject`).
 export async function buildApp(): Promise<FastifyInstance> {
@@ -34,6 +38,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(registerBatteryRoutes, { prefix: '/api/v1/batteries' });
   await app.register(registerClaimRoutes, { prefix: '/api/v1/claims' });
   await app.register(registerEntryRoutes, { prefix: '/api/v1/entries' });
+  await app.register(registerCreditRoutes, { prefix: '/api/v1/credit-notes' });
+  await app.register(registerAuditRoutes, { prefix: '/api/v1' });
+  await app.register(registerStockRoutes, { prefix: '/api/v1/stock' });
+  await app.register(registerUserRoutes, { prefix: '/api/v1' });
 
   return app;
 }

@@ -17,8 +17,7 @@ vi.mock('../batteries/batteries.repository', () => ({
   findModelById: vi.fn(),
   findChainById: vi.fn(),
   insertBattery: vi.fn(),
-  updateBatteryAfterReplacement: vi.fn(),
-  updateBatteryToReturned: vi.fn(),
+  updateBatteryReplacedBy: vi.fn(),
   updateBatteryChainId: vi.fn(),
   insertChain: vi.fn(),
   incrementChainReplacementCount: vi.fn(),
@@ -27,6 +26,13 @@ vi.mock('../batteries/batteries.repository', () => ({
 
 vi.mock('../claims/claims.repository', () => ({
   insertClaim: vi.fn(),
+}));
+
+vi.mock('../stock/stock.service', () => ({
+  postMovementInTx: vi.fn(async (_tx: unknown, _ctx: unknown, input: { battery: { id: string } | null; batteryId?: string; toState: string; toCustodian: string }) => ({
+    movement: { id: 'mv-1' },
+    battery: input.battery ? { ...input.battery, state: input.toState, custodian: input.toCustodian } : null,
+  })),
 }));
 
 vi.mock('./entries.repository', () => ({
@@ -41,6 +47,7 @@ vi.mock('./entries.repository', () => ({
 
 import * as batteriesRepo from '../batteries/batteries.repository';
 import * as claimsRepo from '../claims/claims.repository';
+import { postMovementInTx } from '../stock/stock.service';
 import * as repo from './entries.repository';
 import { approve, create, getById, list, reject } from './entries.service';
 import type { Ctx } from '../../utils/context';
@@ -179,7 +186,10 @@ describe('approve — replacement (inherits the old chain, raises a claim)', () 
     const result = await approve(adminCtx, 'entry-1', 'Confirmed replacement');
 
     expect(batteriesRepo.insertBattery).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ chainId: 'chain-1', replacedFromId: 'old-1', state: 'replacement' }));
-    expect(batteriesRepo.updateBatteryAfterReplacement).toHaveBeenCalledWith(expect.anything(), 'old-1', 'new-1');
+    expect(batteriesRepo.updateBatteryReplacedBy).toHaveBeenCalledWith(expect.anything(), 'old-1', 'new-1');
+    // both sides of the swap are ledger movements: new battery created → replacement/customer, old → returned/dealer
+    expect(postMovementInTx).toHaveBeenCalledWith(expect.anything(), adminCtx, expect.objectContaining({ battery: null, batteryId: 'new-1', toState: 'replacement', toCustodian: 'customer', entryId: 'entry-1', reasonCode: 'entry_approved' }));
+    expect(postMovementInTx).toHaveBeenCalledWith(expect.anything(), adminCtx, expect.objectContaining({ battery: expect.objectContaining({ id: 'old-1' }), toState: 'returned', toCustodian: 'dealer', toDealerId: 'dealer-1' }));
     expect(claimsRepo.insertClaim).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ chainId: 'chain-1', oldBatteryId: 'old-1', newBatteryId: 'new-1' }));
     expect(result.items[0]).toMatchObject({ newBattery: { id: 'new-1' }, claim: { id: 'claim-1' } });
   });
@@ -189,14 +199,15 @@ describe('approve — sales_return', () => {
   it('marks an existing battery returned without touching replacedById', async () => {
     vi.mocked(repo.findEntryById).mockResolvedValue({ id: 'entry-1', status: 'submitted', dealerId: 'dealer-1', entryType: 'sales_return', entryDate: '2026-09-17' } as never);
     vi.mocked(repo.findItemsByEntryId).mockResolvedValue([{ id: 'item-1', seq: 0, modelId: 'M5', batteryCode: '26041212', batteryCodeEntered: '26041212' }] as never);
-    vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValue({ id: 'batt-1' } as never);
-    vi.mocked(batteriesRepo.updateBatteryToReturned).mockResolvedValue({ id: 'batt-1', state: 'returned' } as never);
+    vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValue({ id: 'batt-1', state: 'sold', custodian: 'customer', dealerId: 'dealer-1' } as never);
     vi.mocked(repo.updateEntryStatus).mockResolvedValue({ id: 'entry-1', status: 'approved' } as never);
 
-    await approve(adminCtx, 'entry-1', 'ok');
+    const result = await approve(adminCtx, 'entry-1', 'ok');
 
-    expect(batteriesRepo.updateBatteryToReturned).toHaveBeenCalledWith(expect.anything(), 'batt-1');
-    expect(batteriesRepo.updateBatteryAfterReplacement).not.toHaveBeenCalled();
+    expect(postMovementInTx).toHaveBeenCalledWith(expect.anything(), adminCtx, expect.objectContaining({ battery: expect.objectContaining({ id: 'batt-1' }), toState: 'returned', toCustodian: 'dealer', reasonCode: 'entry_approved' }));
+    expect(result.items[0]).toMatchObject({ battery: { id: 'batt-1', state: 'returned' } });
+    expect(batteriesRepo.updateBatteryReplacedBy).not.toHaveBeenCalled();
+    expect(batteriesRepo.insertBattery).not.toHaveBeenCalled();
   });
 });
 

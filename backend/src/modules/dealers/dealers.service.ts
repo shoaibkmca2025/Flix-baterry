@@ -4,6 +4,7 @@ import type { Ctx } from '../../utils/context';
 import { hashPassword } from '../../utils/crypto';
 import { AppError } from '../../utils/errors';
 import { revokeAllSessionsForUser } from '../auth/auth.repository';
+import { invalidateAccountStatus } from '../users/users.service';
 import { verifyVerifiedToken } from '../auth/auth.tokens';
 import { findCityByName } from '../masters/masters.repository';
 import * as repo from './dealers.repository';
@@ -125,6 +126,7 @@ export async function approve(ctx: Ctx, dealerId: string, input: DealerApproveBo
   return withTransaction(async (tx) => {
     const before = { status: dealer.status, dealerCode: dealer.dealerCode };
     const after = await repo.updateDealerStatus(tx, dealerId, { status: 'active', dealerCode: input.dealerCode, statusReason: input.reason, statusChangedBy: actor.id });
+    invalidateAccountStatus(); // dealer status is part of every request's account check (users.service)
     await audit(tx, { ctx, action: 'dealer.approved', entityType: 'dealer', entityId: dealerId, entityRef: input.dealerCode, before, after: { status: 'active', dealerCode: input.dealerCode }, reason: input.reason, outcome: 'ok' });
     return after;
   });
@@ -141,6 +143,7 @@ export async function reject(ctx: Ctx, dealerId: string, input: DealerReasonBody
   return withTransaction(async (tx) => {
     const before = { status: dealer.status };
     const after = await repo.updateDealerStatus(tx, dealerId, { status: 'rejected', statusReason: input.reason, statusChangedBy: actor.id });
+    invalidateAccountStatus(); // dealer status is part of every request's account check (users.service)
     await audit(tx, { ctx, action: 'dealer.rejected', entityType: 'dealer', entityId: dealerId, entityRef: dealer.name, before, after: { status: 'rejected' }, reason: input.reason, outcome: 'ok' });
     return after;
   });
@@ -157,6 +160,7 @@ export async function suspend(ctx: Ctx, dealerId: string, input: DealerReasonBod
   return withTransaction(async (tx) => {
     const before = { status: dealer.status };
     const after = await repo.updateDealerStatus(tx, dealerId, { status: 'suspended', statusReason: input.reason, statusChangedBy: actor.id });
+    invalidateAccountStatus(); // dealer status is part of every request's account check (users.service)
     // I-8 wants status checked on every request; until the accountStatus plugin exists,
     // revoking sessions now gives suspension immediate effect instead of waiting for token expiry.
     const dealerUsers = await repo.findUsersByDealerId(tx, dealerId);
@@ -177,6 +181,7 @@ export async function activate(ctx: Ctx, dealerId: string, input: DealerReasonBo
   return withTransaction(async (tx) => {
     const before = { status: dealer.status };
     const after = await repo.updateDealerStatus(tx, dealerId, { status: 'active', statusReason: input.reason, statusChangedBy: actor.id });
+    invalidateAccountStatus(); // dealer status is part of every request's account check (users.service)
     await audit(tx, { ctx, action: 'dealer.activated', entityType: 'dealer', entityId: dealerId, entityRef: dealer.name, before, after: { status: 'active' }, reason: input.reason, outcome: 'ok' });
     return after;
   });

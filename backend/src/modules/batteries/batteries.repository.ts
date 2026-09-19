@@ -26,6 +26,11 @@ export function findChainById(dbh: DbOrTx, id: string) {
   return dbh.select().from(warrantyChains).where(eq(warrantyChains.id, id)).then((r) => r[0]);
 }
 
+// The link that put THIS battery into its chain (null for the chain's original battery).
+export function findReplacementLinkByNewBatteryId(dbh: DbOrTx, newBatteryId: string) {
+  return dbh.select().from(replacementLinks).where(eq(replacementLinks.newBatteryId, newBatteryId)).then((r) => r[0]);
+}
+
 export type NewBattery = {
   batteryCode: string;
   batteryCodeEntered: string;
@@ -45,20 +50,17 @@ export async function insertBattery(tx: Tx, input: NewBattery) {
   return row!;
 }
 
-export async function updateBatteryAfterReplacement(tx: Tx, id: string, replacedById: string) {
-  const [row] = await tx
-    .update(batteries)
-    .set({ replacedById, state: 'returned', custodian: 'dealer', updatedAt: new Date() })
-    .where(eq(batteries.id, id))
-    .returning();
+// Only the "who replaced me" pointer — the state/custody change itself is a stock movement
+// (stock.postMovementInTx), so the ledger and the battery row can never disagree.
+export async function updateBatteryReplacedBy(tx: Tx, id: string, replacedById: string) {
+  const [row] = await tx.update(batteries).set({ replacedById, updatedAt: new Date() }).where(eq(batteries.id, id)).returning();
   return row!;
 }
 
-// For a sales_return, not a replacement — no replacedById involved, nothing "replaces" this
-// battery. A separate function on purpose so a sales-return can't accidentally set
-// replacedById to the battery's own id (a real bug caught while wiring entries.approve).
-export async function updateBatteryToReturned(tx: Tx, id: string) {
-  const [row] = await tx.update(batteries).set({ state: 'returned', custodian: 'dealer', updatedAt: new Date() }).where(eq(batteries.id, id)).returning();
+// Called by stock.postMovementInTx only (modules.md §4 — batteries owns the row, stock owns the
+// movement). Everything else that wants to change a battery's state goes through stock.
+export async function applyMovement(tx: Tx, id: string, input: { state: (typeof batteryState.enumValues)[number]; custodian: 'company' | 'dealer' | 'customer' | 'transit'; dealerId: string | null }) {
+  const [row] = await tx.update(batteries).set({ ...input, updatedAt: new Date() }).where(eq(batteries.id, id)).returning();
   return row!;
 }
 

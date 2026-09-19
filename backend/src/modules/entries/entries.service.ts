@@ -7,6 +7,7 @@ import { AppError } from '../../utils/errors';
 import { monthKey, nextFormattedRef } from '../../utils/ids';
 import * as batteriesRepo from '../batteries/batteries.repository';
 import * as claimsRepo from '../claims/claims.repository';
+import { postMovementInTx } from '../stock/stock.service';
 import * as repo from './entries.repository';
 import type { EntryCreateBody, EntryListQuery } from './entries.validation';
 
@@ -128,7 +129,11 @@ async function approveReplacementItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
     chainId: chain.id,
     replacedFromId: old.id,
   });
-  await batteriesRepo.updateBatteryAfterReplacement(tx, old.id, newBattery.id);
+  // Ledger (stock module): new battery created straight into replacement/customer; the old one
+  // comes back to the dealer's counter awaiting the company pickup (architecture.md §9.6).
+  await postMovementInTx(tx, ctx, { battery: null, batteryId: newBattery.id, toState: 'replacement', toCustodian: 'customer', toDealerId: entry.dealerId, entryId: entry.id, reasonCode: 'entry_approved' });
+  await postMovementInTx(tx, ctx, { battery: old, toState: 'returned', toCustodian: 'dealer', toDealerId: entry.dealerId, entryId: entry.id, reasonCode: 'entry_approved' });
+  await batteriesRepo.updateBatteryReplacedBy(tx, old.id, newBattery.id);
   await batteriesRepo.insertReplacementLink(tx, { oldBatteryId: old.id, newBatteryId: newBattery.id, chainId: chain.id, replacedAt: entry.entryDate });
   await batteriesRepo.incrementChainReplacementCount(tx, chain.id, chain.replacementCount + 1);
 
@@ -165,15 +170,16 @@ async function approveRegularSaleItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
     termMonths: warrantyMonths,
   });
   const updated = await batteriesRepo.updateBatteryChainId(tx, battery.id, chain.id);
+  await postMovementInTx(tx, ctx, { battery: null, batteryId: battery.id, toState: 'sold', toCustodian: 'customer', toDealerId: entry.dealerId, entryId: entry.id, reasonCode: 'entry_approved' });
   await repo.updateEntryItemLinks(tx, item.id, { batteryId: updated.id });
   return { battery: updated, chain };
 }
 
-async function approveSalesReturnItem(tx: Tx, entry: { id: string; dealerId: string }, item: Awaited<ReturnType<typeof repo.findItemsByEntryId>>[number]) {
+async function approveSalesReturnItem(tx: Tx, ctx: Ctx, entry: { id: string; dealerId: string }, item: Awaited<ReturnType<typeof repo.findItemsByEntryId>>[number]) {
   const existing = await batteriesRepo.findBatteryByCode(db, item.batteryCode);
   let battery;
   if (existing) {
-    battery = await batteriesRepo.updateBatteryToReturned(tx, existing.id);
+    battery = (await postMovementInTx(tx, ctx, { battery: existing, toState: 'returned', toCustodian: 'dealer', toDealerId: entry.dealerId, entryId: entry.id, reasonCode: 'entry_approved' })).battery!;
   } else {
     const derived = deriveCode(item.batteryCodeEntered);
     battery = await batteriesRepo.insertBattery(tx, {
@@ -188,6 +194,7 @@ async function approveSalesReturnItem(tx: Tx, entry: { id: string; dealerId: str
       origin: 'entry',
       notOnRecord: true,
     } as never);
+    await postMovementInTx(tx, ctx, { battery: null, batteryId: battery.id, toState: 'returned', toCustodian: 'dealer', toDealerId: entry.dealerId, entryId: entry.id, reasonCode: 'entry_approved' });
   }
   await repo.updateEntryItemLinks(tx, item.id, { batteryId: battery.id });
   return { battery };
@@ -209,7 +216,7 @@ export async function approve(ctx: Ctx, entryId: string, reason: string) {
     for (const item of items) {
       if (entry.entryType === 'replacement') results.push(await approveReplacementItem(tx, ctx, entry, item));
       else if (entry.entryType === 'regular_sales') results.push(await approveRegularSaleItem(tx, ctx, entry, item));
-      else results.push(await approveSalesReturnItem(tx, entry, item));
+      else results.push(await approveSalesReturnItem(tx, ctx, entry, item));
     }
     const updated = await repo.updateEntryStatus(tx, entryId, { status: 'approved', decidedBy: ctx.user!.id, decisionReason: reason });
     await audit(tx, { ctx, action: 'entry.approved', entityType: 'entry', entityId: entry.id, entityRef: entry.ref, before: { status: 'submitted' }, after: { status: 'approved' }, reason, outcome: 'ok' });

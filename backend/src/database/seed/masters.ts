@@ -22,7 +22,7 @@ const ROLES = [
     scope: 'dealer' as const,
     templatePermissions: [
       'entries.read', 'entries.create', 'entries.submit', 'corrections.request',
-      'batteries.read', 'warranty.read', 'claims.read', 'returns.dispatch', 'stock.read',
+      'batteries.read', 'warranty.read', 'claims.read', 'credits.read', 'returns.dispatch', 'stock.read',
       'customers.read', 'customers.write', 'evidence.upload', 'evidence.read',
       'reports.run', 'reports.export', 'notifications.read',
     ],
@@ -34,7 +34,7 @@ const ROLES = [
     scope: 'dealer' as const,
     templatePermissions: [
       'entries.read', 'entries.create', 'entries.submit', 'corrections.request',
-      'batteries.read', 'warranty.read', 'claims.read', 'returns.dispatch', 'stock.read',
+      'batteries.read', 'warranty.read', 'claims.read', 'credits.read', 'returns.dispatch', 'stock.read',
       'customers.read', 'customers.write', 'evidence.upload', 'evidence.read',
       'reports.run', 'reports.export', 'notifications.read', 'dealers.staff.manage',
     ],
