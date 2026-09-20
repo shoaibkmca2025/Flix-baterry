@@ -1,4 +1,5 @@
 import { and, desc, eq, lt, or } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { db, type Tx } from '../../database/client';
 import { batteries, batteryState } from '../../models/batteries.model';
 import { batteryModels } from '../../models/masters.model';
@@ -97,15 +98,26 @@ export async function listBatteries(dbh: DbOrTx, filter: BatteryListFilter) {
       : undefined,
   ].filter((c): c is NonNullable<typeof c> => c !== undefined);
 
+  // The app's battery screens show cover dates and the chain link, so the chain and the
+  // replaced battery's code ride along instead of a lookup per row.
+  const replaced = alias(batteries, 'replaced');
   const rows = await dbh
-    .select()
+    .select({ battery: batteries, warrantyStart: warrantyChains.warrantyStart, warrantyExpiry: warrantyChains.warrantyExpiry, replacementCount: warrantyChains.replacementCount, replacedFromCode: replaced.batteryCode })
     .from(batteries)
+    .leftJoin(warrantyChains, eq(warrantyChains.id, batteries.chainId))
+    .leftJoin(replaced, eq(replaced.id, batteries.replacedFromId))
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(batteries.createdAt), desc(batteries.id))
     .limit(filter.limit + 1);
 
   const hasMore = rows.length > filter.limit;
-  const items = hasMore ? rows.slice(0, filter.limit) : rows;
+  const items = (hasMore ? rows.slice(0, filter.limit) : rows).map((r) => ({
+    ...r.battery,
+    warrantyStart: r.warrantyStart,
+    warrantyExpiry: r.warrantyExpiry,
+    replacementCount: r.replacementCount,
+    replacedFromCode: r.replacedFromCode,
+  }));
   const last = items[items.length - 1];
   const nextCursor = hasMore && last ? Buffer.from(JSON.stringify({ createdAt: last.createdAt.toISOString(), id: last.id })).toString('base64url') : null;
   return { items, nextCursor };

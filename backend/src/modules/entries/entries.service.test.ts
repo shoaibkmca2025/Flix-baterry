@@ -28,6 +28,10 @@ vi.mock('../claims/claims.repository', () => ({
   insertClaim: vi.fn(),
 }));
 
+vi.mock('../dealers/dealers.repository', () => ({
+  findDealerById: vi.fn(async (_db: unknown, id: string) => (id === 'dealer-1' ? { id, status: 'active' } : id === 'dealer-suspended' ? { id, status: 'suspended' } : undefined)),
+}));
+
 vi.mock('../stock/stock.service', () => ({
   postMovementInTx: vi.fn(async (_tx: unknown, _ctx: unknown, input: { battery: { id: string } | null; batteryId?: string; toState: string; toCustodian: string }) => ({
     movement: { id: 'mv-1' },
@@ -78,6 +82,13 @@ beforeEach(() => vi.clearAllMocks());
 describe('create', () => {
   it('rejects an unauthenticated caller', async () => {
     await expect(create(anonCtx, baseBody())).rejects.toMatchObject({ code: 'unauthenticated' });
+  });
+
+  it('head office must name an ACTIVE dealer; a dealer session ignores any dealerId sent', async () => {
+    await expect(create(adminCtx, baseBody())).rejects.toMatchObject({ code: 'dealer_required', field: 'dealerId' });
+    await expect(create(adminCtx, baseBody({ dealerId: 'dealer-suspended' }))).rejects.toMatchObject({ code: 'dealer_not_active' });
+    await expect(create(adminCtx, baseBody({ dealerId: 'dealer-9' }))).rejects.toMatchObject({ code: 'dealer_not_found' });
+    expect(repo.insertEntry).not.toHaveBeenCalled();
   });
 
   it('rejects a malformed battery code before opening a transaction', async () => {

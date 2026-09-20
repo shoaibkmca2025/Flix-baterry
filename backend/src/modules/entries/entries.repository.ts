@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, lt, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lt, or } from 'drizzle-orm';
 import { db, type Tx } from '../../database/client';
 import { entries, entryItems, entryStatus, entryType } from '../../models/entries.model';
 
@@ -82,8 +82,12 @@ export async function listEntries(dbh: DbOrTx, filter: EntryListFilter) {
     .limit(filter.limit + 1);
 
   const hasMore = rows.length > filter.limit;
-  const items = hasMore ? rows.slice(0, filter.limit) : rows;
-  const last = items[items.length - 1];
+  const page = hasMore ? rows.slice(0, filter.limit) : rows;
+  const last = page[page.length - 1];
   const nextCursor = hasMore && last ? Buffer.from(JSON.stringify({ createdAt: last.createdAt.toISOString(), id: last.id })).toString('base64url') : null;
+  // Items ride along (one extra query for the page) — the register, approvals and returns
+  // screens all show the codes, so a per-entry fetch would be N+1 from the app.
+  const allItems = page.length ? await dbh.select().from(entryItems).where(inArray(entryItems.entryId, page.map((e) => e.id))).orderBy(entryItems.seq) : [];
+  const items = page.map((e) => ({ ...e, items: allItems.filter((i) => i.entryId === e.id) }));
   return { items, nextCursor };
 }

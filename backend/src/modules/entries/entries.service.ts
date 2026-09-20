@@ -7,6 +7,7 @@ import { AppError } from '../../utils/errors';
 import { monthKey, nextFormattedRef } from '../../utils/ids';
 import * as batteriesRepo from '../batteries/batteries.repository';
 import * as claimsRepo from '../claims/claims.repository';
+import { findDealerById } from '../dealers/dealers.repository';
 import { postMovementInTx } from '../stock/stock.service';
 import * as repo from './entries.repository';
 import type { EntryCreateBody, EntryListQuery } from './entries.validation';
@@ -32,9 +33,16 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
   if (!user.dealerId && user.scope === 'dealer') {
     throw new AppError('unauthenticated', 401, 'Sign in required.');
   }
-  const dealerId = user.scope === 'dealer' ? user.dealerId! : null;
+  // A dealer's scope is always the token; head office names the dealer it is recording for
+  // ("Record an entry" in the console) and that dealer must be able to trade.
+  const dealerId = user.scope === 'dealer' ? user.dealerId! : (input.dealerId ?? null);
   if (!dealerId) {
-    throw new AppError('dealer_required', 422, 'An entry must belong to a dealer.');
+    throw new AppError('dealer_required', 422, 'Choose the dealer this entry belongs to.', { field: 'dealerId' });
+  }
+  if (user.scope === 'admin') {
+    const dealer = await findDealerById(db, dealerId);
+    if (!dealer) throw new AppError('dealer_not_found', 404, 'Dealer not found.', { field: 'dealerId' });
+    if (dealer.status !== 'active') throw new AppError('dealer_not_active', 422, `This dealer is ${dealer.status.replace('_', ' ')}.`, { field: 'dealerId' });
   }
 
   const entryDate = input.entryDate ?? todayIso(ctx);
@@ -253,7 +261,7 @@ export async function getById(ctx: Ctx, id: string) {
 
 export async function list(ctx: Ctx, query: EntryListQuery) {
   const user = requireDealer(ctx);
-  const dealerId = user.scope === 'dealer' ? user.dealerId : undefined;
+  const dealerId = user.scope === 'dealer' ? user.dealerId : query.dealerId;
   return repo.listEntries(db, { status: query.status, dealerId, limit: query.limit, cursor: decodeCursor(query.cursor) });
 }
 
