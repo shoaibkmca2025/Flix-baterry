@@ -12,6 +12,7 @@ import { useAccessToken } from '../api/session';
 import { lookupBattery, type BatteryLookupResult } from '../api/batteries';
 import { createEntry, type EntryCreateInput, type EntryItemInput, type EntryType } from '../api/entries';
 import { ApiError } from '../api/client';
+import { useSync } from '../api/sync';
 
 const REP_STEPS = ['1 · Old battery', '2 · New battery', '3 · Check'];
 const RET_STEPS = ['1 · Battery', '2 · Photos', '3 · Check'];
@@ -93,7 +94,7 @@ const slugFault = (label: string) => label.trim().toLowerCase().replace(/[^a-z0-
 function coverStatus(cover: { inWarranty: boolean; daysRemaining: number }): 'Active' | 'Expiring soon' | 'Expired' {
   return !cover.inWarranty ? 'Expired' : cover.daysRemaining <= 30 ? 'Expiring soon' : 'Active';
 }
-function buildEntryBody(e: Entry): EntryCreateInput {
+export function buildEntryBody(e: Entry): EntryCreateInput {
   const entryType: EntryType = e.type === 'Replacement' ? 'replacement' : 'sales_return';
   const items: EntryItemInput[] = e.items.map(it => ({
     modelId: it.model,
@@ -470,7 +471,7 @@ function ReviewItem({ it, i, e, rep, token }: { it: Item; i: number; e: Entry; r
 
 /* d16 · review & send */
 export function D16() {
-  const { f, d } = useFlow(); const { state, setState, audit, dealerId } = useStore();
+  const { f, d } = useFlow(); const { state, setState, audit, dealerId } = useStore(); const { sync } = useSync();
   const token = useAccessToken();
   const [busy, setBusy] = useState(false);
   if (!f) return null;
@@ -500,11 +501,12 @@ export function D16() {
     setBusy(true);
     try {
       const result = await createEntry(buildEntryBody(e), token);
-      const data: Entry = { ...e, id: result.ref, status: result.status === 'approved' ? 'Approved' : 'Submitted', createdAt: result.createdAt, date: result.entryDate,
+      const data: Entry = { ...e, id: result.ref, apiId: result.id, status: result.status === 'approved' ? 'Approved' : 'Submitted', createdAt: result.createdAt, date: result.entryDate,
         items: e.items.map(it => ({ ...it, wr: it.oldSerial || it.wr })),
         handover: rep ? `Given to ${e.customer || 'the customer'} at the counter · ${dLong(result.createdAt)}, ${tShort(result.createdAt)}` : e.handover };
       setState(s => audit({ ...s, entries: [data, ...s.entries.filter(x => x.id !== e.id)] }, 'Entry submitted', data.id, 'Sent from the dealer app'));
       d.setFlow(null); d.go('d17', data.id);
+      sync(true); // the server's copy (with its items and claim) replaces the bridged one
     } catch (err) {
       d.toast(err instanceof ApiError ? err.message : 'Could not reach the server. Try again.');
     } finally { setBusy(false); }

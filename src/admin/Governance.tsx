@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Pressable, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { adminLogin, passwordForgot, passwordReset, verifyOtp } from '../api/auth';
 import { ApiError } from '../api/client';
 import { saveSession, type Session } from '../api/session';
 import { useStore } from '../store';
+import { getAccessToken } from '../api/session';
+import { createAdmin, inviteStaff, listStaff, setAdminStatus, setStaffStatus, updateAdmin } from '../api/users';
+import { errorMessage } from '../api/client';
+import { useSync } from '../api/sync';
 import { Role, Staff, uid, validateEntry } from '../domain';
 import { printHtml, escapeHtml } from '../reports';
 import { T } from '../dealer/theme';
@@ -35,39 +39,80 @@ export function AuditLog() {
 /* ---------- staff & admin accounts ---------- */
 const PERMS = ['Entries', 'Dealers', 'Inventory', 'Reports', 'Customers'];
 const STAFF_STATES = ['Active', 'Temporarily Blocked', 'Inactive', 'Soft Deleted'];
+const ROLE_KEY: Record<string, string> = { 'Co-Admin': 'co_admin', 'Read-only': 'read_only', 'Operations': 'operations', 'Inventory Manager': 'inventory_manager', 'Inventory manager': 'inventory_manager', 'Dealer User': 'dealer_user', 'Dealer user': 'dealer_user', 'Dealer Manager': 'dealer_manager', 'Dealer manager': 'dealer_manager', 'Main Admin': 'main_admin' };
+const STATUS_KEY: Record<string, 'active' | 'temporarily_blocked' | 'inactive' | 'soft_deleted'> = { Active: 'active', 'Temporarily Blocked': 'temporarily_blocked', Blocked: 'temporarily_blocked', Inactive: 'inactive', 'Soft Deleted': 'soft_deleted', Deleted: 'soft_deleted' };
+const isUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(id);
+
 export function StaffManager({ dealerId }: { dealerId?: string }) {
-  const a = useA(); const { state, setState, audit, canEdit } = useStore();
-  const [editing, setEditing] = useState<Staff | null>(null), [decision, setDecision] = useState<{ u: Staff; status: string } | null>(null);
+  const a = useA(); const { state, setState, audit, canEdit } = useStore(); const { sync } = useSync();
+  const [editing, setEditing] = useState<Staff | null>(null), [decision, setDecision] = useState<{ u: Staff; status: string } | null>(null), [password, setPassword] = useState('');
+  const [token, setToken] = useState<string | null>(null);
+  useEffect(() => { getAccessToken().then(setToken); }, []);
+  // A dealer's staff is not part of the general sync; load it for the profile's Staff tab.
+  useEffect(() => {
+    if (!token || !dealerId || !isUuid(dealerId)) return;
+    listStaff(dealerId, token).then(r => setState(s => ({ ...s, staff: [...s.staff.filter(u => u.dealerId !== dealerId), ...r.items.map(u => ({ id: u.id, name: u.name, email: u.mobile ?? u.email ?? '', role: u.role === 'dealer_manager' ? 'Dealer Manager' : 'Dealer User', roleKey: u.role, status: u.status === 'active' ? 'Active' : u.status === 'temporarily_blocked' ? 'Temporarily Blocked' : u.status === 'inactive' ? 'Inactive' : 'Soft Deleted', dealerId, permissions: [] }))] }))).catch(() => {});
+  }, [token, dealerId]);
   const users = state.staff.filter(u => dealerId ? u.dealerId === dealerId : !u.dealerId);
   const roles = dealerId ? ['Dealer User', 'Dealer Manager'] : ['Co-Admin', 'Read-only', 'Operations', 'Inventory Manager'];
+  const live = !!token && (!dealerId || isUuid(dealerId));
+  const isNew = (u: Staff) => !state.staff.some(x => x.id === u.id);
+  const saveLive = async (u: Staff) => {
+    try {
+      if (dealerId) {
+        if (!isNew(u)) { a.toast('Editing a staff member is not available in this version. Block and re-add instead.'); return; }
+        if (!/^[6-9]\d{9}$/.test(u.email)) { a.toast('Enter the staff member\'s 10-digit mobile number — they sign in with an OTP.'); return; }
+        await inviteStaff(dealerId, { name: u.name.trim(), mobile: u.email, role: ROLE_KEY[u.role] === 'dealer_manager' ? 'dealer_manager' : 'dealer_user' }, token!);
+      } else if (isNew(u)) {
+        if (password.length < 8) { a.toast('Set an initial password of at least 8 characters to hand over.'); return; }
+        await createAdmin({ name: u.name.trim(), email: u.email, role: ROLE_KEY[u.role] ?? u.role, password }, token!);
+      } else {
+        await updateAdmin(u.id, { name: u.name.trim(), role: ROLE_KEY[u.role] ?? u.roleKey ?? u.role }, token!);
+      }
+      setEditing(null); setPassword(''); a.toast('Account saved.');
+    } catch (err) { a.toast(errorMessage(err)); }
+    finally { sync(true); }
+  };
   const save = () => {
     if (!editing) return;
+    if (live) { if (!editing.name.trim()) { a.toast('A name is needed.'); return; } saveLive(editing); return; }
     if (!editing.name.trim() || !/^\S+@\S+\.\S+$/.test(editing.email)) { a.toast('A name and a valid email are needed.'); return; }
     setState(s => audit({ ...s, staff: [editing, ...s.staff.filter(u => u.id !== editing.id)] }, 'Account permissions saved', editing.id, `${editing.name}: ${editing.role} · ${editing.permissions.join(', ')}`));
     setEditing(null); a.toast('Account saved.');
   };
-  const tone = (s: string) => s === 'Active' ? 'live' : s === 'Temporarily Blocked' ? 'warn' : s === 'Soft Deleted' ? 'bad' : 'mute';
+  const decideLive = async (u: Staff, status: string, reason: string) => {
+    try {
+      if (dealerId) await setStaffStatus(dealerId, u.id, STATUS_KEY[status] ?? 'inactive', reason, token!);
+      else await setAdminStatus(u.id, STATUS_KEY[status] ?? 'inactive', reason, token!);
+      a.toast(`${u.name} is now ${status.toLowerCase()}.`);
+    } catch (err) { a.toast(errorMessage(err)); }
+    finally { sync(true); }
+  };
+  const tone = (s: string) => s === 'Active' ? 'live' : s === 'Temporarily Blocked' || s === 'Blocked' ? 'warn' : s === 'Soft Deleted' || s === 'Deleted' ? 'bad' : 'mute';
   return <Stack>
-    <Box title={`${users.length} ${users.length === 1 ? 'account' : 'accounts'}`} right={canEdit ? <Btn kind="ghost" sm icon="plus" label={dealerId ? 'Add staff member' : 'Add administrator'} onPress={() => setEditing({ id: uid('USR'), name: '', email: '', role: roles[0], status: 'Active', dealerId, permissions: ['Entries'] })} /> : undefined}>
+    <Box title={`${users.length} ${users.length === 1 ? 'account' : 'accounts'}`} right={canEdit ? <Btn kind="ghost" sm icon="plus" label={dealerId ? 'Add staff member' : 'Add administrator'} onPress={() => { setPassword(''); setEditing({ id: uid('USR'), name: '', email: '', role: roles[0], status: 'Active', dealerId, permissions: ['Entries'] }); }} /> : undefined}>
       <Table rows={users} keyOf={u => u.id} onRow={canEdit ? u => u.role !== 'Main Admin' && setEditing({ ...u }) : undefined} empty="No accounts yet."
-        cols={[{ h: 'Name', w: 1.4, cell: u => <View><X s={13.5} w={7}>{u.name}</X><X s={12} c={T.slate}>{u.email}</X></View> }, { h: 'Role', w: 1, cell: u => u.role }, { h: 'Can reach', w: 1.6, cell: u => <X s={12.5} c={T.slate}>{u.role === 'Main Admin' ? 'Everything, including this screen' : u.permissions.join(', ') || 'Nothing yet'}</X> }, { h: 'Status', w: 1, cell: u => <Chip tone={tone(u.status)} label={u.status} /> },
-          { h: '', w: 1.2, cell: u => canEdit && u.role !== 'Main Admin' ? <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>{u.status === 'Active' ? <Btn kind="ghost" sm label="Block" color={T.terminal} borderColor="#F0C7BC" onPress={() => setDecision({ u, status: 'Temporarily Blocked' })} /> : <Btn kind="ghost" sm label="Restore" onPress={() => setDecision({ u, status: 'Active' })} />}</View> : null }]}
+        cols={[{ h: 'Name', w: 1.4, cell: u => <View><X s={13.5} w={7}>{u.name}</X><X s={12} c={T.slate}>{u.email}</X></View> }, { h: 'Role', w: 1, cell: u => u.role }, { h: 'Can reach', w: 1.6, cell: u => <X s={12.5} c={T.slate}>{u.role === 'Main Admin' ? 'Everything, including this screen' : live ? 'As the role allows (enforced by the server)' : u.permissions.join(', ') || 'Nothing yet'}</X> }, { h: 'Status', w: 1, cell: u => <Chip tone={tone(u.status)} label={u.status} /> },
+          { h: '', w: 1.2, cell: u => canEdit && u.role !== 'Main Admin' ? <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>{u.status === 'Active' ? <Btn kind="ghost" sm label="Block" color={T.terminal} borderColor="#F0C7BC" onPress={() => setDecision({ u, status: 'Temporarily Blocked' })} /> : u.status !== 'Soft Deleted' && u.status !== 'Deleted' ? <Btn kind="ghost" sm label="Restore" onPress={() => setDecision({ u, status: 'Active' })} /> : null}</View> : null }]}
         mobile={{ av: u => <Avatar n="user" tone={u.status === 'Active' ? 'blue' : 'mute'} />, title: u => u.name, sub: u => `${u.role} · ${u.email}`, right: u => <Chip tone={tone(u.status)} label={u.status} /> }} />
     </Box>
-    <Dialog open={!!editing} title={editing && state.staff.some(u => u.id === editing.id) ? `Edit ${editing.name}` : dealerId ? 'Add staff member' : 'Add administrator'} onClose={() => setEditing(null)}>{editing && <>
+    <Dialog open={!!editing} title={editing && !isNew(editing) ? `Edit ${editing.name}` : dealerId ? 'Add staff member' : 'Add administrator'} onClose={() => setEditing(null)}>{editing && <>
       <Field label="Full name" req value={editing.name} onChange={name => setEditing({ ...editing, name })} />
-      <Field label="Email" req value={editing.email} onChange={email => setEditing({ ...editing, email: email.trim() })} ph="name@felixbatteries.in" />
+      {dealerId && live
+        ? <Field label="Mobile number" req mono numeric maxLength={10} value={editing.email} onChange={email => setEditing({ ...editing, email: email.replace(/\D/g, '') })} ph="They sign in with an OTP on this number" />
+        : <Field label="Email" req value={editing.email} onChange={email => setEditing({ ...editing, email: email.trim() })} ph="name@felixbatteries.in" />}
       <Select label="Role" req value={editing.role} options={roles} onChange={role => setEditing({ ...editing, role })} />
-      <X s={13} w={6} c={T.ink3} style={{ marginBottom: 4 }}>What they can open</X>
-      <Card style={{ paddingVertical: 0, marginBottom: 13 }}>{PERMS.map((p, i) => <ToggleRow key={p} last={i === PERMS.length - 1} label={p} value={editing.permissions.includes(p)} onChange={on => setEditing({ ...editing, permissions: on ? [...editing.permissions, p] : editing.permissions.filter(x => x !== p) })} />)}</Card>
-      {state.staff.some(u => u.id === editing.id) && <><X s={13} w={6} c={T.ink3} style={{ marginBottom: 8 }}>Account state</X>
+      {live && !dealerId && isNew(editing) && <Field label="Initial password" req value={password} onChange={setPassword} ph="At least 8 characters — hand it over in person" />}
+      {!live && <><X s={13} w={6} c={T.ink3} style={{ marginBottom: 4 }}>What they can open</X>
+      <Card style={{ paddingVertical: 0, marginBottom: 13 }}>{PERMS.map((p, i) => <ToggleRow key={p} last={i === PERMS.length - 1} label={p} value={editing.permissions.includes(p)} onChange={on => setEditing({ ...editing, permissions: on ? [...editing.permissions, p] : editing.permissions.filter(x => x !== p) })} />)}</Card></>}
+      {!isNew(editing) && <><X s={13} w={6} c={T.ink3} style={{ marginBottom: 8 }}>Account state</X>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 13 }}>{STAFF_STATES.filter(s => s !== editing.status).map(s => <Btn key={s} kind="ghost" sm label={s === 'Active' ? 'Restore' : s} onPress={() => { setDecision({ u: editing, status: s }); setEditing(null); }} />)}</View></>}
       <Btn kind="blue" icon="check" label="Save account" onPress={save} />
-      <Hint icon="shield">No account can give anyone more authority than it holds itself. Real invitations need the server.</Hint>
+      <Hint icon="shield">{live ? 'The server refuses any grant beyond what your own account holds, and keeps the last Main Admin.' : 'No account can give anyone more authority than it holds itself. Real invitations need the server.'}</Hint>
     </>}</Dialog>
     <ReasonDialog open={!!decision} title={`${decision?.status === 'Active' ? 'Restore' : decision?.status} · ${decision?.u.name || ''}`} confirm="Change account" kind={decision?.status === 'Active' ? 'blue' : 'danger'} onClose={() => setDecision(null)}
       intro={decision?.status === 'Soft Deleted' ? 'Hidden from lists; their past actions stay searchable for good.' : decision?.status === 'Active' ? 'They can sign in again.' : 'They cannot sign in until restored. Everything they did is kept.'}
-      onConfirm={r => { if (!decision) return false; setState(s => audit({ ...s, staff: s.staff.map(u => u.id === decision.u.id ? { ...u, status: decision.status } : u) }, 'Account status changed', decision.u.id, r, decision.u.status, decision.status)); a.toast(`${decision.u.name} is now ${decision.status.toLowerCase()}.`); }} />
+      onConfirm={r => { if (!decision) return false; if (live) { decideLive(decision.u, decision.status, r); return; } setState(s => audit({ ...s, staff: s.staff.map(u => u.id === decision.u.id ? { ...u, status: decision.status } : u) }, 'Account status changed', decision.u.id, r, decision.u.status, decision.status)); a.toast(`${decision.u.name} is now ${decision.status.toLowerCase()}.`); }} />
   </Stack>;
 }
 export function Team() {
@@ -124,8 +169,10 @@ export function Settings() {
   const a = useA(); const { state, setState, audit, role, canEdit } = useStore();
   const [city, setCity] = useState(''), [type, setType] = useState('');
   const queue = state.entries.filter(e => ['Pending sync', 'Conflict'].includes(e.status));
-  const sync = () => {
+  const { sync: refresh, syncing } = useSync();
+  const sync = async () => {
     if (state.offline) { a.toast('Turn off offline mode first.'); return; }
+    if (await getAccessToken()) { const ok = await refresh(); if (ok) a.toast('Up to date with the server.'); return; }
     const rows = state.entries.filter(e => e.status === 'Pending sync');
     setState(s => audit({ ...s, lastSync: new Date().toISOString(), entries: s.entries.map(e => { if (!rows.some(r => r.id === e.id)) return e; const ok = !Object.keys(validateEntry(e, s)).length && s.dealers.find(d => d.id === e.dealerId)?.status === 'Active'; return { ...e, status: ok ? 'Submitted' : 'Conflict', retries: e.retries + 1 }; }) }, 'Local queue reconciled', 'SYNC', `${rows.length} queued entries checked`));
     a.toast(rows.length ? `${rows.length} queued ${rows.length === 1 ? 'entry' : 'entries'} checked. Valid ones are in the approval queue.` : 'Nothing was waiting to sync.');
@@ -142,7 +189,7 @@ export function Settings() {
         <Card><CardH title="Sync & offline" right={state.offline ? <Chip tone="warn" icon="cloud" label="Offline" /> : <Chip tone="live" icon="wifi" label="Online" />} />
           <ToggleRow label="Work offline (practice)" sub="See how the app behaves without signal" value={state.offline} onChange={v => setState(s => ({ ...s, offline: v }))} />
           <KV pairs={[['Last sync', fmtAt(state.lastSync)], ['Waiting to sync', String(state.entries.filter(e => e.status === 'Pending sync').length)]]} />
-          <Btn kind="blue" sm icon="sync" label="Sync now" style={{ marginTop: 12 }} onPress={sync} />
+          <Btn kind="blue" sm icon="sync" label={syncing ? 'Syncing…' : 'Sync now'} disabled={syncing} style={{ marginTop: 12 }} onPress={sync} />
           {queue.length > 0 && <View style={{ marginTop: 12 }}>{queue.map((e, i) => <Line key={e.id} last={i === queue.length - 1} onPress={() => a.go('entry', e.id)} av={<Avatar n={e.status === 'Conflict' ? 'alert' : 'sync'} tone={e.status === 'Conflict' ? 'red' : 'amber'} />} title={<Mono>{e.id}</Mono>} sub={`${state.dealers.find(d => d.id === e.dealerId)?.name} · ${e.retries} ${e.retries === 1 ? 'try' : 'tries'}${e.status === 'Conflict' ? ` · ${Object.values(validateEntry(e, state))[0] || 'needs review'}` : ''}`} right={<StatusChip status={e.status} />} />)}</View>}
           <Hint icon="shield">Queued entries stay on the device until they are sent. Nothing is lost while offline.</Hint>
         </Card>

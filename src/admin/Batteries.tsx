@@ -4,6 +4,9 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import * as XLSX from 'xlsx';
 import { useStore } from '../store';
+import { useLive } from '../api/sync';
+
+const NOT_IN_V1 = 'Not available in this version — warranty overrides, policies and the catalogue are managed on the server later.';
 import { Battery, Model, chainFor, deriveCode, expiryFrom, normalize, today, uid, warranty } from '../domain';
 import { T } from '../dealer/theme';
 import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar, Plate, PlateLab, PlateVal, Meter } from '../dealer/kit';
@@ -40,6 +43,7 @@ export function Search({ id }: { id?: string }) {
 
 /* ---------- battery detail & chain ---------- */
 export function BatteryDetail({ id = '' }: { id?: string }) {
+  const live = useLive();
   const a = useA(); const { state, setState, audit, canEdit } = useStore();
   const [override, setOverride] = useState(false), [days, setDays] = useState('14');
   const b = state.batteries.find(x => normalize(x.code) === normalize(id));
@@ -91,7 +95,7 @@ export function BatteryDetail({ id = '' }: { id?: string }) {
       </Stack>
     </Cols>
     <ReasonDialog open={override} title="Ask for a warranty override" confirm="Add to override requests" onClose={() => setOverride(false)} intro={`Cover currently ends ${dLong(b.expiry)}. The request goes to the override queue — it changes nothing until it is approved.`}
-      onConfirm={r => { if (!/^\d+$/.test(days) || Number(days) < 1) { a.toast('Enter a whole number of extra days.'); return false; } setState(s => audit({ ...s, overrides: [{ id: uid('OVR'), code: b.code, days: Number(days), reason: r, status: 'Pending' }, ...s.overrides] }, 'Warranty override requested', b.code, r)); a.toast('Override request added to the queue.'); }}>
+      onConfirm={r => { if (live) { a.toast(NOT_IN_V1); return false; } if (!/^\d+$/.test(days) || Number(days) < 1) { a.toast('Enter a whole number of extra days.'); return false; } setState(s => audit({ ...s, overrides: [{ id: uid('OVR'), code: b.code, days: Number(days), reason: r, status: 'Pending' }, ...s.overrides] }, 'Warranty override requested', b.code, r)); a.toast('Override request added to the queue.'); }}>
       <Field label="Extra days asked for" req mono numeric value={days} onChange={setDays} />
     </ReasonDialog>
   </Page>;
@@ -99,6 +103,7 @@ export function BatteryDetail({ id = '' }: { id?: string }) {
 
 /* ---------- warranty ---------- */
 export function Warranty({ id }: { id?: string }) {
+  const live = useLive();
   const a = useA(); const { state, setState, audit, canEdit, role } = useStore();
   const [tab, setTab] = useState(id === 'overrides' ? 'overrides' : 'register'), [filter, setFilter] = useState('All'), [q, setQ] = useState('');
   const [editor, setEditor] = useState(false), [months, setMonths] = useState('24'), [effective, setEffective] = useState(today()), [anchor, setAnchor] = useState('Original sale'), [allow, setAllow] = useState(false), [maxDays, setMaxDays] = useState('0'), [alertDays, setAlertDays] = useState('30'), [reason, setReason] = useState('');
@@ -111,6 +116,7 @@ export function Warranty({ id }: { id?: string }) {
   const extended = state.batteries.filter(b => { if (!b.oldSerial) return false; const root = chainFor(b.code, state.batteries)[0]; return root && root.expiry !== b.expiry && !state.overrides.some(o => o.code === b.code && o.status === 'Approved'); }).length;
   const savePolicy = () => {
     if (!/^\d+$/.test(months) || Number(months) < 1 || !/^\d+$/.test(maxDays) || !/^\d+$/.test(alertDays) || !/^\d{4}-\d{2}-\d{2}$/.test(effective) || effective < today() || !Number.isFinite(Date.parse(effective)) || reason.trim().length < 5) { a.toast('Use today or a future date, a positive term, whole days, and a reason.'); return; }
+    if (live) { a.toast(NOT_IN_V1); return; }
     setState(s => audit({ ...s, policies: [{ id: uid('POL'), months: Number(months), effective, anchor, overrides: allow, maxDays: Number(maxDays), alertDays: Number(alertDays) }, ...s.policies] }, 'Policy version created', 'POLICY', reason));
     setEditor(false); setReason(''); a.toast('New policy version saved. Batteries already sold keep their dates.');
   };
@@ -118,6 +124,7 @@ export function Warranty({ id }: { id?: string }) {
     if (!decision) return false;
     const o = state.overrides.find(x => x.id === decision.id)!; const b = state.batteries.find(x => x.code === o.code); const p = state.policies.find(x => x.id === b?.policy);
     if (decision.status === 'Approved' && (!p?.overrides || o.days > p.maxDays || !b?.expiry)) { a.toast('This battery’s policy does not allow that extension, so it cannot be approved.'); return false; }
+    if (live) { a.toast(NOT_IN_V1); return; }
     setState(s => { const end = b?.expiry ? new Date(Date.parse(b.expiry) + o.days * 86400000).toISOString().slice(0, 10) : undefined; return audit({ ...s, overrides: s.overrides.map(x => x.id === o.id ? { ...x, status: decision.status } : x), batteries: decision.status === 'Approved' ? s.batteries.map(x => x.code === o.code ? { ...x, expiry: end } : x) : s.batteries }, `Warranty override ${decision.status.toLowerCase()}`, o.code, why, b?.expiry, decision.status === 'Approved' ? end : b?.expiry); });
     a.toast('Override decision recorded against the battery.');
   };
@@ -182,6 +189,7 @@ export function Warranty({ id }: { id?: string }) {
 
 /* ---------- models, serial rules, bulk import ---------- */
 export function Catalogue() {
+  const live = useLive();
   const a = useA(); const { state, setState, audit, canEdit } = useStore();
   const [tab, setTab] = useState('models'), [edit, setEdit] = useState<(Model & { isNew?: boolean }) | null>(null), [raw, setRaw] = useState<any[][]>([]), [filename, setFilename] = useState(''), [message, setMessage] = useState('');
   async function pick() {
@@ -208,6 +216,7 @@ export function Catalogue() {
     if (!edit.id.trim() || !edit.capacity.trim()) { a.toast('A model name and capacity are needed.'); return; }
     if (edit.isNew && state.models.some(m => m.id === edit.id.trim())) { a.toast('That model already exists — edit it instead.'); return; }
     const { isNew, ...m } = { ...edit, id: edit.id.trim() };
+    if (live) { a.toast(NOT_IN_V1); return; }
     setState(s => audit({ ...s, models: [...s.models.filter(x => x.id !== m.id), m] }, 'Model saved', m.id, isNew ? 'Model added to the catalogue' : 'Catalogue updated'));
     setEdit(null); a.toast('Model saved.');
   };
@@ -246,7 +255,7 @@ export function Catalogue() {
             mobile={{ title: r => <Mono>{r.code || '—'}</Mono>, sub: r => `${r.model} · ${r.dealerId}`, right: r => r.errors.length ? <Chip tone="bad" label="Fix" /> : <Chip tone="live" label="Ready" /> }} /></Box>
           {message ? <Banner tone="ok" icon="check" style={{ marginTop: 12 }}>{message}</Banner> : null}
           <Btn kind="blue" icon="check" label={`Import ${staged.length} rows`} style={{ marginTop: 12 }} disabled={!staged.length || staged.some(r => r.errors.length > 0) || !canEdit}
-            onPress={() => { setState(s => audit({ ...s, batteries: [...s.batteries, ...staged.map(({ errors, idx, ...r }) => ({ ...r, customer: '', state: 'Available' }))] }, 'Serial import', 'IMPORT', `${filename}: ${staged.length} rows committed`)); setMessage(`${staged.length} serials imported. Cover dates stay “not on record” — nothing is invented.`); setRaw([]); a.toast('Serial register imported.'); }} />
+            onPress={() => { if (live) { a.toast(NOT_IN_V1); return; } setState(s => audit({ ...s, batteries: [...s.batteries, ...staged.map(({ errors, idx, ...r }) => ({ ...r, customer: '', state: 'Available' }))] }, 'Serial import', 'IMPORT', `${filename}: ${staged.length} rows committed`)); setMessage(`${staged.length} serials imported. Cover dates stay “not on record” — nothing is invented.`); setRaw([]); a.toast('Serial register imported.'); }} />
           {staged.some(r => r.errors.length > 0) && <Hint tone="err">Fix the rows marked in red in the file, then choose it again.</Hint>}
         </>}
       </Card>

@@ -47,3 +47,27 @@ export type BatteryLookupResult =
 export function lookupBattery(code: string, accessToken: string) {
   return apiGet<BatteryLookupResult>(`/batteries/lookup?code=${encodeURIComponent(code)}`, { accessToken });
 }
+
+export type ApiBattery = {
+  id: string;
+  batteryCode: string;
+  serialNo: string;
+  modelId: string;
+  mfgMonth: string | null;
+  state: 'available' | 'allocated' | 'sold' | 'returned' | 'replacement' | 'repair' | 'damaged' | 'scrap';
+  custodian: 'company' | 'dealer' | 'customer' | 'transit';
+  dealerId: string | null;
+  notOnRecord: boolean;
+  chainId: string | null;
+  replacedFromId: string | null;
+  replacedById: string | null;
+  warrantyStart: string | null;
+  warrantyExpiry: string | null;
+  replacementCount: number | null;
+  replacedFromCode: string | null;
+  createdAt: string;
+};
+
+export function listBatteries(accessToken: string) {
+  return apiGet<{ items: ApiBattery[]; nextCursor: string | null }>('/batteries?limit=200', { accessToken });
+}

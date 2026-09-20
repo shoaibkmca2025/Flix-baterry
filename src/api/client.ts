@@ -73,3 +73,22 @@ export async function apiGet<T>(path: string, options: ApiOptions = {}): Promise
   }
   return json as T;
 }
+
+export async function apiPatch<T>(path: string, body: unknown, options: ApiOptions = {}): Promise<T> {
+  const deviceId = await getDeviceId();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Device-Id': deviceId };
+  if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
+
+  const res = await fetch(`${API_BASE_URL}${path}`, { method: 'PATCH', headers, body: JSON.stringify(body) });
+  const json = await res.json().catch(() => ({}));
+  if (res.status === 401 && options.accessToken) unauthorizedHandler?.();
+  if (!res.ok) {
+    throw new ApiError(res.status, json.error ?? { code: 'unknown_error', message: 'Something went wrong. Try again.' });
+  }
+  return json as T;
+}
+
+/** The message to show a person for a failed call — the server's own wording when it gave one. */
+export function errorMessage(e: unknown, fallback = 'Could not reach the server. Try again.'): string {
+  return e instanceof ApiError ? e.message : fallback;
+}
