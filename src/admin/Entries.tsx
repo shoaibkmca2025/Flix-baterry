@@ -8,8 +8,17 @@ import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner
 import { CREDIT_VALUE, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, rupees, tShort, monthShort } from '../dealer/data';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '../dealer/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
+<<<<<<< HEAD
 import { approveEntry as approveOnServer, rejectEntry as rejectOnServer } from '../api/entries';
 import { ApiError } from '../api/client';
+=======
+import { getAccessToken } from '../api/session';
+import { approveEntry as apiApproveEntry, createEntry as apiCreateEntry, rejectEntry as apiRejectEntry, type EntryCreateInput, type EntryType } from '../api/entries';
+import { buildEntryBody } from '../dealer/Capture';
+import { checkClaim, decideClaim } from '../api/claims';
+import { errorMessage } from '../api/client';
+import { useSync } from '../api/sync';
+>>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
 
 const PENDING = ['Submitted', 'Under Review', 'Conflict'];
 const creditOf = (e: Entry) => e.type === 'Replacement' ? e.items.reduce((t, i) => t + (CREDIT_VALUE[i.model] || 0), 0) : 0;
@@ -18,7 +27,7 @@ const REJECT_REASONS = ['Outside warranty cover', 'Physical damage — not cover
 
 /** Every head office decision on an entry, with the same checks wherever it is taken. */
 export function useDecisions() {
-  const { state, setState, audit, canEdit } = useStore(); const a = useA();
+  const { state, setState, audit, canEdit } = useStore(); const a = useA(); const { sync } = useSync();
   const guard = () => {
     if (!canEdit) { a.toast('Read-only access — records cannot be changed.'); return false; }
     if (state.offline) { a.toast('Go online before making a head office decision.'); return false; }
@@ -30,6 +39,7 @@ export function useDecisions() {
     setState(s => audit({ ...s, entries: s.entries.map(x => x.id === e.id ? { ...x, status: next } : x), notices: [notice(e.dealerId, `${e.id}: ${next === 'Rejected' ? 'refused' : next.toLowerCase()}`, reason), ...s.notices] }, action, e.id, reason, e.status, next));
     a.toast(msg);
   };
+<<<<<<< HEAD
   // Entries that came from the server (serverId set) are decided on the server; the local copy
   // is updated from its answer. The local-only path below stays for demo entries.
   const onServer = (e: Entry, next: 'Approved' | 'Rejected', reason: string) => {
@@ -42,31 +52,87 @@ export function useDecisions() {
     }).catch(err => a.toast(err instanceof ApiError ? err.message : 'Could not reach the server. Try again.'));
     return true;
   };
+=======
+  // An entry that came from the server carries its uuid; only those are decided through the
+  // API. Anything else is local demo data and keeps the old in-memory behaviour.
+  const live = (e: Entry) => !!e.apiId;
+  const notInV1 = () => { a.toast('Not available in this version — the server does not support it yet.'); return false; };
+
+  /**
+   * Head office "Approve" is two-step on the server (memory.md D-05): the ENTRY is approved
+   * first (stock moves, chain inherited, claim raised), and the CLAIM is decided once the old
+   * battery has arrived and been checked — that decision is what issues the credit note.
+   * This one button does whichever step is next, and says what still has to happen.
+   */
+  const approveLive = async (e: Entry, reason: string) => {
+    const token = await getAccessToken(); if (!token) return notInV1();
+    try {
+      if (e.status === 'Submitted') {
+        await apiApproveEntry(e.apiId!, reason, token);
+        a.toast(e.type === 'Replacement' ? 'Entry approved — stock and warranty history updated, claim raised. The credit is decided once the old battery arrives and is checked.' : 'Approved. Stock and battery history are updated.');
+      } else if (e.claimId && (e.claimStatus === 'checked' || e.claimStatus === 'received')) {
+        if (e.claimStatus === 'received') await checkClaim(e.claimId, { findingCode: 'approved_at_decision', conditionNote: reason, disposition: 'hold' }, token);
+        const r = await decideClaim(e.claimId, 'approved', reason, token);
+        a.toast(r.creditNote ? `Claim approved. Credit note ${r.creditNote.no} for ${rupees(r.creditNote.amount)} issued to the dealer.` : 'Claim approved.');
+      } else if (e.claimId) {
+        a.toast(e.claimStatus === 'raised' ? 'The old battery is still at the dealer. It must reach the company (Stock → Old battery returns) before the claim can be approved.' : 'The old battery is on its way. Confirm it arrived (Stock → Old battery returns), then approve.');
+        return false;
+      } else return notInV1();
+    } catch (err) { a.toast(errorMessage(err)); return false; }
+    finally { sync(true); }
+  };
+  const rejectLive = async (e: Entry, reason: string) => {
+    const token = await getAccessToken(); if (!token) return notInV1();
+    try {
+      if (e.status === 'Submitted') await apiRejectEntry(e.apiId!, reason, token);
+      else if (e.claimId && e.claimStatus === 'checked') await decideClaim(e.claimId, 'refused', reason, token);
+      else if (e.claimId && e.claimStatus === 'received') await checkClaim(e.claimId, { findingCode: 'refused_at_decision', conditionNote: reason, disposition: 'hold', disqualify: true, reason }, token);
+      else if (e.claimId) { a.toast('The old battery has not reached the company yet. Confirm it arrived first, then refuse with the finding.'); return false; }
+      else return notInV1();
+      a.toast('Refused. The dealer sees the reason in their app.');
+    } catch (err) { a.toast(errorMessage(err)); return false; }
+    finally { sync(true); }
+  };
+
+>>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
   return {
     guard,
     approve: (e: Entry, reason: string) => {
       if (!guard()) return false;
+<<<<<<< HEAD
       if (e.serverId) return onServer(e, 'Approved', reason);
+=======
+      if (live(e)) { approveLive(e, reason); return; }
+>>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
       const errs = validateEntry(e, state);
       if (Object.keys(errs).length) { a.toast(`Cannot approve yet — ${Object.values(errs)[0]}`); return false; }
       setState(s => { const n = approveEntry(s, e); return audit({ ...n, notices: [notice(e.dealerId, `${e.id} approved`, reason), ...n.notices] }, 'Entry approved', e.id, reason, e.status, 'Approved'); });
       a.toast(e.type === 'Replacement' ? `Approved. Stock, warranty history and a ${rupees(creditOf(e))} dealer credit are updated.` : 'Approved. Stock and battery history are updated.');
     },
+<<<<<<< HEAD
     reject: (e: Entry, reason: string) => e.serverId && guard() ? onServer(e, 'Rejected', reason) : status(e, 'Rejected', 'Reject entry', reason, 'Refused. The dealer sees the reason in their app.'),
     review: (e: Entry, reason: string) => status(e, 'Under Review', 'Start review', reason, 'Marked as under review.'),
     voidEntry: (e: Entry, reason: string) => status(e, 'Cancelled', 'Void / archive entry', reason, 'Voided. It stays searchable and in the audit log.'),
+=======
+    reject: (e: Entry, reason: string) => live(e) ? (guard() ? void rejectLive(e, reason) : false) : status(e, 'Rejected', 'Reject entry', reason, 'Refused. The dealer sees the reason in their app.'),
+    review: (e: Entry, reason: string) => live(e) ? notInV1() : status(e, 'Under Review', 'Start review', reason, 'Marked as under review.'),
+    voidEntry: (e: Entry, reason: string) => live(e) ? notInV1() : status(e, 'Cancelled', 'Void / archive entry', reason, 'Voided. It stays searchable and in the audit log.'),
+>>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
     requestCorrection: (e: Entry, value: string, reason: string) => {
       if (!guard()) return false;
+      if (live(e)) return notInV1();
       setState(s => audit({ ...s, entries: s.entries.map(x => x.id === e.id ? { ...x, correction: { reason, value, status: 'Pending' } } : x) }, 'Correction requested', e.id, reason, e.remarks, value));
       a.toast('Correction request added to the queue.');
     },
     declineCorrection: (e: Entry, reason: string) => {
       if (!guard()) return false;
+      if (live(e)) return notInV1();
       setState(s => audit({ ...s, entries: s.entries.map(x => x.id === e.id ? { ...x, correction: { ...x.correction!, status: 'Rejected' } } : x), notices: [notice(e.dealerId, `Correction on ${e.id} declined`, reason), ...s.notices] }, 'Reject correction', e.id, reason));
       a.toast('Declined. The dealer is told why.');
     },
     applyCorrection: (e: Entry, ch: { customer: string; remarks: string; items: { code: string; oldSerial: string }[] }, reason: string) => {
       if (!guard()) return false;
+      if (live(e)) return notInV1();
       const n = state.entries.filter(x => x.linkedTo === e.id).length + 1;
       const items: Item[] = e.items.map((it, i) => { const code = normalize(ch.items[i]?.code ?? it.code), d = deriveCode(code); return { ...it, id: uid('ITEM'), code, ...(d.mfg ? d : {}), oldSerial: normalize(ch.items[i]?.oldSerial ?? it.oldSerial), wr: ch.items[i]?.oldSerial || it.wr }; });
       const changes: [string, string][] = [];
@@ -301,6 +367,21 @@ export function NewEntry({ id }: { id?: string }) {
     setState(s => audit({ ...s, entries: [data, ...s.entries.filter(e => e.id !== data.id)] }, status === 'Draft' ? 'Draft saved' : 'Entry submitted', data.id, status === 'Pending sync' ? 'Saved locally for sync' : `Recorded by head office for ${dealer?.name || data.dealerId}`));
     return data;
   };
+  // A real dealer (uuid id) → the entry is recorded on the server for that dealer (entries.create with dealerId).
+  const [busy, setBusy] = useState(false); const { sync } = useSync();
+  const sendLive = async () => {
+    const token = await getAccessToken(); if (!token) { a.toast('Sign in again to record an entry.'); return; }
+    const entryType: EntryType | null = entry.type === 'Replacement' ? 'replacement' : entry.type === 'Sales Return' ? 'sales_return' : entry.type === 'Regular Sales' ? 'regular_sales' : null;
+    if (!entryType) { a.toast('Only Replacement, Regular Sales and Sales Return can be recorded in this version.'); return; }
+    setBusy(true);
+    try {
+      const r = await apiCreateEntry({ ...buildEntryBody({ ...entry, type: entry.type }), entryType, dealerId: entry.dealerId, entryDate: entry.date }, token);
+      const data: Entry = { ...entry, id: r.ref, apiId: r.id, status: 'Submitted', createdAt: r.createdAt };
+      setState(s => ({ ...s, entries: [data, ...s.entries.filter(e => e.id !== entry.id)] }));
+      setDone(data); sync(true);
+    } catch (err) { a.toast(errorMessage(err)); }
+    finally { setBusy(false); }
+  };
   const next = () => {
     const all = validateEntry(entry, state);
     const relevant = Object.fromEntries(Object.entries(all).filter(([k]) => step === 1 ? !k.startsWith('items') : k.startsWith('items')));
@@ -324,15 +405,16 @@ export function NewEntry({ id }: { id?: string }) {
       : <Btn kind="primary" icon="check" label={state.offline ? 'Save and send later' : 'Send for approval'} onPress={() => {
         const all = validateEntry(entry, state); setErrors(all); if (Object.keys(all).length) { a.toast('Some details need fixing — see the list above.'); return; }
         if (dealer?.status !== 'Active') { a.toast('This dealer is not active. Save a draft until the account is restored.'); return; }
+        if (!state.offline && dealer && /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(dealer.id)) { sendLive(); return; }
         setDone(save(state.offline ? 'Pending sync' : 'Submitted'));
-      }} />}
+      }} disabled={busy} />}
   </View>;
   return <Page back title="Record an entry" sub="For a dealer — the same checks as the dealer app">
     <View style={{ maxWidth: 900, width: '100%', alignSelf: 'center' }}>
       <Steps labels={['1 · Details', '2 · Batteries', '3 · Photos & proof', '4 · Check']} now={step} />
       <View style={{ height: 14 }} />
       {step === 1 && <Card>
-        <Cols><Select label="Dealer" req value={dealer?.name || ''} options={active.map(d => ({ v: d.name, sub: `${d.id} · ${d.city}` }))} onChange={v => { const d = active.find(x => x.name === v)!; upd({ dealerId: d.id, place: d.place || entry.place }); }} />
+        <Cols><Select label="Dealer" req value={dealer?.name || ''} options={active.map(d => ({ v: d.name, sub: `${d.code || d.id} · ${d.city}` }))} onChange={v => { const d = active.find(x => x.name === v)!; upd({ dealerId: d.id, place: d.place || entry.place }); }} />
           <Select label="Entry type" req value={entry.type} options={state.entryTypes} onChange={type => upd({ type })} /></Cols>
         <Cols><Field label="Date" req mono value={entry.date} onChange={date => upd({ date })} ph="YYYY-MM-DD" error={errors.date} hint="Within the last 30 days." hintIcon="clock" />
           <Field label="Place / area" req value={entry.place} onChange={place => upd({ place })} error={errors.place} /></Cols>

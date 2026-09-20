@@ -1,5 +1,9 @@
 {
+<<<<<<< HEAD
   "id": "f7fe2150-f29e-4015-917c-855979e45f65",
+=======
+  "id": "f9814d22-70bf-43ca-adcf-13b55dbced79",
+>>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
   "prevId": "74a63cde-ac05-4d92-bf11-5dca9fa2355f",
   "version": "7",
   "dialect": "postgresql",
@@ -218,6 +222,7 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+<<<<<<< HEAD
     "public.credit_notes": {
       "name": "credit_notes",
       "schema": "",
@@ -332,6 +337,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+=======
+>>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
     "public.warranty_claims": {
       "name": "warranty_claims",
       "schema": "",
@@ -537,6 +544,203 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+<<<<<<< HEAD
+=======
+    "public.credit_notes": {
+      "name": "credit_notes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "no": {
+          "name": "no",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dealer_id": {
+          "name": "dealer_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "claim_id": {
+          "name": "claim_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "issued_by": {
+          "name": "issued_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "issued_at": {
+          "name": "issued_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "status": {
+          "name": "status",
+          "type": "credit_note_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'issued'"
+        },
+        "settled_ref": {
+          "name": "settled_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "settled_at": {
+          "name": "settled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reversed_reason": {
+          "name": "reversed_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reversed_at": {
+          "name": "reversed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "adjusted_by": {
+          "name": "adjusted_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "credit_notes_dealer_idx": {
+          "name": "credit_notes_dealer_idx",
+          "columns": [
+            {
+              "expression": "dealer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "credit_notes_issued_idx": {
+          "name": "credit_notes_issued_idx",
+          "columns": [
+            {
+              "expression": "dealer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "issued_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "credit_notes_dealer_id_dealers_id_fk": {
+          "name": "credit_notes_dealer_id_dealers_id_fk",
+          "tableFrom": "credit_notes",
+          "tableTo": "dealers",
+          "columnsFrom": [
+            "dealer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "credit_notes_claim_id_warranty_claims_id_fk": {
+          "name": "credit_notes_claim_id_warranty_claims_id_fk",
+          "tableFrom": "credit_notes",
+          "tableTo": "warranty_claims",
+          "columnsFrom": [
+            "claim_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "credit_notes_no_unique": {
+          "name": "credit_notes_no_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "no"
+          ]
+        },
+        "credit_notes_claim_id_unique": {
+          "name": "credit_notes_claim_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "claim_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+>>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
     "public.entries": {
       "name": "entries",
       "schema": "",
@@ -2043,6 +2247,7 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+<<<<<<< HEAD
     "public.challan_lines": {
       "name": "challan_lines",
       "schema": "",
@@ -2353,6 +2558,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+=======
+>>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
     "public.replacement_links": {
       "name": "replacement_links",
       "schema": "",
@@ -2738,6 +2945,7 @@
         "inactive",
         "soft_deleted"
       ]
+<<<<<<< HEAD
     },
     "public.challan_status": {
       "name": "challan_status",
@@ -2758,6 +2966,8 @@
         "scrapped",
         "closed"
       ]
+=======
+>>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
     }
   },
   "schemas": {},

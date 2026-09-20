@@ -47,8 +47,20 @@
     {
       "idx": 6,
       "version": "7",
+<<<<<<< HEAD
       "when": 1789758437716,
       "tag": "0006_returns",
+=======
+      "when": 1789818115260,
+      "tag": "0006_credit_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789820550417,
+      "tag": "0007_stock_movements",
+>>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
       "breakpoints": true
     }
   ]

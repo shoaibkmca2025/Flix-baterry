@@ -1,8 +1,16 @@
 import React, { useState } from 'react';
 import { View } from 'react-native';
 import { useStore } from '../store';
+<<<<<<< HEAD
 import { receiveChallan, stageLine } from '../api/returns';
 import { ApiError } from '../api/client';
+=======
+import { getAccessToken } from '../api/session';
+import { postMovement, type BatteryState } from '../api/stock';
+import { checkClaim, receiveClaim } from '../api/claims';
+import { errorMessage } from '../api/client';
+import { useSync } from '../api/sync';
+>>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
 import { Entry, today, uid } from '../domain';
 import { T } from '../dealer/theme';
 import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar, Tone, IconName } from '../dealer/kit';
@@ -14,7 +22,7 @@ const TRANSITIONS: Record<string, string[]> = { Available: ['Allocated', 'Sold',
 
 /* ---------- stock ---------- */
 export function Stock({ id }: { id?: string }) {
-  const a = useA(); const { state, setState, audit, canEdit } = useStore();
+  const a = useA(); const { state, setState, audit, canEdit } = useStore(); const { sync } = useSync();
   const [tab, setTab] = useState('overview'), [model, setModel] = useState('All'), [st, setSt] = useState('All'), [dealer, setDealer] = useState('All'), [q, setQ] = useState('');
   const [move, setMove] = useState(!!id?.startsWith('move:')), [code, setCode] = useState(id?.startsWith('move:') ? id.slice(5) : ''), [to, setTo] = useState('Available'), [target, setTarget] = useState(''), [reason, setReason] = useState(''), [err, setErr] = useState('');
   const [thr, setThr] = useState<{ id: string; value: string } | null>(null);
@@ -24,7 +32,7 @@ export function Stock({ id }: { id?: string }) {
   const available = (m: string, d?: string) => state.batteries.filter(b => b.model === m && b.state === 'Available' && (!d || b.dealerId === d)).length;
   const low = state.models.filter(m => m.active && available(m.id) < m.threshold);
   const current = state.batteries.find(b => b.code === code.trim());
-  const post = () => {
+  const post = async () => {
     const b = current;
     if (!b) { setErr('That serial is not in the register.'); return; }
     if (reason.trim().length < 5) { setErr('Give a reason for the movement.'); return; }
@@ -33,6 +41,16 @@ export function Stock({ id }: { id?: string }) {
     if (b.state === to && b.dealerId === dest) { setErr('Choose a different state or dealer.'); return; }
     if (!TRANSITIONS[b.state]?.includes(to) && b.dealerId === dest) { setErr(`A ${b.state.toLowerCase()} battery cannot move straight to ${to.toLowerCase()}.`); return; }
     if (state.offline) { setErr('Stock movements need online mode.'); return; }
+    const token = await getAccessToken();
+    if (token) {
+      // the server validates the same transition table (backend domain/stock.ts) and writes the ledger
+      try {
+        await postMovement({ batteryCode: b.code, toState: to.toLowerCase() as BatteryState, toDealerId: dest || null, toCustodian: dest ? 'dealer' : 'company', reasonText: reason.trim() }, token);
+        setMove(false); setReason(''); setErr(''); a.toast('Movement posted. Both stock positions are updated.');
+      } catch (err) { setErr(errorMessage(err)); }
+      finally { sync(true); }
+      return;
+    }
     setState(s => audit({ ...s, batteries: s.batteries.map(x => x.code === b.code ? { ...x, state: to, dealerId: dest } : x), movements: [{ id: uid('MOV'), code: b.code, model: b.model, dealerId: dest, from: b.state, to, reason: reason.trim(), date: today() }, ...s.movements] }, 'Stock movement', b.code, reason.trim(), `${b.dealerId} / ${b.state}`, `${dest} / ${to}`));
     setMove(false); setReason(''); setErr(''); a.toast('Movement posted. Both stock positions are updated.');
   };
@@ -91,7 +109,7 @@ const STAGE_NEXT: Record<string, [string, string, 'blue' | 'ghost' | 'danger'][]
 const stageChip = (s?: string): [string, Tone, IconName] => s === 'In transit' ? ['On the way', 'vio', 'truck'] : s === 'Received' ? ['Arrived', 'live', 'box'] : s === 'Testing' ? ['Being tested', 'warn', 'eye'] : s === 'Repaired' ? ['Repaired', 'live', 'wrench'] : s === 'Scrapped' ? ['Scrapped', 'mute', 'x'] : s === 'Closed' ? ['Closed', 'live', 'check'] : ['At dealer', 'warn', 'shop'];
 
 export function Returns() {
-  const a = useA(); const { state, setState, audit, canEdit } = useStore();
+  const a = useA(); const { state, setState, audit, canEdit } = useStore(); const { sync } = useSync();
   const [tab, setTab] = useState('way'), [act, setAct] = useState<{ entries: Entry[]; to: string; label: string } | null>(null), [handover, setHandover] = useState<Entry | null>(null);
   const dealerName = (d: string) => state.dealers.find(x => x.id === d)?.name || d;
   const reps = state.entries.filter(e => e.type === 'Replacement' && !['Draft', 'Rejected', 'Cancelled', 'Pending sync'].includes(e.status));
@@ -104,6 +122,7 @@ export function Returns() {
   const looseOnWay = onWay.filter(e => !challanOf(e));
   const month = today().slice(0, 7);
   const receivedThisMonth = state.audits.filter(x => x.action === 'Received' && x.at.startsWith(month)).length;
+<<<<<<< HEAD
   const applyLocal = (entries: Entry[], to: string, reason: string) => {
     setState(s => entries.reduce((acc, e) => audit({ ...acc, entries: acc.entries.map(x => x.id === e.id ? { ...x, returnState: to, returnNote: reason } : x), challans: acc.challans.map(c => ({ ...c, rows: c.rows.map(r => entries.some(e => e.id === r.ref) ? { ...r, stage: to } : r) })) }, to, e.id, reason, e.returnState || 'At dealer', to), s));
     a.toast(entries.length > 1 ? `${entries.length} batteries marked “${stageChip(to)[0].toLowerCase()}”.` : `Marked “${stageChip(to)[0].toLowerCase()}”.`);
@@ -124,6 +143,39 @@ export function Returns() {
     if (!calls.length) { applyLocal(entries, to, reason); return; }
     Promise.all(calls).then(() => { applyLocal(entries, to, reason); return a.refresh(); })
       .catch(err => a.toast(err instanceof ApiError ? err.message : 'Could not reach the server. Try again.'));
+=======
+  /**
+   * Live entries: each stage is a claim step on the server (stock ledger moves with it).
+   *   Received  → claims.receive (custody → company)
+   *   Testing   → claims.check, disposition hold      (battery stays 'returned')
+   *   Repaired  → claims.check, disposition repair    (→ 'repair')   — or a manual movement if already checked
+   *   Scrapped  → claims.check, disposition scrap     (→ 'scrap')    — or a manual movement if already checked
+   *   Closed    → the claim decision itself, taken from "Requests to approve"
+   */
+  const applyLive = async (entries: Entry[], to: string, reason: string) => {
+    const token = await getAccessToken(); if (!token) return;
+    let done = 0;
+    try {
+      for (const e of entries) {
+        if (!e.claimId) continue;
+        if (to === 'Received') { if (e.claimStatus === 'awaiting_return') { await receiveClaim(e.claimId, token); done++; } }
+        else if (to === 'Closed') { a.toast('Close the return by approving or refusing the claim from “Requests to approve”.'); return; }
+        else if (e.claimStatus === 'received') { await checkClaim(e.claimId, { findingCode: reason.slice(0, 60), conditionNote: reason, disposition: to === 'Repaired' ? 'repair' : to === 'Scrapped' ? 'scrap' : 'hold' }, token); done++; }
+        else if (e.claimStatus === 'checked' && (to === 'Repaired' || to === 'Scrapped')) {
+          const code = e.items.find(i => i.oldSerial)?.oldSerial; if (!code) continue;
+          await postMovement({ batteryCode: code, toState: to === 'Repaired' ? 'repair' : 'scrap', toCustodian: 'company', toDealerId: null, reasonText: reason }, token); done++;
+        }
+      }
+      a.toast(done ? (done > 1 ? `${done} batteries marked “${stageChip(to)[0].toLowerCase()}”.` : `Marked “${stageChip(to)[0].toLowerCase()}”.`) : 'Nothing changed — that step is not possible from the current stage.');
+    } catch (err) { a.toast(errorMessage(err)); }
+    finally { sync(true); }
+  };
+  const apply = (entries: Entry[], to: string, reason: string) => {
+    if (!canEdit) { a.toast('Read-only access.'); return false; }
+    if (entries.some(e => e.apiId)) { applyLive(entries.filter(e => e.apiId), to, reason); return; }
+    setState(s => entries.reduce((acc, e) => audit({ ...acc, entries: acc.entries.map(x => x.id === e.id ? { ...x, returnState: to, returnNote: reason } : x) }, to, e.id, reason, e.returnState || 'At dealer', to), s));
+    a.toast(entries.length > 1 ? `${entries.length} batteries marked “${stageChip(to)[0].toLowerCase()}”.` : `Marked “${stageChip(to)[0].toLowerCase()}”.`);
+>>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
   };
   const byDealer = state.dealers.map(d => ({ d, list: atDealer.filter(e => e.dealerId === d.id) })).filter(x => x.list.length).sort((x, y) => y.list.length - x.list.length);
   const row = (e: Entry, i: number, arr: Entry[], showActions = true) => {

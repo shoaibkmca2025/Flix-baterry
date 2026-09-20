@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { verifyAccessToken } from '../modules/auth/auth.tokens';
+import { assertAccountActive } from '../modules/users/users.service';
 import { AppError } from '../utils/errors';
 
 declare module 'fastify' {
@@ -16,10 +17,14 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
   if (!header?.startsWith('Bearer ')) {
     throw new AppError('unauthenticated', 401, 'Sign in required.');
   }
+  let claims;
   try {
-    const claims = await verifyAccessToken(header.slice(7));
-    request.authUser = { id: claims.sub, scope: claims.scope, role: claims.role, dealerId: claims.dealerId };
+    claims = await verifyAccessToken(header.slice(7));
   } catch {
     throw new AppError('unauthenticated', 401, 'Sign in required.');
   }
+  // INV-status-every-request (rules.md): a blocked user or a suspended dealer's staff is
+  // refused on the very next request, not at the next sign-in. Cached 30 s in users.service.
+  await assertAccountActive(claims.sub);
+  request.authUser = { id: claims.sub, scope: claims.scope, role: claims.role, dealerId: claims.dealerId };
 }

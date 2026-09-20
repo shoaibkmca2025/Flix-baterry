@@ -15,6 +15,7 @@ export type EntryItemInput = z.infer<typeof EntryItemInput>;
 // this later is a straight swap, not a redesign.
 export const EntryCreateBody = z.object({
   entryType: z.enum(['replacement', 'sales_return', 'regular_sales']),
+  dealerId: z.string().uuid().optional(), // head office recording on a dealer's behalf (P2-09); ignored for a dealer session
   entryDate: isoDate.optional(), // defaults to today (server-side, Kolkata) if omitted
   place: z.string().trim().min(1, 'Enter the place.'),
   customerName: z.string().trim().optional(),
@@ -40,6 +41,7 @@ export type EntryDecisionBody = z.infer<typeof EntryDecisionBody>;
 
 export const EntryListQuery = z.object({
   status: z.enum(['submitted', 'approved', 'rejected'] as const).optional(),
+  dealerId: z.string().uuid().optional(), // admins only; a dealer's scope always comes from the token
   limit: z.coerce.number().int().positive().max(200).default(50),
   cursor: z.string().optional(),
 });

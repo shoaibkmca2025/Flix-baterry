@@ -6,6 +6,7 @@ vi.mock('../../database/client', () => ({
 }));
 
 vi.mock('../../utils/audit', () => ({ audit: vi.fn() }));
+vi.mock('../batteries/batteries.repository', () => ({ listModels: vi.fn(async () => [{ id: 'M5', family: 'M', type: 'IT tall tubular', capacity: '150Ah', warrantyMonths: 24, active: true }]) }));
 
 vi.mock('./masters.repository', () => ({
   listCities: vi.fn(),
@@ -38,6 +39,7 @@ describe('bundle', () => {
     const result = await bundle();
 
     expect(result.cities).toHaveLength(1);
+    expect(result.models).toHaveLength(1); // the app's model catalogue rides along
     expect(result.cities[0]).toMatchObject({ name: 'Dhule' });
   });
 });

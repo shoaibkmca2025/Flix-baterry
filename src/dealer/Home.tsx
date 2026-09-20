@@ -1,6 +1,11 @@
 import React from 'react';
 import { View, Pressable } from 'react-native';
 import { useStore } from '../store';
+import { getAccessToken } from '../api/session';
+import { createEntry } from '../api/entries';
+import { errorMessage } from '../api/client';
+import { useSync } from '../api/sync';
+import { buildEntryBody } from './Capture';
 import { Entry, today, validateEntry } from '../domain';
 import { T } from './theme';
 import { X, Mono, Btn, BtnRow, Card, Chip, StatusChip, Kpis, SecT, Line, Avatar, Gap, AvTone } from './kit';
@@ -9,10 +14,33 @@ import { attention, avatarTone, creditNotes, dealerEntries, dShort, rupees, toSe
 
 /** Sends everything saved on this phone; invalid entries come back as serial exceptions. */
 export function useSyncNow() {
-  const { state, setState, dealerId, audit } = useStore(); const d = useD();
-  return () => {
+  const { state, setState, dealerId, audit } = useStore(); const d = useD(); const { sync } = useSync();
+  const sendLive = async (rows: Entry[], token: string) => {
+    let sent = 0, bad = 0;
+    for (const e of rows) {
+      try {
+        await createEntry(buildEntryBody(e), token);
+        sent++;
+        setState(s => ({ ...s, entries: s.entries.filter(x => x.id !== e.id) })); // the server's copy replaces it on refresh
+      } catch (err) {
+        bad++;
+        setState(s => ({ ...s, entries: s.entries.map(x => x.id === e.id ? { ...x, status: 'Conflict', retries: x.retries + 1, remarks: x.remarks, items: x.items.map((it, i) => i === 0 ? { ...it, exception: errorMessage(err) } : it) } : x) }));
+      }
+    }
+    await sync(true);
+    d.toast(bad ? `${sent} sent. ${bad} need a fix — see My requests.` : `${sent} ${sent === 1 ? 'entry' : 'entries'} sent to head office.`);
+  };
+  return async () => {
     if (state.offline) { d.toast('Still offline. Your entries stay saved on this phone.'); return; }
     const rows = state.entries.filter(e => e.dealerId === dealerId && e.status === 'Pending sync');
+    const token = await getAccessToken();
+    if (token) {
+      // signed in for real: send what is waiting, then pull the latest from head office
+      if (rows.length) { await sendLive(rows, token); return; }
+      const ok = await sync();
+      d.toast(ok ? 'Up to date with head office.' : 'Nothing waiting to send.');
+      return;
+    }
     if (!rows.length) { d.toast('Nothing waiting to send.'); return; }
     const verdict = new Map(rows.map(e => [e.id, Object.keys(validateEntry(e, state)).length === 0]));
     setState(s => audit({ ...s, lastSync: new Date().toISOString(), entries: s.entries.map(e => verdict.has(e.id) ? { ...e, status: verdict.get(e.id) ? 'Submitted' : 'Conflict', retries: e.retries + 1 } : e) }, 'Entries sent from the dealer app', 'SYNC', `${rows.length} saved entries sent`));
@@ -76,7 +104,7 @@ export function D09() {
   return <Screen tab="user" top={<AppBar title="Profile & settings" />}>
     <Card style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
       <View style={{ width: 52, height: 52, borderRadius: 9, backgroundColor: T.steelSoft, alignItems: 'center', justifyContent: 'center' }}><Avatar n="shop" /></View>
-      <View style={{ flex: 1 }}><X s={17} w={7}>{dealer.name}</X><X s={12.5} c={T.slate}>{dealer.id} · {dealer.city}</X></View>
+      <View style={{ flex: 1 }}><X s={17} w={7}>{dealer.name}</X><X s={12.5} c={T.slate}>{dealer.code || dealer.id} · {dealer.city}</X></View>
       <StatusChip status={dealer.status} /></Card>
     <SecT title="Account" />
     <Card>{([['Shop profile & documents', 'shop', 'd06'], ['Credit notes', 'check', 'd37'], ['Change password', 'lock', 'd03']] as const).map((r, i) =>

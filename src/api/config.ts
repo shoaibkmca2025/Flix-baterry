@@ -1,9 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 
+<<<<<<< HEAD
 // The backend port (backend/.env PORT). 8080 is taken by Apache on the current dev machine.
 const DEV_PORT = 4000;
 const OVERRIDE_KEY = 'felix-api-base-url';
+=======
+// The backend's default port (backend/src/config/env.ts PORT, and backend/.env). On a machine
+// where 8080 is taken (e.g. by Apache), run the backend on another port and point the app at it
+// with EXPO_PUBLIC_API_BASE_URL — see devBaseUrl() below.
+const DEV_PORT = 8080;
+>>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
 
 /**
  * On a phone, `localhost` is the phone itself, so the dev backend has to be reached at the

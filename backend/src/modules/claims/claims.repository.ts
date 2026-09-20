@@ -1,6 +1,6 @@
-import { and, desc, eq, lt, or } from 'drizzle-orm';
+import { and, desc, eq, lt, or, sql } from 'drizzle-orm';
 import { db, type Tx } from '../../database/client';
-import { claimStatus, creditNotes, warrantyClaims } from '../../models/claims.model';
+import { claimStatus, warrantyClaims } from '../../models/claims.model';
 
 type DbOrTx = typeof db | Tx;
 
@@ -44,11 +44,6 @@ export async function updateClaimDecision(
   return row!;
 }
 
-export async function insertCreditNote(tx: Tx, input: { no: string; dealerId: string; claimId: string; amount: number; issuedBy: string }) {
-  const [row] = await tx.insert(creditNotes).values(input).returning();
-  return row!;
-}
-
 export type ClaimListFilter = { status?: (typeof claimStatus.enumValues)[number]; dealerId?: string; limit: number; cursor?: { createdAt: Date; id: string } };
 
 export async function listClaims(dbh: DbOrTx, filter: ClaimListFilter) {
@@ -72,4 +67,15 @@ export async function listClaims(dbh: DbOrTx, filter: ClaimListFilter) {
   const last = items[items.length - 1];
   const nextCursor = hasMore && last ? Buffer.from(JSON.stringify({ createdAt: last.createdAt.toISOString(), id: last.id })).toString('base64url') : null;
   return { items, nextCursor };
+}
+
+// Per-status counts for one dealer — feeds the credits summary (d37 "still being checked"
+// / "refused" KPIs). Read-only; credits.service is the caller.
+export async function countClaimsByStatus(dbh: DbOrTx, dealerId: string): Promise<Partial<Record<(typeof claimStatus.enumValues)[number], number>>> {
+  const rows = await dbh
+    .select({ status: warrantyClaims.status, count: sql<number>`count(*)::int` })
+    .from(warrantyClaims)
+    .where(eq(warrantyClaims.dealerId, dealerId))
+    .groupBy(warrantyClaims.status);
+  return Object.fromEntries(rows.map((r) => [r.status, r.count]));
 }

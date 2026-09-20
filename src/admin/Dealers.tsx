@@ -7,22 +7,43 @@ import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV
 import { creditNotes, dLong, dShort, personOf, rupees, toSendBack } from '../dealer/data';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, Tabs, Dialog, ReasonDialog, Select, ToggleRow, EntryTable, Empty, fmtAt, useA } from './ui';
 import { StaffManager } from './Governance';
+import { getAccessToken } from '../api/session';
+import { activateDealer, approveDealer, rejectDealer, suspendDealer } from '../api/dealers';
+import { errorMessage } from '../api/client';
+import { useSync } from '../api/sync';
+
+// A dealer that came from the server has a uuid id (and its code in `code`); demo dealers use the code as id.
+const isLive = (d: Dealer) => /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(d.id);
+export const dealerCode = (d: Dealer) => d.code || d.id;
 
 const digits = (v: string) => v.replace(/\D/g, '');
 function suggestCode(d: Dealer, dealers: Dealer[]) {
   const letters = d.name.split(/\s+/).filter(Boolean).slice(0, 3).map(w => w[0].toUpperCase()).join('').padEnd(3, 'X');
   let n = dealers.length + 1, code = '';
-  do { code = `${letters}-${String(n).padStart(3, '0')}`; n++; } while (dealers.some(x => x.id === code));
+  do { code = `${letters}-${String(n).padStart(3, '0')}`; n++; } while (dealers.some(x => x.id === code || x.code === code));
   return code;
 }
 
 /** Approve, refuse, suspend or reactivate a dealer — with a reason and a message to the dealer. */
 function useDealerDecision() {
-  const { state, setState, audit, canEdit } = useStore(); const a = useA();
+  const { state, setState, audit, canEdit } = useStore(); const a = useA(); const { sync } = useSync();
+  const liveDecision = async (d: Dealer, action: 'Approve' | 'Reject' | 'Suspend' | 'Activate', reason: string, newCode?: string) => {
+    const token = await getAccessToken();
+    if (!token) { a.toast('Sign in again to change a dealer.'); return; }
+    try {
+      if (action === 'Approve') await approveDealer(d.id, newCode || dealerCode(d), reason, token);
+      else if (action === 'Reject') await rejectDealer(d.id, reason, token);
+      else if (action === 'Suspend') await suspendDealer(d.id, reason, token);
+      else await activateDealer(d.id, reason, token);
+      a.toast(action === 'Approve' ? `${d.name} approved as ${newCode || dealerCode(d)}. They can sign in now.` : `${d.name} is now ${action === 'Activate' ? 'active' : action === 'Reject' ? 'rejected' : 'suspended'}.`);
+    } catch (err) { a.toast(errorMessage(err)); }
+    finally { sync(true); }
+  };
   return (d: Dealer, action: 'Approve' | 'Reject' | 'Suspend' | 'Activate', reason: string, newCode?: string) => {
     if (!canEdit) { a.toast('Read-only access — dealers cannot be changed.'); return false; }
     if (state.offline) { a.toast('Dealer decisions need online mode.'); return false; }
-    if (newCode && newCode !== d.id && (!/^[A-Z]{2,4}-\d{3}$/.test(newCode) || state.dealers.some(x => x.id === newCode))) { a.toast('Use a free dealer code like VPC-045.'); return false; }
+    if (newCode && newCode !== dealerCode(d) && (!/^[A-Z]{2,4}-\d{3}$/.test(newCode) || state.dealers.some(x => x.id === newCode || x.code === newCode))) { a.toast('Use a free dealer code like VPC-045.'); return false; }
+    if (isLive(d)) { liveDecision(d, action, reason, newCode); return; }
     const next = action === 'Approve' || action === 'Activate' ? 'Active' : action === 'Reject' ? 'Rejected' : 'Suspended';
     const id = newCode || d.id;
     setState(s => audit({ ...s, dealers: s.dealers.map(x => x.id === d.id ? { ...x, id, status: next, reason } : x), notices: [{ id: uid('N'), title: `Dealer account ${next.toLowerCase()}`, body: reason, route: 'profile', read: false, dealerId: id }, ...s.notices] }, `${action} dealer`, id, id !== d.id ? `${reason} · dealer code ${id} assigned` : reason, d.status, next));
@@ -78,7 +99,7 @@ export function Dealers() {
         cols={[
           { h: 'Dealer', w: 1.6, cell: d => <View><X s={13.5} w={7}>{d.name}</X><X s={12} c={T.slate}>{d.contact}</X></View> },
           { h: 'City', w: 0.9, cell: d => d.city },
-          { h: 'Code', w: 1, cell: d => <X s={12.5} f="m" w={6}>{d.id}</X> },
+          { h: 'Code', w: 1, cell: d => <X s={12.5} f="m" w={6}>{dealerCode(d)}</X> },
           { h: 'Status', w: 1.2, cell: d => <StatusChip status={d.status} /> },
           { h: 'Batteries', w: 0.7, cell: d => String(state.batteries.filter(b => b.dealerId === d.id).length) },
           { h: 'Replacements', w: 0.8, cell: d => String(state.entries.filter(e => e.dealerId === d.id && e.type === 'Replacement' && e.status !== 'Draft').length) },
@@ -99,7 +120,7 @@ export function DealerProfile({ id }: { id?: string }) {
   const cn = creditNotes(state, d.id);
   const history = state.audits.filter(x => x.ref === d.id).sort((x, y) => y.at.localeCompare(x.at));
   const actions: ('Approve' | 'Reject' | 'Suspend' | 'Activate')[] = d.status === 'Pending Approval' ? ['Reject', 'Approve'] : d.status === 'Active' ? ['Suspend'] : ['Activate'];
-  return <Page back title={d.name} sub={`${d.city} · ${d.id} · ${d.status.toLowerCase()}`}
+  return <Page back title={d.name} sub={`${d.city} · ${dealerCode(d)} · ${d.status.toLowerCase()}`}
     tabs={<Tabs value={tab} onChange={setTab} items={[['profile', 'Profile'], ['entries', `Entries ${entries.length}`], ['staff', 'Staff'], ['history', 'Status history']]} />}>
     {tab === 'profile' && <Cols weights={[1.55, 1]}>
       <Card><CardH title="Business details" right={<StatusChip status={d.status} />} />

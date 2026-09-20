@@ -6,6 +6,7 @@ import { DealerApp } from './src/dealer/DealerApp';
 import { AdminApp } from './src/admin/AdminApp';
 import { Session, adminRoleLabel, clearSession, loadSession } from './src/api/session';
 import { setUnauthorizedHandler } from './src/api/client';
+import { syncStore, useAutoSync } from './src/api/sync';
 
 type Surface = 'dealer' | 'admin';
 type Auth = { status: 'loading' } | { status: 'signedOut'; surface: Surface } | { status: 'signedIn'; session: Session };
@@ -27,6 +28,10 @@ function Root() {
       }
     }
     setAuth({ status: 'signedIn', session });
+    // Pull the real records in behind the sign-in (src/api/sync.ts). Screens read the store,
+    // so this is what replaces the demo data with the backend's. Failure is not fatal here —
+    // the app shows what it has and every screen's refresh retries.
+    syncStore(setState).catch(() => {});
   }, [setRole, setDealerId, setState]);
 
   const signOut = useCallback((surface: Surface) => {
@@ -50,6 +55,9 @@ function Root() {
     }));
     return () => setUnauthorizedHandler(null);
   }, []);
+
+  // one more sync each time the app comes back to the foreground while signed in
+  useAutoSync(auth.status === 'signedIn');
 
   if (!ready || auth.status === 'loading') {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#141A23' }}><ActivityIndicator color="#E8A72C" /></View>;

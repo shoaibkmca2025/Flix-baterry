@@ -12,6 +12,7 @@ import { useAccessToken } from '../api/session';
 import { lookupBattery, type BatteryLookupResult } from '../api/batteries';
 import { createEntry, type EntryCreateInput, type EntryItemInput, type EntryType } from '../api/entries';
 import { ApiError } from '../api/client';
+import { useSync } from '../api/sync';
 
 const REP_STEPS = ['1 · Old battery', '2 · New battery', '3 · Check'];
 const RET_STEPS = ['1 · Battery', '2 · Photos', '3 · Check'];
@@ -93,7 +94,7 @@ const slugFault = (label: string) => label.trim().toLowerCase().replace(/[^a-z0-
 function coverStatus(cover: { inWarranty: boolean; daysRemaining: number }): 'Active' | 'Expiring soon' | 'Expired' {
   return !cover.inWarranty ? 'Expired' : cover.daysRemaining <= 30 ? 'Expiring soon' : 'Active';
 }
-function buildEntryBody(e: Entry): EntryCreateInput {
+export function buildEntryBody(e: Entry): EntryCreateInput {
   const entryType: EntryType = e.type === 'Replacement' ? 'replacement' : 'sales_return';
   const items: EntryItemInput[] = e.items.map(it => ({
     modelId: it.model,
@@ -161,6 +162,79 @@ export function D10() {
   </Screen>;
 }
 
+/** Everything the dealer should know about the old battery once its serial is typed or scanned
+ * (memory.md D-03): manufacture month from the code's YYMM, model/type/capacity, when it was
+ * bought (the chain's original sale), when it was itself installed as a replacement, how many
+ * replacements the chain has had, its current state, and the cover dates. */
+const STATE_LABEL: Record<string, string> = { available: 'In stock', allocated: 'Allocated', sold: 'With customer', returned: 'Returned', replacement: 'Given as replacement', repair: 'Under repair', damaged: 'Damaged', scrap: 'Scrapped' };
+const WARRANTY_MONTHS = 24; // fixed V1 term (memory.md D-03) — the server's default too
+const leftText = (expiry: string) => { const days = Math.ceil((Date.parse(expiry) - Date.parse(today())) / 86_400_000); return days >= 0 ? `${spanLong(span(today(), expiry))} left` : `Expired ${-days} day${days === -1 ? '' : 's'} ago`; };
+/** "Warranty left" headline + meter: start → expiry, with how much of the term is used. */
+function WarrantyLeft({ start, expiry, from, months = WARRANTY_MONTHS }: { start: string; expiry: string; from: string; months?: number }) {
+  const total = Math.max(1, Date.parse(expiry) - Date.parse(start)), used = (Date.parse(today()) - Date.parse(start)) / total;
+  const ok = Date.parse(expiry) >= Date.parse(today());
+  return <View style={{ marginTop: 12 }}>
+    <X s={11.5} w={6} c={T.slate}>Warranty left · {from}</X>
+    <X s={19} w={7} c={ok ? '#12603C' : '#992A15'} style={{ marginTop: 2, marginBottom: 8 }}>{leftText(expiry)}</X>
+    <Meter used={used} labels={[dLong(start), `${months} months`, dLong(expiry)]} />
+  </View>;
+}
+function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code: string; lookup: BatteryLookupResult | null; looking: boolean; token: string | null; fallbackModel?: string }) {
+  if (code.length !== 8) return null;
+  const local = deriveCode(code);
+  const mfg = (lookup?.mfgMonth) || local.mfg;
+  const ident: [string, React.ReactNode, ('mono' | '')?][] = [['Serial number', code, 'mono'], ['Manufactured', mfg ? monthLong(mfg) : 'Not a valid YYMM']];
+  // With nothing else on record the manufacture month is the only anchor — the same rule the
+  // server applies for a battery it has never seen (backend domain/warranty.checkWarranty).
+  const fromMfg = mfg ? { start: `${mfg}-01`, expiry: expiryFrom(`${mfg}-01`, WARRANTY_MONTHS) } : null;
+
+  if (!token) return <Card style={{ borderColor: '#EBD49C', backgroundColor: '#FFFBF1', marginBottom: 14 }}>
+    <CardH title="From the label" right={<Chip tone="warn" icon="alert" label="Preview mode" />} />
+    <KV pairs={ident} />
+    {fromMfg && <WarrantyLeft start={fromMfg.start} expiry={fromMfg.expiry} from="manufacture date" />}
+    <Gap h={8} /><X s={13} c={T.slate}>Not signed in to the real server, so the purchase date, model and any recorded cover cannot be checked live — this is from the label alone.</X></Card>;
+
+  if (looking || !lookup) return <Card style={{ marginBottom: 14 }}>
+    <CardH title="Checking with head office…" right={<Chip tone="mute" icon="clock" label="Please wait" />} />
+    <KV pairs={ident} />
+    {fromMfg && <WarrantyLeft start={fromMfg.start} expiry={fromMfg.expiry} from="manufacture date" />}</Card>;
+
+  if (!lookup.found) return <Card style={{ borderColor: '#EBD49C', backgroundColor: '#FFFBF1', marginBottom: 14 }}>
+    <CardH title="Not on record" right={<Chip tone="warn" icon="eye" label="Head office will check" />} />
+    <KV pairs={[...ident, ['Bought on', 'Not on record'], ['Cover ends', dLong(lookup.cover.expiryDate)]]} />
+    {mfg && <WarrantyLeft start={`${mfg}-01`} expiry={lookup.cover.expiryDate} from="manufacture date" />}
+    <Gap h={8} /><X s={13} c={T.slate}>Often an old sale from before the app. Warranty is counted from the manufacture month on the label because no purchase date is on record. You can still send it.</X></Card>;
+
+  const { battery, model, chain, cover, custody } = lookup;
+  const status = coverStatus(cover), [chipLabel, chipTone] = coverChip(status);
+  const modelText = model ? `${model.id} · ${model.type}${model.capacity ? ` · ${model.capacity}` : ''}` : fallbackModel || '—';
+  const pairs: [string, React.ReactNode, ('mono' | '')?][] = [
+    ...ident,
+    ['Model', modelText],
+    ['Type', model ? `${model.family} series · ${model.warrantyMonths} mo cover` : '—'],
+    ['Bought on', chain ? dLong(chain.purchaseDate) : 'Not on record'],
+    ['Cover', chain ? `${dLong(chain.purchaseDate)} → ${dLong(cover.expiryDate)}` : `Ends ${dLong(cover.expiryDate)} (from label)`],
+    ['Status', STATE_LABEL[battery.state] || battery.state],
+  ];
+  if (chain) pairs.push(['Replacements on this chain', chain.replacementCount === 0 ? 'None yet' : String(chain.replacementCount)]);
+  if (chain && battery.isReplacement) pairs.push(['This battery installed on', chain.installedOn ? dLong(chain.installedOn) : '—']);
+
+  if (custody === 'other') return <Card style={{ borderColor: '#F0C7BC', backgroundColor: '#FFF8F6', marginBottom: 14 }}>
+    <CardH title="Held by another shop" right={<Chip tone="bad" icon="lock" label="Not yours" />} />
+    <KV pairs={ident} />
+    <Gap h={8} /><X s={13.5} c={T.slate}>This serial is recorded against a different dealer. Check the label again, or call head office.</X></Card>;
+
+  const blocked = battery.alreadyReplaced ? 'This battery has already been replaced once — its replacement carries the cover now. Check the label again.'
+    : !cover.inWarranty ? 'Cover has ended for this chain. Head office will not accept a warranty replacement for it.' : null;
+  return <Card style={{ borderColor: blocked ? '#F0C7BC' : '#B8DFCB', backgroundColor: blocked ? '#FFF8F6' : '#F7FCF9', marginBottom: 14 }}>
+    <CardH title="Found on record" right={<Chip tone={battery.alreadyReplaced ? 'bad' : chipTone} icon={battery.alreadyReplaced ? 'lock' : status === 'Active' ? 'shield' : 'clock'} label={battery.alreadyReplaced ? 'Already replaced' : chipLabel} />} />
+    <KV pairs={pairs} />
+    <WarrantyLeft start={chain ? chain.purchaseDate : `${mfg}-01`} expiry={cover.expiryDate} from={chain ? 'purchase date' : 'manufacture date'} months={chain?.termMonths ?? model?.warrantyMonths} />
+    {chain && !chain.isOriginal && <Hint icon="link" style={{ marginTop: 10 }}>This is a replacement battery. Its cover runs from the first battery's sale on {dLong(chain.purchaseDate)}, not from its own manufacture month.</Hint>}
+    {blocked && <Hint tone="err" style={{ marginTop: 10 }}>{blocked}</Hint>}
+  </Card>;
+}
+
 /* d11 · old battery */
 export function D11() {
   const { f, d, upd, item, saveDraft } = useFlow(); const { state } = useStore();
@@ -193,17 +267,7 @@ export function D11() {
     <Field label="Old battery serial number" req mr="जुनी बॅटरी" mono numeric maxLength={8} value={it.oldSerial} onChange={setOld} ph="8 digits on the label" error={errs.oldSerial}
       hint={looking ? 'Checking warranty…' : undefined}
       tail={<><CapBtn n="scan" tone="alt" label="Scan old battery" onPress={() => setScan(true)} /><CapBtn n="cam" tone={oldPhoto ? 'done' : 'dark'} label="Photograph old battery label" onPress={async () => { const u = await takePhoto(d.toast); if (u) { upd(withPhoto(e, tagFor('Old battery', i), u)); d.toast('Photo saved. Check the number above matches it.'); } }} /></>} />
-    {lookup?.found && lookup.custody === 'yours' && <Card style={{ borderColor: '#B8DFCB', backgroundColor: '#F7FCF9', marginBottom: 14 }}>
-      <CardH title="Found on record" right={<Chip tone={coverChip(coverStatus(lookup.cover))[1]} icon={coverStatus(lookup.cover) === 'Active' ? 'shield' : 'clock'} label={coverChip(coverStatus(lookup.cover))[0]} />} />
-      <KV pairs={[['Model', `${lookup.model?.id || it.model} · ${lookup.model?.type || ''}`], ['Sold', lookup.cover.warrantyStart ? dLong(lookup.cover.warrantyStart) : 'Not on a chain yet'], ['Cover ends', dLong(lookup.cover.expiryDate)]]} />
-    </Card>}
-    {lookup?.found && lookup.custody === 'other' && <Card style={{ borderColor: '#F0C7BC', backgroundColor: '#FFF8F6', marginBottom: 14 }}>
-      <CardH title="Held by another shop" right={<Chip tone="bad" icon="lock" label="Not yours" />} />
-      <X s={13.5} c={T.slate}>This serial is recorded against a different dealer. Check the label again, or call head office.</X></Card>}
-    {lookup && !lookup.found && it.oldSerial.length === 8 && <Card style={{ borderColor: '#EBD49C', backgroundColor: '#FFFBF1', marginBottom: 14 }}>
-      <CardH title="Not on record" right={<Chip tone="warn" icon="eye" label="Head office will check" />} />
-      <X s={13.5} c={T.slate}>Often an old sale from before the app. You can still send it — no cover dates will be guessed.</X></Card>}
-    {!token && it.oldSerial.length === 8 && <Banner tone="warn" icon="alert" style={{ marginBottom: 14 }}>Preview mode — not signed in to the real server, so this cannot be checked live.</Banner>}
+    <OldBatteryInfo code={it.oldSerial} lookup={lookup} looking={looking} token={token} fallbackModel={it.model} />
     <View style={{ marginBottom: 13 }}><Label text="What is the problem?" req mr="काय बिघडले" /></View>
     <ChipRow options={FAULTS} value={it.fault || ''} onChange={v => { item({ fault: v }); setErrs(x => ({ ...x, fault: '' })); }} />
     {errs.fault && <Hint tone="err" style={{ marginTop: -9, marginBottom: 13 }}>{errs.fault}</Hint>}
@@ -407,7 +471,7 @@ function ReviewItem({ it, i, e, rep, token }: { it: Item; i: number; e: Entry; r
 
 /* d16 · review & send */
 export function D16() {
-  const { f, d } = useFlow(); const { state, setState, audit, dealerId } = useStore();
+  const { f, d } = useFlow(); const { state, setState, audit, dealerId } = useStore(); const { sync } = useSync();
   const token = useAccessToken();
   const [busy, setBusy] = useState(false);
   if (!f) return null;
@@ -437,11 +501,16 @@ export function D16() {
     setBusy(true);
     try {
       const result = await createEntry(buildEntryBody(e), token);
+<<<<<<< HEAD
       const data: Entry = { ...e, id: result.ref, serverId: result.id, status: result.status === 'approved' ? 'Approved' : 'Submitted', createdAt: result.createdAt, date: result.entryDate,
+=======
+      const data: Entry = { ...e, id: result.ref, apiId: result.id, status: result.status === 'approved' ? 'Approved' : 'Submitted', createdAt: result.createdAt, date: result.entryDate,
+>>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
         items: e.items.map(it => ({ ...it, wr: it.oldSerial || it.wr })),
         handover: rep ? `Given to ${e.customer || 'the customer'} at the counter · ${dLong(result.createdAt)}, ${tShort(result.createdAt)}` : e.handover };
       setState(s => audit({ ...s, entries: [data, ...s.entries.filter(x => x.id !== e.id)] }, 'Entry submitted', data.id, 'Sent from the dealer app'));
       d.setFlow(null); d.go('d17', data.id);
+      sync(true); // the server's copy (with its items and claim) replaces the bridged one
     } catch (err) {
       d.toast(err instanceof ApiError ? err.message : 'Could not reach the server. Try again.');
     } finally { setBusy(false); }

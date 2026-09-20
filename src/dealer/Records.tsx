@@ -1,12 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, ScrollView, Pressable, TextInput, Platform } from 'react-native';
 import { useStore } from '../store';
-import { normalize, today } from '../domain';
+import { Audit, normalize, today } from '../domain';
 import { printHtml, escapeHtml } from '../reports';
 import { T, family } from './theme';
 import { X, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, IconBtn, Plate, PlateLab, PlateVal, AvTone, B } from './kit';
 import { Screen, AppBar, Sheet, PickList, useD } from './shell';
 import { EntryLine, openEntry, useSyncNow } from './Home';
+import { getAccessToken } from '../api/session';
+import { entryTrail } from '../api/audit';
+
+// backend audit actions → the words this screen already uses (see `label` below)
+const TRAIL_LABEL: Record<string, string> = { 'entry.submitted': 'Entry submitted', 'entry.approved': 'Entry approved', 'entry.rejected': 'Reject entry' };
 import { ScanSheet } from './Capture';
 import { avatarTone, coverChip, coverOf, dLong, dShort, dealerEntries, findBattery, firstProblem, monthLong, spanLong, tShort } from './data';
 
@@ -41,13 +46,22 @@ export function D19({ p }: { p?: string }) {
   const d = useD(); const { state, setState, dealerId, audit } = useStore(); const sync = useSyncNow();
   const [ask, setAsk] = useState(false), [what, setWhat] = useState(''), [why, setWhy] = useState('');
   const e = state.entries.find(x => x.id === p && x.dealerId === dealerId);
+  // the server's own trail for a sent entry (audit module) — local audits cover demo entries
+  const [trail, setTrail] = useState<Audit[]>([]);
+  useEffect(() => {
+    if (!e?.apiId) { setTrail([]); return; }
+    let alive = true;
+    getAccessToken().then(t => (t ? entryTrail(e.apiId!, t) : null)).then(r => { if (alive && r) setTrail(r.items.map(x => ({ id: String(x.id), actor: x.actor.name ?? x.actor.role, action: TRAIL_LABEL[x.action] ?? x.action, ref: e.id, reason: x.reason ?? '', at: x.at }))); }).catch(() => {});
+    return () => { alive = false; };
+  }, [e?.apiId]);
   if (!e) return <Screen tab="list" top={<AppBar title="Entry" back="d18" />}><X c={T.slate}>This entry is not in your shop’s records.</X></Screen>;
   const rep = e.type === 'Replacement', problem = firstProblem(e, state);
-  const history = state.audits.filter(a => a.ref === e.id).sort((a, b) => a.at.localeCompare(b.at));
+  const history = (trail.length ? trail : state.audits.filter(a => a.ref === e.id)).sort((a, b) => a.at.localeCompare(b.at));
   const icon = (action: string): [any, AvTone] => /approved/i.test(action) ? ['check', 'green'] : /reject/i.test(action) ? ['x', 'red'] : /review|correction/i.test(action) ? ['eye', 'amber'] : /submitted|sent/i.test(action) ? ['check', 'green'] : ['doc', 'mute'];
   const label = (action: string, actor: string) => action === 'Entry submitted' ? (actor.includes(dealerId) ? 'You sent the entry' : 'Entry sent') : action === 'Entry approved' ? 'Head office approved the claim' : action === 'Reject entry' ? 'Head office refused the claim' : action === 'Start review' ? 'Head office started a review' : action === 'Correction requested' ? 'Correction asked for' : action;
   const send = () => {
     if (what.trim().length < 3 || why.trim().length < 5) { d.toast('Say what should change and why.'); return; }
+    if (e.apiId) { d.toast('Correction requests are not available in this version. Call head office to change a sent entry.'); return; }
     setState(s => audit({ ...s, entries: s.entries.map(x => x.id === e.id ? { ...x, correction: { reason: why.trim(), value: what.trim(), status: 'Pending' } } : x) }, 'Correction requested', e.id, why.trim(), e.remarks, what.trim()));
     setAsk(false); setWhat(''); setWhy(''); d.toast('Sent to head office. You will see their answer here.');
   };

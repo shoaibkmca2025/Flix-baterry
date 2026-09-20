@@ -6,6 +6,7 @@ vi.mock('./batteries.repository', () => ({
   findBatteryByCode: vi.fn(),
   findModelById: vi.fn(),
   findChainById: vi.fn(),
+  findReplacementLinkByNewBatteryId: vi.fn(),
   listBatteries: vi.fn(),
 }));
 
@@ -108,6 +109,56 @@ describe('lookup', () => {
 
     expect(result.cover.expiryDate).toBe('2028-01-14');
     expect((result.cover as { warrantyStart: string }).warrantyStart).toBe('2026-01-15'); // January, not the battery's own June mfg month
+    expect(result.cover.mfgMonth).toBe('2026-06'); // the chain decides cover, but the mfg month is still reported
+  });
+
+  it('tells the old-battery screen everything about a replacement battery: purchase date, install date, chain depth, state', async () => {
+    vi.mocked(repo.findBatteryByCode).mockResolvedValue({
+      id: 'batt-3', batteryCode: '26060303', serialNo: '0303', modelId: 'M5', mfgMonth: '2026-06', notOnRecord: false,
+      state: 'replacement', custodian: 'dealer', dealerId: 'dealer-1', chainId: 'chain-1', replacedFromId: 'batt-1', replacedById: null,
+    } as never);
+    vi.mocked(repo.findModelById).mockResolvedValue({ id: 'M5', family: 'M', type: 'IT tall tubular', capacity: '150Ah', warrantyMonths: 24 } as never);
+    vi.mocked(repo.findChainById).mockResolvedValue({ id: 'chain-1', rootBatteryId: 'batt-1', warrantyStart: '2026-01-15', warrantyExpiry: '2028-01-14', termMonths: 24, replacementCount: 1 } as never);
+    vi.mocked(repo.findReplacementLinkByNewBatteryId).mockResolvedValue({ newBatteryId: 'batt-3', replacedAt: '2026-03-10' } as never);
+
+    const result = await lookup(dealerCtx, '26060303');
+
+    expect(result).toMatchObject({
+      found: true,
+      mfgMonth: '2026-06',
+      serialNo: '0303',
+      battery: { state: 'replacement', alreadyReplaced: false, isReplacement: true, mfgMonth: '2026-06' },
+      model: { id: 'M5', family: 'M', capacity: '150Ah' },
+      chain: { purchaseDate: '2026-01-15', warrantyExpiry: '2028-01-14', replacementCount: 1, isOriginal: false, installedOn: '2026-03-10' },
+      custody: 'yours',
+    });
+    expect(repo.findReplacementLinkByNewBatteryId).toHaveBeenCalledWith(expect.anything(), 'batt-3');
+  });
+
+  it('flags a battery that has already been replaced, and does not look for a link on an original sale', async () => {
+    vi.mocked(repo.findBatteryByCode).mockResolvedValue({
+      id: 'batt-1', batteryCode: '26041212', serialNo: '1212', modelId: 'M5', mfgMonth: '2026-04', notOnRecord: false,
+      state: 'returned', custodian: 'dealer', dealerId: 'dealer-1', chainId: 'chain-1', replacedFromId: null, replacedById: 'batt-3',
+    } as never);
+    vi.mocked(repo.findModelById).mockResolvedValue({ id: 'M5', family: 'M', type: 'IT tall tubular', capacity: '150Ah', warrantyMonths: 24 } as never);
+    vi.mocked(repo.findChainById).mockResolvedValue({ id: 'chain-1', rootBatteryId: 'batt-1', warrantyStart: '2026-01-15', warrantyExpiry: '2028-01-14', termMonths: 24, replacementCount: 1 } as never);
+
+    const result = await lookup(dealerCtx, '26041212');
+
+    expect(result).toMatchObject({ battery: { alreadyReplaced: true, isReplacement: false }, chain: { isOriginal: true, installedOn: null } });
+    expect(repo.findReplacementLinkByNewBatteryId).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the code-derived mfg month when the row has none (legacy import), and reports no chain', async () => {
+    vi.mocked(repo.findBatteryByCode).mockResolvedValue({
+      id: 'batt-9', batteryCode: '24020099', serialNo: '0099', modelId: 'M3', mfgMonth: null, notOnRecord: true,
+      state: 'sold', custodian: 'customer', dealerId: null, chainId: null, replacedFromId: null, replacedById: null,
+    } as never);
+    vi.mocked(repo.findModelById).mockResolvedValue({ id: 'M3', family: 'M', type: 'IT tall tubular', capacity: '135Ah', warrantyMonths: 24 } as never);
+
+    const result = await lookup(dealerCtx, '24020099');
+
+    expect(result).toMatchObject({ mfgMonth: '2024-02', chain: null, battery: { notOnRecord: true, mfgMonth: '2024-02' } });
   });
 });
 
