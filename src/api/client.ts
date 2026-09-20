@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_BASE_URL } from './config';
+import { getApiBaseUrl } from './config';
 
 // architecture.md §6.1 — the error envelope every backend route returns.
 export class ApiError extends Error {
@@ -51,7 +51,7 @@ export async function apiPost<T>(path: string, body: unknown, options: ApiOption
   const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Device-Id': deviceId };
   if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
 
-  const res = await fetch(`${API_BASE_URL}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
+  const res = await fetch(`${await getApiBaseUrl()}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
   const json = await res.json().catch(() => ({}));
   if (res.status === 401 && options.accessToken) unauthorizedHandler?.();
   if (!res.ok) {
@@ -65,7 +65,7 @@ export async function apiGet<T>(path: string, options: ApiOptions = {}): Promise
   const headers: Record<string, string> = { 'X-Device-Id': deviceId };
   if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
 
-  const res = await fetch(`${API_BASE_URL}${path}`, { method: 'GET', headers });
+  const res = await fetch(`${await getApiBaseUrl()}${path}`, { method: 'GET', headers });
   const json = await res.json().catch(() => ({}));
   if (res.status === 401 && options.accessToken) unauthorizedHandler?.();
   if (!res.ok) {

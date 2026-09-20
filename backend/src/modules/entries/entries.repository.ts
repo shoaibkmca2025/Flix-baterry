@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, lt, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lt, or } from 'drizzle-orm';
 import { db, type Tx } from '../../database/client';
 import { entries, entryItems, entryStatus, entryType } from '../../models/entries.model';
 
@@ -8,8 +8,19 @@ export function findEntryById(dbh: DbOrTx, id: string) {
   return dbh.select().from(entries).where(eq(entries.id, id)).then((r) => r[0]);
 }
 
+export function findEntriesByIds(dbh: DbOrTx, ids: string[]) {
+  if (!ids.length) return Promise.resolve([] as (typeof entries.$inferSelect)[]);
+  return dbh.select().from(entries).where(inArray(entries.id, ids));
+}
+
 export function findItemsByEntryId(dbh: DbOrTx, entryId: string) {
   return dbh.select().from(entryItems).where(eq(entryItems.entryId, entryId)).orderBy(asc(entryItems.seq));
+}
+
+// One query for a whole page of entries (list endpoint), instead of one per entry.
+export function findItemsByEntryIds(dbh: DbOrTx, entryIds: string[]) {
+  if (!entryIds.length) return Promise.resolve([] as Awaited<ReturnType<typeof findItemsByEntryId>>);
+  return dbh.select().from(entryItems).where(inArray(entryItems.entryId, entryIds)).orderBy(asc(entryItems.entryId), asc(entryItems.seq));
 }
 
 export type NewEntry = {

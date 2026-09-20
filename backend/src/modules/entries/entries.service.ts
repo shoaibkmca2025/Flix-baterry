@@ -247,7 +247,12 @@ export async function getById(ctx: Ctx, id: string) {
 export async function list(ctx: Ctx, query: EntryListQuery) {
   const user = requireDealer(ctx);
   const dealerId = user.scope === 'dealer' ? user.dealerId : undefined;
-  return repo.listEntries(db, { status: query.status, dealerId, limit: query.limit, cursor: decodeCursor(query.cursor) });
+  const page = await repo.listEntries(db, { status: query.status, dealerId, limit: query.limit, cursor: decodeCursor(query.cursor) });
+  // Items ride along so the apps can show model + serial per row without a call per entry.
+  const allItems = await repo.findItemsByEntryIds(db, page.items.map((e) => e.id));
+  const byEntry = new Map<string, typeof allItems>();
+  for (const item of allItems) byEntry.set(item.entryId, [...(byEntry.get(item.entryId) ?? []), item]);
+  return { items: page.items.map((e) => ({ ...e, items: byEntry.get(e.id) ?? [] })), nextCursor: page.nextCursor };
 }
 
 function decodeCursor(cursor?: string) {

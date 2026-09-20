@@ -437,7 +437,7 @@ export function D16() {
     setBusy(true);
     try {
       const result = await createEntry(buildEntryBody(e), token);
-      const data: Entry = { ...e, id: result.ref, status: result.status === 'approved' ? 'Approved' : 'Submitted', createdAt: result.createdAt, date: result.entryDate,
+      const data: Entry = { ...e, id: result.ref, serverId: result.id, status: result.status === 'approved' ? 'Approved' : 'Submitted', createdAt: result.createdAt, date: result.entryDate,
         items: e.items.map(it => ({ ...it, wr: it.oldSerial || it.wr })),
         handover: rep ? `Given to ${e.customer || 'the customer'} at the counter · ${dLong(result.createdAt)}, ${tShort(result.createdAt)}` : e.handover };
       setState(s => audit({ ...s, entries: [data, ...s.entries.filter(x => x.id !== e.id)] }, 'Entry submitted', data.id, 'Sent from the dealer app'));

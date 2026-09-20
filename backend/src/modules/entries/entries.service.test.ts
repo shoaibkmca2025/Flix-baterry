@@ -32,6 +32,7 @@ vi.mock('../claims/claims.repository', () => ({
 vi.mock('./entries.repository', () => ({
   findEntryById: vi.fn(),
   findItemsByEntryId: vi.fn(),
+  findItemsByEntryIds: vi.fn().mockResolvedValue([]),
   insertEntry: vi.fn(),
   insertEntryItem: vi.fn(),
   updateEntryItemLinks: vi.fn(),

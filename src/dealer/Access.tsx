@@ -12,6 +12,7 @@ import { registerDealer } from '../api/dealers';
 import { ApiError } from '../api/client';
 import { saveSession, dealerStatusLabel } from '../api/session';
 import { getMastersBundle, type City } from '../api/masters';
+import { getApiBaseUrl, setApiBaseUrl } from '../api/config';
 
 const digits = (v: string, n: number) => v.replace(/\D/g, '').slice(0, n);
 const grouped = (m: string) => m.length > 5 ? `${m.slice(0, 5)} ${m.slice(5)}` : m;
@@ -113,7 +114,25 @@ export function D02() {
     <Btn kind="primary" icon="check" label="Sign in" onPress={signIn} disabled={busy} />
     <BtnRow><Btn kind="ghost" sm label="Forgot password" style={{ alignSelf: 'stretch' }} onPress={() => d.go('d03')} /><Btn kind="ghost" sm label="New dealer? Register" style={{ alignSelf: 'stretch' }} onPress={() => d.go('d04')} /></BtnRow>
     <Pressable accessibilityRole="button" onPress={d.headOffice} style={{ alignSelf: 'center', marginTop: 22, padding: 6 }}><X s={12.5} w={6} c={T.slate} style={{ textDecorationLine: 'underline' }}>Head office staff? Sign in here</X></Pressable>
+    <ServerLink />
   </Screen>;
+}
+
+/** Where the app sends requests. Installed builds can't be re-pointed any other way, so it's editable here. */
+function ServerLink() {
+  const d = useD();
+  const [open, setOpen] = useState(false), [url, setUrl] = useState(''), [current, setCurrent] = useState('');
+  useEffect(() => { getApiBaseUrl().then(u => { setCurrent(u); setUrl(u); }); }, [open]);
+  const save = async (v: string) => { const u = await setApiBaseUrl(v); setCurrent(u); setOpen(false); d.toast(`Server: ${u}`); };
+  return <>
+    <Pressable accessibilityRole="button" onPress={() => setOpen(true)} style={{ alignSelf: 'center', marginTop: 4, padding: 6 }}><X s={11.5} c={T.slate} numberOfLines={1}>Server: {current.replace(/^https?:\/\//, '').replace(/\/api\/v\d+$/, '')}</X></Pressable>
+    <Sheet open={open} title="Server address" onClose={() => setOpen(false)}>
+      <Hint icon="cloud">The computer or website running the Felix backend, for example 10.178.23.168:4000 or api.felixbatteries.in.</Hint>
+      <Field label="Address" value={url} onChange={setUrl} mono ph="10.178.23.168:4000" />
+      <Btn kind="primary" icon="check" label="Save" onPress={() => save(url)} />
+      <Btn kind="ghost" sm label="Use the built-in address" style={{ marginTop: 9 }} onPress={() => save('')} />
+    </Sheet>
+  </>;
 }
 
 /* d03 · reset password — not yet wired to /auth/password/forgot+reset; still local-only */

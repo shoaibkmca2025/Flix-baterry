@@ -1,0 +1,19 @@
+{
+  "cli": { "version": ">= 16.0.0", "appVersionSource": "remote" },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://br-patient-haze-b4636nid-api.compute.c-6.us-east-2.aws.neon.tech/api/v1"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://br-patient-haze-b4636nid-api.compute.c-6.us-east-2.aws.neon.tech/api/v1"
+      }
+    }
+  },
+  "submit": { "production": {} }
+}

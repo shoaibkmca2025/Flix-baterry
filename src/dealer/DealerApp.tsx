@@ -6,7 +6,8 @@ import { useStore } from '../store';
 import { T, useDealerFonts } from './theme';
 import { X, Ic } from './kit';
 import { DCtx, DealerCtx, Flow, Route } from './shell';
-import type { Session } from '../api/session';
+import { useAccessToken, type Session } from '../api/session';
+import { useServerSync } from '../api/sync';
 import { D01, D02, D03, D04, D05, D06 } from './Access';
 import { D07, D09 } from './Home';
 import { D10, D11, D12, D13, D15, D16, D17, D31 } from './Capture';
@@ -24,6 +25,10 @@ export function DealerApp({ signedIn, onSignedIn, onSignOut, onHeadOfficeSignIn 
   const { width } = useWindowDimensions();
   const framed = Platform.OS === 'web' && width >= 700;
   const [route, setRoute] = useState<Route>(signedIn ? { id: 'd07' } : { id: 'd01' });
+  // Head office decisions land on the server; pull them in on home / My requests so statuses stay current.
+  const token = useAccessToken();
+  const refresh = useServerSync(signedIn ? token : null, 'dealer');
+  useEffect(() => { if (signedIn && ['d07', 'd18', 'd33', 'd35'].includes(route.id)) refresh().catch(() => {}); }, [route.id, signedIn, refresh]);
   const [history, setHistory] = useState<Route[]>([]);
   const [flow, setFlow] = useState<Flow | null>(null);
   const [toastMsg, setToastMsg] = useState('');

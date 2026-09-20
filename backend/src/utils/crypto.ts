@@ -1,15 +1,22 @@
 import { randomBytes, randomInt, createHash } from 'node:crypto';
-import { hash as argon2Hash, verify as argon2Verify, Algorithm } from '@node-rs/argon2';
+import { argon2id, argon2Verify } from 'hash-wasm';
 
-// rules.md §7 — Argon2id, m=64 MiB, t=3.
-const ARGON2_OPTS = { algorithm: Algorithm.Argon2id, memoryCost: 65536, timeCost: 3 };
+// rules.md §7 — Argon2id, m=64 MiB, t=3. hash-wasm (WebAssembly, no native binary) so the
+// same code runs on the local server and inside the bundled Neon Function. Output is the
+// standard PHC string ($argon2id$v=19$m=65536,t=3,p=1$…), so hashes made earlier by
+// @node-rs/argon2 still verify.
+const ARGON2_OPTS = { parallelism: 1, iterations: 3, memorySize: 65536, hashLength: 32, outputType: 'encoded' as const };
 
 export function hashPassword(password: string): Promise<string> {
-  return argon2Hash(password, ARGON2_OPTS);
+  return argon2id({ password, salt: randomBytes(16), ...ARGON2_OPTS });
 }
 
-export function verifyPassword(hash: string, password: string): Promise<boolean> {
-  return argon2Verify(hash, password);
+export async function verifyPassword(hash: string, password: string): Promise<boolean> {
+  try {
+    return await argon2Verify({ password, hash });
+  } catch {
+    return false; // malformed / non-argon2 hash — treat as no match, never as an error
+  }
 }
 
 export function sha256(value: string): string {

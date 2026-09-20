@@ -58,7 +58,7 @@ export function D19({ p }: { p?: string }) {
       <Field label="Why" req value={why} onChange={setWhy} ph="e.g. Misread the label in low light" multiline />
       <Btn kind="blue" icon="check" label="Send to head office" onPress={send} /></Sheet>}>
     {e.status === 'Conflict' && <Banner tone="bad" icon="alert" style={{ marginBottom: 12 }}><B>This entry cannot be approved yet.</B> {problem || 'Head office found a problem with a serial on it.'} Fix the serial or ask head office to review it.</Banner>}
-    {e.status === 'Rejected' && <Banner tone="bad" icon="x" style={{ marginBottom: 12 }}><B>Head office refused this entry.</B> {state.audits.find(a => a.ref === e.id && a.action === 'Reject entry')?.reason || 'Ask head office for the reason.'}</Banner>}
+    {e.status === 'Rejected' && <Banner tone="bad" icon="x" style={{ marginBottom: 12 }}><B>Head office refused this entry.</B> {e.decision?.reason || state.audits.find(a => a.ref === e.id && a.action === 'Reject entry')?.reason || 'Ask head office for the reason.'}</Banner>}
     {e.status === 'Pending sync' && <Banner tone="warn" icon="sync" style={{ marginBottom: 12 }}><B>Saved on this phone.</B> It is sent to head office when signal returns.</Banner>}
     {e.status === 'Draft' && <Banner tone="info" icon="pen" style={{ marginBottom: 12 }}><B>Not sent yet.</B> Continue where you left off.</Banner>}
     {['Submitted', 'Under Review'].includes(e.status) && <Banner tone="info" icon="clock" style={{ marginBottom: 12 }}><B>With head office.</B> {rep ? 'The claim is decided once the old battery is back and checked.' : 'Head office confirms it shortly.'}</Banner>}

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { View } from 'react-native';
 import { useStore } from '../store';
+import { receiveChallan, stageLine } from '../api/returns';
+import { ApiError } from '../api/client';
 import { Entry, today, uid } from '../domain';
 import { T } from '../dealer/theme';
 import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar, Tone, IconName } from '../dealer/kit';
@@ -102,10 +104,26 @@ export function Returns() {
   const looseOnWay = onWay.filter(e => !challanOf(e));
   const month = today().slice(0, 7);
   const receivedThisMonth = state.audits.filter(x => x.action === 'Received' && x.at.startsWith(month)).length;
+  const applyLocal = (entries: Entry[], to: string, reason: string) => {
+    setState(s => entries.reduce((acc, e) => audit({ ...acc, entries: acc.entries.map(x => x.id === e.id ? { ...x, returnState: to, returnNote: reason } : x), challans: acc.challans.map(c => ({ ...c, rows: c.rows.map(r => entries.some(e => e.id === r.ref) ? { ...r, stage: to } : r) })) }, to, e.id, reason, e.returnState || 'At dealer', to), s));
+    a.toast(entries.length > 1 ? `${entries.length} batteries marked “${stageChip(to)[0].toLowerCase()}”.` : `Marked “${stageChip(to)[0].toLowerCase()}”.`);
+  };
+  // Real challans (serverId set) are moved on the server: arrival is confirmed per challan, the
+  // later stages per battery. Demo challans keep the local-only behaviour.
   const apply = (entries: Entry[], to: string, reason: string) => {
     if (!canEdit) { a.toast('Read-only access.'); return false; }
-    setState(s => entries.reduce((acc, e) => audit({ ...acc, entries: acc.entries.map(x => x.id === e.id ? { ...x, returnState: to, returnNote: reason } : x) }, to, e.id, reason, e.returnState || 'At dealer', to), s));
-    a.toast(entries.length > 1 ? `${entries.length} batteries marked “${stageChip(to)[0].toLowerCase()}”.` : `Marked “${stageChip(to)[0].toLowerCase()}”.`);
+    if (!a.token) { applyLocal(entries, to, reason); return; }
+    const calls: Promise<unknown>[] = [];
+    if (to === 'Received') {
+      const ids = new Set(entries.map(e => state.challans.find(c => c.serverId && c.entryIds.includes(e.id))?.serverId).filter(Boolean) as string[]);
+      ids.forEach(id => calls.push(receiveChallan(id, { reason }, a.token!)));
+    } else {
+      const stage = to.toLowerCase() as 'testing' | 'repaired' | 'scrapped' | 'closed';
+      for (const e of entries) for (const c of state.challans) for (const r of c.rows) if (r.ref === e.id && r.lineId) calls.push(stageLine(r.lineId, { stage, reason }, a.token!));
+    }
+    if (!calls.length) { applyLocal(entries, to, reason); return; }
+    Promise.all(calls).then(() => { applyLocal(entries, to, reason); return a.refresh(); })
+      .catch(err => a.toast(err instanceof ApiError ? err.message : 'Could not reach the server. Try again.'));
   };
   const byDealer = state.dealers.map(d => ({ d, list: atDealer.filter(e => e.dealerId === d.id) })).filter(x => x.list.length).sort((x, y) => y.list.length - x.list.length);
   const row = (e: Entry, i: number, arr: Entry[], showActions = true) => {
