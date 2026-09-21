@@ -8,17 +8,12 @@ import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner
 import { CREDIT_VALUE, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, rupees, tShort, monthShort } from '../dealer/data';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '../dealer/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
-<<<<<<< HEAD
-import { approveEntry as approveOnServer, rejectEntry as rejectOnServer } from '../api/entries';
-import { ApiError } from '../api/client';
-=======
 import { getAccessToken } from '../api/session';
 import { approveEntry as apiApproveEntry, createEntry as apiCreateEntry, rejectEntry as apiRejectEntry, type EntryCreateInput, type EntryType } from '../api/entries';
 import { buildEntryBody } from '../dealer/Capture';
 import { checkClaim, decideClaim } from '../api/claims';
 import { errorMessage } from '../api/client';
 import { useSync } from '../api/sync';
->>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
 
 const PENDING = ['Submitted', 'Under Review', 'Conflict'];
 const creditOf = (e: Entry) => e.type === 'Replacement' ? e.items.reduce((t, i) => t + (CREDIT_VALUE[i.model] || 0), 0) : 0;
@@ -39,20 +34,6 @@ export function useDecisions() {
     setState(s => audit({ ...s, entries: s.entries.map(x => x.id === e.id ? { ...x, status: next } : x), notices: [notice(e.dealerId, `${e.id}: ${next === 'Rejected' ? 'refused' : next.toLowerCase()}`, reason), ...s.notices] }, action, e.id, reason, e.status, next));
     a.toast(msg);
   };
-<<<<<<< HEAD
-  // Entries that came from the server (serverId set) are decided on the server; the local copy
-  // is updated from its answer. The local-only path below stays for demo entries.
-  const onServer = (e: Entry, next: 'Approved' | 'Rejected', reason: string) => {
-    if (!a.token || !e.serverId) return false;
-    const call = next === 'Approved' ? approveOnServer(e.serverId, reason, a.token) : rejectOnServer(e.serverId, reason, a.token);
-    call.then(() => {
-      setState(s => audit({ ...s, entries: s.entries.map(x => x.id === e.id ? { ...x, status: next, decision: { reason, at: new Date().toISOString() } } : x), notices: [notice(e.dealerId, `${e.id}: ${next === 'Rejected' ? 'refused' : 'approved'}`, reason), ...s.notices] }, next === 'Approved' ? 'Entry approved' : 'Reject entry', e.id, reason, e.status, next));
-      a.toast(next === 'Approved' ? (e.type === 'Replacement' ? 'Approved. Stock, warranty history and the dealer credit are updated.' : 'Approved. Stock and battery history are updated.') : 'Refused. The dealer sees the reason in their app.');
-      a.refresh().catch(() => {});
-    }).catch(err => a.toast(err instanceof ApiError ? err.message : 'Could not reach the server. Try again.'));
-    return true;
-  };
-=======
   // An entry that came from the server carries its uuid; only those are decided through the
   // API. Anything else is local demo data and keeps the old in-memory behaviour.
   const live = (e: Entry) => !!e.apiId;
@@ -94,30 +75,19 @@ export function useDecisions() {
     finally { sync(true); }
   };
 
->>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
   return {
     guard,
     approve: (e: Entry, reason: string) => {
       if (!guard()) return false;
-<<<<<<< HEAD
-      if (e.serverId) return onServer(e, 'Approved', reason);
-=======
       if (live(e)) { approveLive(e, reason); return; }
->>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
       const errs = validateEntry(e, state);
       if (Object.keys(errs).length) { a.toast(`Cannot approve yet — ${Object.values(errs)[0]}`); return false; }
       setState(s => { const n = approveEntry(s, e); return audit({ ...n, notices: [notice(e.dealerId, `${e.id} approved`, reason), ...n.notices] }, 'Entry approved', e.id, reason, e.status, 'Approved'); });
       a.toast(e.type === 'Replacement' ? `Approved. Stock, warranty history and a ${rupees(creditOf(e))} dealer credit are updated.` : 'Approved. Stock and battery history are updated.');
     },
-<<<<<<< HEAD
-    reject: (e: Entry, reason: string) => e.serverId && guard() ? onServer(e, 'Rejected', reason) : status(e, 'Rejected', 'Reject entry', reason, 'Refused. The dealer sees the reason in their app.'),
-    review: (e: Entry, reason: string) => status(e, 'Under Review', 'Start review', reason, 'Marked as under review.'),
-    voidEntry: (e: Entry, reason: string) => status(e, 'Cancelled', 'Void / archive entry', reason, 'Voided. It stays searchable and in the audit log.'),
-=======
     reject: (e: Entry, reason: string) => live(e) ? (guard() ? void rejectLive(e, reason) : false) : status(e, 'Rejected', 'Reject entry', reason, 'Refused. The dealer sees the reason in their app.'),
     review: (e: Entry, reason: string) => live(e) ? notInV1() : status(e, 'Under Review', 'Start review', reason, 'Marked as under review.'),
     voidEntry: (e: Entry, reason: string) => live(e) ? notInV1() : status(e, 'Cancelled', 'Void / archive entry', reason, 'Voided. It stays searchable and in the audit log.'),
->>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
     requestCorrection: (e: Entry, value: string, reason: string) => {
       if (!guard()) return false;
       if (live(e)) return notInV1();
@@ -275,7 +245,7 @@ export function EntryDetail({ id }: { id?: string }) {
     : e.status === 'Submitted' ? <Banner tone="warn" icon="clock"><B>Waiting for your decision.</B> {e.type === 'Replacement' ? `The customer already has the new battery. Approving credits the dealer ${rupees(creditOf(e))}.` : 'Approving updates stock and battery history.'}</Banner>
     : e.status === 'Under Review' ? <Banner tone="info" icon="eye"><B>Under review.</B> Approve or refuse once the check is done.</Banner>
     : e.status === 'Approved' ? <Banner tone="ok" icon="check"><B>Approved.</B> Stock, warranty history and the replacement chain are updated.</Banner>
-    : e.status === 'Rejected' ? <Banner tone="bad" icon="x"><B>Refused.</B> {e.decision?.reason || state.audits.find(x => x.ref === e.id && x.action === 'Reject entry')?.reason || ''}</Banner>
+    : e.status === 'Rejected' ? <Banner tone="bad" icon="x"><B>Refused.</B> {e.decisionReason || state.audits.find(x => x.ref === e.id && x.action === 'Reject entry')?.reason || ''}</Banner>
     : e.status === 'Pending sync' ? <Banner tone="warn" icon="sync"><B>Still on the dealer’s phone.</B> It reaches head office when their phone is back online.</Banner>
     : e.status === 'Corrected' ? <Banner tone="info" icon="pen"><B>Corrected.</B> See the linked entry for the current values. This version stays readable.</Banner>
     : <Banner tone="info" icon="x"><B>Voided.</B> Removed from live totals, kept in search and the audit log.</Banner>;

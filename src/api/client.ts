@@ -79,7 +79,7 @@ export async function apiPatch<T>(path: string, body: unknown, options: ApiOptio
   const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Device-Id': deviceId };
   if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
 
-  const res = await fetch(`${API_BASE_URL}${path}`, { method: 'PATCH', headers, body: JSON.stringify(body) });
+  const res = await fetch(`${await getApiBaseUrl()}${path}`, { method: 'PATCH', headers, body: JSON.stringify(body) });
   const json = await res.json().catch(() => ({}));
   if (res.status === 401 && options.accessToken) unauthorizedHandler?.();
   if (!res.ok) {

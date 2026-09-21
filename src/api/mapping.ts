@@ -1,4 +1,4 @@
-import type { Audit, Battery, Dealer, Entry, Item, Model, Movement, Staff, State } from '../domain';
+import type { Audit, Battery, Challan, Dealer, Entry, Item, Model, Movement, Staff, State } from '../domain';
 import { listAudit } from './audit';
 import { listBatteries, type ApiBattery } from './batteries';
 import { listClaims, type ApiClaim } from './claims';
@@ -7,6 +7,7 @@ import { listEntries, type EntryWithItems } from './entries';
 import { getMastersBundle } from './masters';
 import type { Session } from './session';
 import { listMovements } from './stock';
+import { listChallans, type ChallanResult } from './returns';
 import { listAdmins } from './users';
 
 /**
@@ -145,11 +146,44 @@ function decisionAudits(entries: Entry[]): Audit[] {
     .map((e) => ({ id: `DEC-${e.id}`, actor: 'Head office', action: e.status === 'Approved' ? 'Entry approved' : 'Reject entry', ref: e.id, reason: e.decisionReason ?? '', at: e.decidedAt! }));
 }
 
+const RETURN_STAGE: Record<ChallanResult['lines'][number]['stage'], string> = { in_transit: 'In transit', received: 'Received', testing: 'Testing', repaired: 'Repaired', scrapped: 'Scrapped', closed: 'Closed' };
+const STAGE_ORDER = ['At dealer', 'In transit', 'Received', 'Testing', 'Repaired', 'Scrapped', 'Closed'];
+
+/** `refOf` turns the server's entry uuid into the store's entry id (the ENT- ref). */
+export function toChallan(c: ChallanResult, refOf: (entryId: string) => string): Challan {
+  return {
+    no: c.no, serverId: c.id, dealerId: c.dealerId, at: c.dispatchedAt, vehicle: c.vehicleNo ?? '', driver: c.driverName ?? '',
+    receivedAt: c.receivedAt ?? undefined,
+    entryIds: [...new Set(c.lines.map((l) => refOf(l.entryId)))],
+    rows: c.lines.map((l) => ({ serial: l.batteryCode, model: l.modelId, ref: refOf(l.entryId), fault: l.faultCode ? (FAULT_LABEL[l.faultCode] ?? l.faultCode) : '—', lineId: l.id, stage: RETURN_STAGE[l.stage] })),
+  };
+}
+
+/**
+ * A challan tracks the physical old battery from the moment the dealer hands it over — which
+ * can be before head office approves the entry (no claim yet). Where both a challan line and a
+ * claim describe the same battery, the further-along stage wins.
+ */
+export function withChallanStages(entries: Entry[], challans: Challan[]): Entry[] {
+  const best = new Map<string, { state: string; note: string }>();
+  for (const c of challans) for (const r of c.rows) {
+    if (!r.stage) continue;
+    const cur = best.get(r.ref);
+    if (!cur || STAGE_ORDER.indexOf(r.stage) > STAGE_ORDER.indexOf(cur.state)) best.set(r.ref, { state: r.stage, note: `Challan ${c.no}${c.vehicle ? ` · ${c.vehicle}` : ''}` });
+  }
+  return entries.map((e) => {
+    const line = best.get(e.id);
+    if (!line) return e;
+    const further = !e.returnState || STAGE_ORDER.indexOf(line.state) >= STAGE_ORDER.indexOf(e.returnState);
+    return further ? { ...e, returnState: line.state, returnNote: e.returnNote ? `${line.note} · ${e.returnNote}` : line.note } : e;
+  });
+}
+
 export type Hydrated = Partial<State> & { syncedAt: string };
 
 export async function fetchHydrated(session: Session, token: string): Promise<Hydrated> {
   const isAdmin = session.user.scope === 'admin';
-  const [masters, entriesPage, batteriesPage, claimsPage, movementsPage, dealersPage, auditPage, adminsPage] = await Promise.all([
+  const [masters, entriesPage, batteriesPage, claimsPage, movementsPage, dealersPage, auditPage, adminsPage, challanPage] = await Promise.all([
     getMastersBundle(),
     listEntries(token),
     listBatteries(token),
@@ -158,12 +192,15 @@ export async function fetchHydrated(session: Session, token: string): Promise<Hy
     isAdmin ? listDealers(token) : Promise.resolve(null),
     isAdmin ? listAudit(token).catch(() => null) : Promise.resolve(null), // co-admins without audit.read still sync everything else
     isAdmin && session.user.role === 'main_admin' ? listAdmins(token).catch(() => null) : Promise.resolve(null),
+    listChallans({ limit: 200 }, token),
   ]);
 
   const cityName = (id: string) => masters.cities.find((c) => c.id === id)?.name ?? id;
   const batteriesByCode = new Map(batteriesPage.items.map((b) => [b.batteryCode, b]));
   const claimsById = new Map(claimsPage.items.map((c) => [c.id, c]));
-  const entries = entriesPage.items.map((e) => toEntry(e, claimsById, batteriesByCode));
+  const refOf = new Map(entriesPage.items.map((e) => [e.id, e.ref]));
+  const challans = challanPage.items.map((c) => toChallan(c, (id) => refOf.get(id) ?? id));
+  const entries = withChallanStages(entriesPage.items.map((e) => toEntry(e, claimsById, batteriesByCode)), challans);
 
   // a battery's "customer" is whoever the entry that sold/replaced it named
   const customerByCode = new Map<string, string>();
@@ -207,6 +244,7 @@ export async function fetchHydrated(session: Session, token: string): Promise<Hy
     cities: masters.cities.map((c) => c.name),
     dealers,
     entries,
+    challans,
     batteries: batteriesPage.items.map((b) => toBattery(b, customerByCode)),
     movements,
     audits,

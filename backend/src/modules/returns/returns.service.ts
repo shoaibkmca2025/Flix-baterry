@@ -3,13 +3,20 @@ import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
 import { monthKey, nextFormattedRef } from '../../utils/ids';
+import * as claimsRepo from '../claims/claims.repository';
+import * as claimsService from '../claims/claims.service';
 import * as entriesRepo from '../entries/entries.repository';
 import * as repo from './returns.repository';
 import type { ChallanCreateBody, ChallanListQuery, ChallanReceiveBody, LineStageBody } from './returns.validation';
 
 // M-19 returns (modules.md), V1: a dealer hands old batteries to the van (dispatch), head
 // office confirms the van arrived (receive), then each battery moves through testing →
-// repaired/scrapped → closed. No stock movements yet — the ledger module isn't built.
+// repaired/scrapped → closed.
+//
+// A challan can be raised before head office approves the entry, so it may carry batteries
+// that have no claim yet. Where a claim already exists (entry approved), the challan carries
+// it along — claims.dispatch/receive own the stock ledger moves, so they are called rather than
+// duplicated here, each after this module's own transaction has committed.
 
 function requireUser(ctx: Ctx) {
   if (!ctx.user) throw new AppError('unauthenticated', 401, 'Sign in required.');
@@ -58,7 +65,27 @@ export async function dispatch(ctx: Ctx, input: ChallanCreateBody) {
     })));
     await audit(tx, { ctx, action: 'challan.dispatched', entityType: 'challan', entityId: challan.id, entityRef: no, after: { lines: lines.length, entryIds: ids }, outcome: 'ok' });
     return { ...challan, lines };
+  }).then(async (result) => {
+    await carryClaims(ctx, items.map((it) => it.claimId), 'awaiting_return');
+    return result;
   });
+}
+
+// Moves each linked claim up to `target` through the claims service (raised → awaiting_return →
+// received). Best effort: a claim already past that point, or in a state that cannot move, is
+// left alone rather than failing the challan.
+async function carryClaims(ctx: Ctx, claimIds: (string | null)[], target: 'awaiting_return' | 'received') {
+  for (const id of claimIds) {
+    if (!id) continue;
+    const claim = await claimsRepo.findClaimById(db, id);
+    if (!claim) continue;
+    try {
+      if (claim.status === 'raised') await claimsService.dispatch(ctx, id);
+      if (target === 'received' && (claim.status === 'raised' || claim.status === 'awaiting_return')) await claimsService.receive(ctx, id);
+    } catch {
+      // the physical challan is the record here; the claim catches up when head office processes it
+    }
+  }
 }
 
 export async function receive(ctx: Ctx, id: string, input: ChallanReceiveBody) {
@@ -82,6 +109,12 @@ export async function receive(ctx: Ctx, id: string, input: ChallanReceiveBody) {
     }
     await audit(tx, { ctx, action: 'challan.received', entityType: 'challan', entityId: id, entityRef: challan.no, before: { status: 'dispatched' }, after: { status: 'received', shortages: [...missing] }, reason: input.reason, outcome: 'ok' });
     return { ...updated, lines: out };
+  }).then(async (result) => {
+    const arrived = lines.filter((l) => !missing.has(l.batteryCode));
+    const items = await entriesRepo.findItemsByEntryIds(db, [...new Set(arrived.map((l) => l.entryId))]);
+    const itemIds = new Set(arrived.map((l) => l.entryItemId));
+    await carryClaims(ctx, items.filter((it) => itemIds.has(it.id)).map((it) => it.claimId), 'received');
+    return result;
   });
 }
 

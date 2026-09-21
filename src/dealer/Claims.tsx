@@ -3,19 +3,16 @@ import { View, Pressable, Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { useStore } from '../store';
-import { getAccessToken } from '../api/session';
-import { dispatchClaim } from '../api/claims';
-import { errorMessage } from '../api/client';
-import { useSync } from '../api/sync';
 import { Challan, Entry } from '../domain';
 import { printHtml, escapeHtml } from '../reports';
 import { T } from './theme';
 import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, BigOk, CheckBox, Kpis, Plate, PlateLab, PlateVal, AvTone, IconName } from './kit';
 import { Screen, AppBar, useD } from './shell';
-import { useAccessToken } from '../api/session';
+import { getAccessToken } from '../api/session';
 import { createChallan } from '../api/returns';
-import { toLocalChallan } from '../api/sync';
-import { ApiError } from '../api/client';
+import { toChallan } from '../api/mapping';
+import { errorMessage } from '../api/client';
+import { useSync } from '../api/sync';
 import { ageDays, challanHtml, challanStatus, coverOf, creditNotes, CREDIT_VALUE, dLong, dShort, decisionOf, findBattery, nextChallanNo, personOf, rupees, spanShort, tShort, toSendBack } from './data';
 
 const oldList = (e: Entry) => e.items.map(i => i.oldSerial).filter(Boolean).join(', ');
@@ -52,19 +49,13 @@ export function D32({ p }: { p?: string }) {
 
 /* d33 · old batteries to send back */
 export function D33() {
-<<<<<<< HEAD
-  const d = useD(); const { state, setState, dealerId, audit } = useStore();
-  const token = useAccessToken();
-=======
   const d = useD(); const { state, setState, dealerId, audit } = useStore(); const { sync } = useSync();
->>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
   const rows = toSendBack(state, dealerId);
   const [off, setOff] = useState<string[]>([]), [vehicle, setVehicle] = useState(''), [driver, setDriver] = useState(''), [busy, setBusy] = useState(false);
   const picked = rows.filter(e => !off.includes(e.id));
   const count = picked.reduce((t, e) => t + e.items.filter(i => i.oldSerial).length, 0);
   const past = state.challans.filter(c => c.dealerId === dealerId);
   const open = past.filter(c => challanStatus(c, state).status !== 'Closed').length;
-<<<<<<< HEAD
   const record = (c: Challan, how: string) => {
     setState(s => audit({ ...s, challans: [c, ...s.challans.filter(x => x.no !== c.no)], entries: s.entries.map(e => c.entryIds.includes(e.id) ? { ...e, returnState: 'In transit', returnNote: `Challan ${c.no}${c.vehicle ? ` · ${c.vehicle}` : ''}` } : e) }, 'In transit', c.no, `Dealer dispatched ${c.rows.length} old batteries on challan ${c.no}${how}`));
     setOff([]); d.go('d34', c.no);
@@ -73,16 +64,18 @@ export function D33() {
   // at once. The local-only path below is the demo/preview behaviour.
   const dispatch = async () => {
     if (!picked.length) { d.toast('Tick at least one battery to hand over.'); return; }
+    const token = await getAccessToken();
     if (token && !state.offline) {
-      const entryIds = picked.map(e => e.serverId).filter((x): x is string => !!x);
+      const entryIds = picked.map(e => e.apiId).filter((x): x is string => !!x);
       if (entryIds.length < picked.length) { d.toast('Open Home first so your entries finish syncing, then try again.'); return; }
       setBusy(true);
       try {
         const result = await createChallan({ entryIds, vehicleNo: vehicle.trim().toUpperCase() || undefined, driverName: driver.trim() || undefined }, token);
-        const refOf = new Map(picked.map(e => [e.serverId as string, e.id]));
-        record(toLocalChallan(result, id => refOf.get(id) || id), '');
+        const refOf = new Map(picked.map(e => [e.apiId as string, e.id]));
+        record(toChallan(result, id => refOf.get(id) || id), '');
+        sync(true);
       } catch (err) {
-        d.toast(err instanceof ApiError ? err.message : 'Could not reach the server. Try again.');
+        d.toast(errorMessage(err));
       } finally { setBusy(false); }
       return;
     }
@@ -90,29 +83,6 @@ export function D33() {
     const c: Challan = { no: nextChallanNo(state), dealerId, at, vehicle: vehicle.trim().toUpperCase(), driver: driver.trim(), entryIds: picked.map(e => e.id),
       rows: picked.flatMap(e => e.items.filter(i => i.oldSerial).map(i => ({ serial: i.oldSerial, model: findBattery(state, i.oldSerial)?.model || i.model, ref: e.id, fault: i.fault || i.remarks || '—' }))) };
     record(c, ' (preview)');
-=======
-  const dispatch = async () => {
-    if (!picked.length) { d.toast('Tick at least one battery to hand over.'); return; }
-    const token = await getAccessToken();
-    let handed = picked;
-    if (token) {
-      // Real session: each claim is dispatched on the server (stock ledger: dealer → transit).
-      // A request head office has not approved yet has no claim to dispatch — it stays here.
-      const ready = picked.filter(e => e.claimId && e.claimStatus === 'raised');
-      const waiting = picked.filter(e => e.apiId && !(e.claimId && e.claimStatus === 'raised'));
-      if (!ready.length) { d.toast(waiting.length ? 'These requests are still waiting for head office approval — the pickup is recorded once they are approved.' : 'Nothing to dispatch.'); return; }
-      try { for (const e of ready) await dispatchClaim(e.claimId!, token); }
-      catch (err) { d.toast(errorMessage(err)); sync(true); return; }
-      if (waiting.length) d.toast(`${waiting.length} not yet approved by head office — left on the list.`);
-      handed = ready;
-    }
-    const at = new Date().toISOString();
-    const c: Challan = { no: nextChallanNo(state), dealerId, at, vehicle: vehicle.trim().toUpperCase(), driver: driver.trim(), entryIds: handed.map(e => e.id),
-      rows: handed.flatMap(e => e.items.filter(i => i.oldSerial).map(i => ({ serial: i.oldSerial, model: findBattery(state, i.oldSerial)?.model || i.model, ref: e.id, fault: i.fault || i.remarks || '—' }))) };
-    setState(s => audit({ ...s, challans: [c, ...s.challans], entries: s.entries.map(e => c.entryIds.includes(e.id) ? { ...e, returnState: 'In transit', returnNote: `Challan ${c.no}${c.vehicle ? ` · ${c.vehicle}` : ''}` } : e) }, 'In transit', c.no, `Dealer dispatched ${c.rows.length} old batteries on challan ${c.no}`));
-    setOff([]); d.go('d34', c.no);
-    if (token) sync(true);
->>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
   };
   return <Screen tab="truck" top={<AppBar title="Old batteries to send back" back="d07" right={<Chip tone="warn" label={`${rows.length} waiting`} />} />}
     footer={rows.length ? <Btn kind="primary" big icon="truck" label={busy ? 'Sending…' : `Dispatch ${count} ${count === 1 ? 'battery' : 'batteries'} to company`} disabled={!count || busy} onPress={dispatch} /> : undefined}>

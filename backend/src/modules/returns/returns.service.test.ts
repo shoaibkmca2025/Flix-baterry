@@ -17,6 +17,9 @@ vi.mock('../entries/entries.repository', () => ({
   findItemsByEntryIds: vi.fn(),
 }));
 
+vi.mock('../claims/claims.repository', () => ({ findClaimById: vi.fn() }));
+vi.mock('../claims/claims.service', () => ({ dispatch: vi.fn(), receive: vi.fn() }));
+
 vi.mock('./returns.repository', () => ({
   findChallanById: vi.fn(),
   findLinesByChallanId: vi.fn(),
@@ -30,6 +33,8 @@ vi.mock('./returns.repository', () => ({
   listChallans: vi.fn(),
 }));
 
+import * as claimsRepo from '../claims/claims.repository';
+import * as claimsService from '../claims/claims.service';
 import * as entriesRepo from '../entries/entries.repository';
 import * as repo from './returns.repository';
 import { dispatch, receive, stage } from './returns.service';
@@ -60,7 +65,19 @@ describe('dispatch — a dealer hands old batteries to the van', () => {
     expect(result.no).toBe('CHL-26-09-0001');
     expect(result.lines).toHaveLength(1);
     expect(result.lines[0]).toMatchObject({ batteryCode: '26030777', entryItemId: 'item-1', modelId: 'M5' });
-    expect(vi.mocked(repo.insertChallan).mock.calls[0][1]).toMatchObject({ dealerId: 'dealer-1', vehicleNo: 'MH18AB1234', lineCount: 1, dispatchedBy: 'user-1' });
+    expect(vi.mocked(repo.insertChallan).mock.calls[0]?.[1]).toMatchObject({ dealerId: 'dealer-1', vehicleNo: 'MH18AB1234', lineCount: 1, dispatchedBy: 'user-1' });
+  });
+
+  it('carries an already-raised claim to awaiting_return (stock ledger via the claims service)', async () => {
+    vi.mocked(entriesRepo.findEntriesByIds).mockResolvedValue([{ ...replacement, status: 'approved' }] as never);
+    vi.mocked(entriesRepo.findItemsByEntryIds).mockResolvedValue([{ ...item, claimId: 'claim-1' }] as never);
+    vi.mocked(repo.findLinesByEntryItemIds).mockResolvedValue([]);
+    vi.mocked(repo.insertChallan).mockResolvedValue({ id: 'chl-1', no: 'CHL-26-09-0001', status: 'dispatched' } as never);
+    vi.mocked(repo.insertLines).mockResolvedValue([] as never);
+    vi.mocked(claimsRepo.findClaimById).mockResolvedValue({ id: 'claim-1', status: 'raised' } as never);
+    await dispatch(dealerCtx, { entryIds: ['entry-1'] });
+    expect(claimsService.dispatch).toHaveBeenCalledWith(dealerCtx, 'claim-1');
+    expect(claimsService.receive).not.toHaveBeenCalled();
   });
 
   it('answers 404 (not 403) for another dealer\'s entry', async () => {
@@ -92,6 +109,7 @@ describe('receive — head office confirms the van arrived', () => {
     vi.mocked(repo.markReceived).mockResolvedValue({ id: 'chl-1', status: 'received' } as never);
     vi.mocked(repo.updateLineStage).mockImplementation(async (_tx, id, values) => ({ id, ...values }) as never);
 
+    vi.mocked(entriesRepo.findItemsByEntryIds).mockResolvedValue([] as never);
     const result = await receive(adminCtx, 'chl-1', { missingBatteryCodes: ['26040101'] });
     expect(result.status).toBe('received');
     expect(result.lines).toEqual([
@@ -120,11 +138,11 @@ describe('stage — processing after arrival follows the chain', () => {
   it('received -> testing -> scrapped -> closed', async () => {
     vi.mocked(repo.updateLineStage).mockImplementation(async (_tx, id, values) => ({ id, ...values }) as never);
     vi.mocked(repo.findLineById).mockResolvedValueOnce({ id: 'line-1', stage: 'received', batteryCode: '26030777' } as never);
-    expect((await stage(adminCtx, 'line-1', { stage: 'testing', reason: 'Bench test started' })).stage).toBe('testing');
+    expect((await stage(adminCtx, 'line-1', { stage: 'testing', reason: 'Bench test started' }))?.stage).toBe('testing');
     vi.mocked(repo.findLineById).mockResolvedValueOnce({ id: 'line-1', stage: 'testing', batteryCode: '26030777' } as never);
-    expect((await stage(adminCtx, 'line-1', { stage: 'scrapped', reason: 'Cell dead, not repairable' })).stage).toBe('scrapped');
+    expect((await stage(adminCtx, 'line-1', { stage: 'scrapped', reason: 'Cell dead, not repairable' }))?.stage).toBe('scrapped');
     vi.mocked(repo.findLineById).mockResolvedValueOnce({ id: 'line-1', stage: 'scrapped', batteryCode: '26030777' } as never);
-    expect((await stage(adminCtx, 'line-1', { stage: 'closed', reason: 'Disposed with scrap lot 12' })).stage).toBe('closed');
+    expect((await stage(adminCtx, 'line-1', { stage: 'closed', reason: 'Disposed with scrap lot 12' }))?.stage).toBe('closed');
   });
 
   it('refuses a skipped step', async () => {

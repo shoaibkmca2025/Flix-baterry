@@ -3,8 +3,8 @@ import { View, ScrollView, Pressable, BackHandler, StatusBar, ActivityIndicator 
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useStore } from '../store';
 import { State } from '../domain';
-import { useAccessToken, type Session } from '../api/session';
-import { useServerSync } from '../api/sync';
+import type { Session } from '../api/session';
+import { useSync } from '../api/sync';
 import { T, useDealerFonts } from '../dealer/theme';
 import { X, Ic, IconName, Btn, Line, Avatar, Chip } from '../dealer/kit';
 import { ACtx, AdminCtx, ARoute, Dialog, Page, useA, useWide } from './ui';
@@ -57,12 +57,11 @@ export function AdminApp({ session, onSignedIn, onSignOut, onDealerSignIn }: { s
   }, [route, history]);
 
   // Real register: entries + dealers come from the server, re-pulled whenever the queue or home is opened.
-  const token = useAccessToken();
-  const refresh = useServerSync(session ? token : null, 'admin');
-  useEffect(() => { if (session && ['home', 'requests', 'returns'].includes(route.r)) refresh().catch(() => {}); }, [route.r, session, refresh]);
+  const { sync } = useSync();
+  useEffect(() => { if (session && ['home', 'requests', 'returns'].includes(route.r)) sync(true); }, [route.r, session, sync]);
 
   const user = { name: session?.user.name || '', role };
-  const ctx: AdminCtx = { token: session ? token : null, refresh, route, go, root: (r: string) => { setHistory([]); setRoute({ r }); }, back, canBack: history.length > 0, toast, wide, openMenu: () => go('more'), openSwitcher: () => setAccount(true), signOut: () => { setAccount(false); onSignOut(); }, user };
+  const ctx: AdminCtx = { route, go, root: (r: string) => { setHistory([]); setRoute({ r }); }, back, canBack: history.length > 0, toast, wide, openMenu: () => go('more'), openSwitcher: () => setAccount(true), signOut: () => { setAccount(false); onSignOut(); }, user };
   if (!fontsLoaded && !fontError) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: T.ink }}><ActivityIndicator color={T.volt} /></View>;
   // No login, no console: until a head-office session exists only the sign-in screen renders.
   if (!session) return <ACtx.Provider value={ctx}><SignIn onDone={onSignedIn} onDealer={onDealerSignIn} /></ACtx.Provider>;

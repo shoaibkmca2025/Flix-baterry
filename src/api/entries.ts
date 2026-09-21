@@ -55,42 +55,15 @@ export function getEntry(id: string, accessToken: string) {
 
 export type EntryItemResult = {
   id: string;
-<<<<<<< HEAD
-  entryId: string;
-=======
->>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
   seq: number;
   modelId: string;
   batteryCode: string;
   batteryCodeEntered: string;
   oldBatteryCode: string | null;
-<<<<<<< HEAD
-  oldBatteryCodeEntered: string | null;
-=======
->>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
   faultCode: string | null;
   remarks: string | null;
   batteryId: string | null;
   oldBatteryId: string | null;
-<<<<<<< HEAD
-};
-export type EntryWithItems = EntryResult & { items: EntryItemResult[] };
-
-/** Newest first. A dealer token only ever sees that dealer's entries; an admin token sees all. */
-export function listEntries(query: { status?: EntryResult['status']; limit?: number; cursor?: string }, accessToken: string) {
-  const qs = new URLSearchParams();
-  if (query.status) qs.set('status', query.status);
-  if (query.limit) qs.set('limit', String(query.limit));
-  if (query.cursor) qs.set('cursor', query.cursor);
-  const suffix = qs.toString() ? `?${qs}` : '';
-  return apiGet<{ items: EntryWithItems[]; nextCursor: string | null }>(`/entries${suffix}`, { accessToken });
-}
-
-export function approveEntry(id: string, reason: string, accessToken: string) {
-  return apiPost<{ entry: EntryResult; items: unknown[] }>(`/entries/${id}/approve`, { reason }, { accessToken });
-}
-
-=======
   claimId: string | null;
 };
 export type EntryWithItems = EntryResult & { items: EntryItemResult[] };
@@ -104,7 +77,6 @@ export function listEntries(accessToken: string, opts: { status?: EntryResult['s
 export function approveEntry(id: string, reason: string, accessToken: string) {
   return apiPost<{ entry: EntryResult }>(`/entries/${id}/approve`, { reason }, { accessToken });
 }
->>>>>>> b158bc606378210ac0bd3c76354a171dff52e481
 export function rejectEntry(id: string, reason: string, accessToken: string) {
   return apiPost<EntryResult>(`/entries/${id}/reject`, { reason }, { accessToken });
 }
