@@ -214,7 +214,7 @@ export function Settings() {
 }
 
 /* ---------- admin sign-in ---------- */
-export function SignIn({ onDone, onDealer }: { onDone: (session: Session) => void; onDealer: () => void }) {
+export function SignIn({ onDone }: { onDone: (session: Session) => void }) {
   const inset = useSafeAreaInsets();
   const [mode, setMode] = useState<'in' | 'reset'>('in'), [email, setEmail] = useState(''), [pw, setPw] = useState(''), [code, setCode] = useState(''), [err, setErr] = useState(''), [done, setDone] = useState('');
   const [challenge, setChallenge] = useState<string | null>(null), [busy, setBusy] = useState(false);
@@ -301,7 +301,6 @@ export function SignIn({ onDone, onDealer }: { onDone: (session: Session) => voi
           <Pressable accessibilityRole="button" onPress={() => reset('in')} style={{ alignSelf: 'center', padding: 8, marginTop: 4 }}><X s={13} w={6} c={T.steel}>Back to sign in</X></Pressable>
         </>}
       </View>
-      <Pressable accessibilityRole="button" onPress={onDealer} style={{ alignSelf: 'center', padding: 10, marginTop: 14 }}><X s={13} w={6} c="#AEBCCC" style={{ textDecorationLine: 'underline' }}>Dealer? Sign in to the dealer app</X></Pressable>
     </View>
   </ScrollView>;
 }

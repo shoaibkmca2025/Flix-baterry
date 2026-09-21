@@ -113,7 +113,6 @@ export function D02() {
     </Card>
     <Btn kind="primary" icon="check" label="Sign in" onPress={signIn} disabled={busy} />
     <BtnRow><Btn kind="ghost" sm label="Forgot password" style={{ alignSelf: 'stretch' }} onPress={() => d.go('d03')} /><Btn kind="ghost" sm label="New dealer? Register" style={{ alignSelf: 'stretch' }} onPress={() => d.go('d04')} /></BtnRow>
-    <Pressable accessibilityRole="button" onPress={d.headOffice} style={{ alignSelf: 'center', marginTop: 22, padding: 6 }}><X s={12.5} w={6} c={T.slate} style={{ textDecorationLine: 'underline' }}>Head office staff? Sign in here</X></Pressable>
     <ServerLink />
   </Screen>;
 }

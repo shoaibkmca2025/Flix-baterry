@@ -41,7 +41,7 @@ const SCREENS: Record<string, React.ComponentType<{ id?: string }>> = {
 };
 
 /** Head office workspace — same design language as the dealer app, every admin function kept. */
-export function AdminApp({ session, onSignedIn, onSignOut, onDealerSignIn }: { session: Session | null; onSignedIn: (session: Session) => void; onSignOut: () => void; onDealerSignIn: () => void }) {
+export function AdminApp({ session, onSignedIn, onSignOut }: { session: Session | null; onSignedIn: (session: Session) => void; onSignOut: () => void }) {
   const [fontsLoaded, fontError] = useDealerFonts();
   const { role } = useStore();
   const wide = useWide();
@@ -64,7 +64,7 @@ export function AdminApp({ session, onSignedIn, onSignOut, onDealerSignIn }: { s
   const ctx: AdminCtx = { route, go, root: (r: string) => { setHistory([]); setRoute({ r }); }, back, canBack: history.length > 0, toast, wide, openMenu: () => go('more'), openSwitcher: () => setAccount(true), signOut: () => { setAccount(false); onSignOut(); }, user };
   if (!fontsLoaded && !fontError) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: T.ink }}><ActivityIndicator color={T.volt} /></View>;
   // No login, no console: until a head-office session exists only the sign-in screen renders.
-  if (!session) return <ACtx.Provider value={ctx}><SignIn onDone={onSignedIn} onDealer={onDealerSignIn} /></ACtx.Provider>;
+  if (!session) return <ACtx.Provider value={ctx}><SignIn onDone={onSignedIn} /></ACtx.Provider>;
 
   const allowed = route.r !== 'team' || role === 'Main Admin';
   const Screen = allowed ? SCREENS[route.r] || Home : NoAccess;

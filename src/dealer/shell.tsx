@@ -14,7 +14,7 @@ export type DealerCtx = {
   go: (id: string, p?: string) => void; back: (to: string, p?: string) => void; tab: (id: string) => void;
   toast: (m: string) => void;
   flow: Flow | null; setFlow: React.Dispatch<React.SetStateAction<Flow | null>>;
-  signIn: (session: Session) => void; signOut: () => void; headOffice: () => void;
+  signIn: (session: Session) => void; signOut: () => void;
   recent: string[]; addRecent: (code: string) => void;
 };
 export const DCtx = createContext<DealerCtx>(null!);

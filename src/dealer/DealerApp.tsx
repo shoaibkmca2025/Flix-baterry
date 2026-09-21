@@ -19,7 +19,7 @@ const SIGNED_OUT = ['d01', 'd02', 'd03', 'd04', 'd05'];
 const TAB_ROOTS = ['d07', 'd33', 'd18', 'd23', 'd09'];
 
 /** Dealer mobile app — the client-approved dealer UI. Head office keeps its own workspace. */
-export function DealerApp({ signedIn, onSignedIn, onSignOut, onHeadOfficeSignIn }: { signedIn: boolean; onSignedIn: (session: Session) => void; onSignOut: () => void; onHeadOfficeSignIn: () => void }) {
+export function DealerApp({ signedIn, onSignedIn, onSignOut }: { signedIn: boolean; onSignedIn: (session: Session) => void; onSignOut: () => void }) {
   const [fontsLoaded, fontError] = useDealerFonts();
   const { state, dealerId } = useStore();
   const { width } = useWindowDimensions();
@@ -45,7 +45,6 @@ export function DealerApp({ signedIn, onSignedIn, onSignOut, onHeadOfficeSignIn 
   // The root owns the session: signing in or out remounts this app on the right side of the gate.
   const signIn = (session: Session) => onSignedIn(session);
   const signOut = () => onSignOut();
-  const headOffice = () => onHeadOfficeSignIn();
   const addRecent = useCallback((code: string) => setRecent(r => [code, ...r.filter(c => c !== code)].slice(0, 5)), []);
 
   useEffect(() => {
@@ -61,7 +60,7 @@ export function DealerApp({ signedIn, onSignedIn, onSignOut, onHeadOfficeSignIn 
   const dealer = state.dealers.find(x => x.id === dealerId);
   const guarded: Route = !SIGNED_OUT.includes(route.id) && (!signedIn || dealer?.status !== 'Active') ? { id: 'd02' } : route;
 
-  const ctx: DealerCtx = { route: guarded, framed, go, back, tab, toast, flow, setFlow, signIn, signOut, headOffice, recent, addRecent };
+  const ctx: DealerCtx = { route: guarded, framed, go, back, tab, toast, flow, setFlow, signIn, signOut, recent, addRecent };
   const ready = fontsLoaded || fontError;
   const Current = SCREENS[guarded.id] || D02;
   const phone = <View style={{ flex: 1, backgroundColor: T.zinc, overflow: 'hidden', borderRadius: framed ? 28 : 0 }}>

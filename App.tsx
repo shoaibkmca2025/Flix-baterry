@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider, useStore } from './src/store';
 import { DealerApp } from './src/dealer/DealerApp';
@@ -9,6 +9,9 @@ import { setUnauthorizedHandler } from './src/api/client';
 import { syncStore, useAutoSync } from './src/api/sync';
 
 type Surface = 'dealer' | 'admin';
+// Client decision (2026-09-21): the head-office console is a desktop/web product, the dealer
+// app a phone product. Each build serves exactly one, and a session for the other is not usable.
+const SURFACE: Surface = Platform.OS === 'web' ? 'admin' : 'dealer';
 type Auth = { status: 'loading' } | { status: 'signedOut'; surface: Surface } | { status: 'signedIn'; session: Session };
 
 /** The sign-in gate: nothing but a sign-in screen is shown until a real, unexpired login exists. */
@@ -17,6 +20,7 @@ function Root() {
   const [auth, setAuth] = useState<Auth>({ status: 'loading' });
 
   const begin = useCallback((session: Session) => {
+    if (session.user.scope !== SURFACE) { clearSession(); setAuth({ status: 'signedOut', surface: SURFACE }); return; }
     if (session.user.scope === 'admin') {
       setRole(adminRoleLabel(session.user.role));
     } else {
@@ -43,7 +47,7 @@ function Root() {
   // Wait for the local store to load first, so restoring the session isn't overwritten by it.
   useEffect(() => {
     if (!ready) return;
-    loadSession().then(session => (session ? begin(session) : setAuth({ status: 'signedOut', surface: 'dealer' })));
+    loadSession().then(session => (session ? begin(session) : setAuth({ status: 'signedOut', surface: SURFACE })));
   }, [ready, begin]);
 
   // A rejected token on any API call ends the session.
@@ -51,7 +55,7 @@ function Root() {
     setUnauthorizedHandler(() => setAuth(a => {
       if (a.status !== 'signedIn') return a;
       clearSession();
-      return { status: 'signedOut', surface: a.session.user.scope };
+      return { status: 'signedOut', surface: SURFACE };
     }));
     return () => setUnauthorizedHandler(null);
   }, []);
@@ -65,14 +69,14 @@ function Root() {
 
   if (auth.status === 'signedIn') {
     const { session } = auth;
-    return session.user.scope === 'admin'
-      ? <AdminApp key="admin-in" session={session} onSignedIn={begin} onSignOut={() => signOut('admin')} onDealerSignIn={() => signOut('dealer')} />
-      : <DealerApp key="dealer-in" signedIn onSignedIn={begin} onSignOut={() => signOut('dealer')} onHeadOfficeSignIn={() => signOut('admin')} />;
+    return SURFACE === 'admin'
+      ? <AdminApp key="admin-in" session={session} onSignedIn={begin} onSignOut={() => signOut('admin')} />
+      : <DealerApp key="dealer-in" signedIn onSignedIn={begin} onSignOut={() => signOut('dealer')} />;
   }
 
-  return auth.surface === 'admin'
-    ? <AdminApp key="admin-out" session={null} onSignedIn={begin} onSignOut={() => signOut('admin')} onDealerSignIn={() => setAuth({ status: 'signedOut', surface: 'dealer' })} />
-    : <DealerApp key="dealer-out" signedIn={false} onSignedIn={begin} onSignOut={() => signOut('dealer')} onHeadOfficeSignIn={() => setAuth({ status: 'signedOut', surface: 'admin' })} />;
+  return SURFACE === 'admin'
+    ? <AdminApp key="admin-out" session={null} onSignedIn={begin} onSignOut={() => signOut('admin')} />
+    : <DealerApp key="dealer-out" signedIn={false} onSignedIn={begin} onSignOut={() => signOut('dealer')} />;
 }
 
 export default function App() { return <SafeAreaProvider><Provider><Root /></Provider></SafeAreaProvider>; }
