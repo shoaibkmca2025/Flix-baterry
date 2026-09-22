@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../database/client', () => ({ db: {} }));
+vi.mock('../../utils/settings', () => ({ graceMonths: vi.fn(async () => 2) }));
 
 vi.mock('./batteries.repository', () => ({
   findBatteryByCode: vi.fn(),
@@ -41,8 +42,22 @@ describe('lookup', () => {
 
     const result = await lookup(dealerCtx, '26041212');
 
-    expect(result).toMatchObject({ found: false, mfgMonth: '2026-04', serialNo: '1212', model: null, custody: null });
-    expect(result.cover.inWarranty).toBe(true);
+    expect(result).toMatchObject({ found: false, mfgMonth: '2026-04', serialNo: '1212', model: null, custody: null, labelModelId: null });
+    expect(result.cover).toMatchObject({ startDate: '2026-04-01', expiryDate: '2028-05-31', termMonths: 24, graceMonths: 2, inWarranty: true }); // default term + grace
+  });
+
+  it('a not-on-record battery is priced by the plate + model the dealer chose, or by the label prefix', async () => {
+    vi.mocked(repo.findBatteryByCode).mockResolvedValue(undefined);
+    vi.mocked(repo.findModelById).mockImplementation(async (_db, id: string) => ({ id, plate: id[0], modelNo: id.slice(1), family: id[0], type: 'IT', capacity: null, warrantyMonths: id === 'M2200' ? 30 : 24 }) as never);
+
+    const chosen = await lookup(dealerCtx, '26041212', 'M2200');
+    expect(chosen.cover).toMatchObject({ expiryDate: '2028-11-30', termMonths: 30 }); // 30 + 2 from April 2026
+    expect(chosen.model).toMatchObject({ id: 'M2200', plate: 'M', modelNo: '2200' });
+
+    const fromLabel = await lookup(dealerCtx, 'N2200-26041212');
+    expect(fromLabel).toMatchObject({ labelModelId: 'N2200', serialNo: '1212' });
+    expect(fromLabel.cover).toMatchObject({ expiryDate: '2028-05-31', termMonths: 24 });
+    expect(repo.findBatteryByCode).toHaveBeenLastCalledWith(expect.anything(), '26041212'); // the prefix never reaches the code lookup
   });
 
   it("marks a battery held by the caller's own dealer as 'yours'", async () => {
@@ -103,7 +118,7 @@ describe('lookup', () => {
       state: 'replacement', custodian: 'customer', dealerId: 'dealer-1', chainId: 'chain-1',
     } as never);
     vi.mocked(repo.findModelById).mockResolvedValue({ id: 'M5', type: 'IT tall tubular', capacity: '150Ah', warrantyMonths: 24 } as never);
-    vi.mocked(repo.findChainById).mockResolvedValue({ id: 'chain-1', warrantyStart: '2026-01-15', warrantyExpiry: '2028-01-14' } as never);
+    vi.mocked(repo.findChainById).mockResolvedValue({ id: 'chain-1', warrantyStart: '2026-01-15', warrantyExpiry: '2028-01-14', termMonths: 26 } as never);
 
     const result = await lookup(dealerCtx, '26060303');
 

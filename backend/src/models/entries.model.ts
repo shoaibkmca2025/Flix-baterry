@@ -58,6 +58,9 @@ export const entryItems = pgTable(
     batteryCodeEntered: text('battery_code_entered').notNull(),
     oldBatteryCode: text('old_battery_code'), // normalised; required for 'replacement', null for 'sales_return'
     oldBatteryCodeEntered: text('old_battery_code_entered'),
+    // the OLD battery's (plate, model) when it is not on record yet — that is what its warranty
+    // term is read from (memory.md D-11). Null = same as modelId (a like-for-like replacement).
+    oldModelId: text('old_model_id'),
     faultCode: text('fault_code'),
     remarks: text('remarks'),
     // filled in once the entry is approved (architecture.md §8.3 entry_items.battery_id) —

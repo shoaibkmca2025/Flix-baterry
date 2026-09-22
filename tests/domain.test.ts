@@ -4,7 +4,8 @@ import { initialState } from '../src/seed';
 import { approveEntry, chainFor, deriveCode, expiryFrom, filterEntries, newEntry, validateEntry, warranty } from '../src/domain';
 const fresh=()=>structuredClone(initialState);
 test('manufacturing derivation preserves the short serial leading zeros',()=>{
- assert.deepEqual(deriveCode('21030047'),{serial:'0047',mfg:'2021-03'});
+ assert.deepEqual(deriveCode('21030047'),{serial:'0047',mfg:'2021-03',labelModelId:''});
+ assert.deepEqual(deriveCode('M2200-21030047'),{serial:'0047',mfg:'2021-03',labelModelId:'M2200'}); // prefixed label (D-11)
  assert.equal(deriveCode('21130047').mfg,'');
 });
 test('warranty ends on the day before a clamped calendar anniversary',()=>{

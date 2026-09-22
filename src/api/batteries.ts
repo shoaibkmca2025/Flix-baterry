@@ -2,11 +2,15 @@ import { apiGet } from './client';
 
 export type BatteryCover = {
   mfgMonth: string | null;
+  startDate: string; // where the cover is counted from — the first day of the manufacture month (memory.md D-11)
   expiryDate: string;
   inWarranty: boolean;
   daysRemaining: number;
-  warrantyStart?: string; // present once the battery is part of a chain (memory.md D-03)
+  termMonths: number; // the (plate, model) term …
+  graceMonths: number; // … plus the grace the company adds for shelf time
+  warrantyStart?: string; // present once the battery is part of a chain
 };
+export type LookupModel = { id: string; plate: string | null; modelNo: string | null; family: string; type: string; capacity: string | null; warrantyMonths: number };
 
 export type BatteryCustody = 'yours' | 'other' | 'customer' | 'company' | 'transit';
 
@@ -21,11 +25,12 @@ export type BatteryChainInfo = {
 };
 
 export type BatteryLookupResult =
-  | { found: false; mfgMonth: string | null; serialNo: string; model: null; custody: null; chain: null; cover: BatteryCover }
+  | { found: false; mfgMonth: string | null; serialNo: string; labelModelId: string | null; model: LookupModel | null; custody: null; chain: null; cover: BatteryCover }
   | {
       found: true;
       mfgMonth: string | null;
       serialNo: string;
+      labelModelId: string | null;
       battery: {
         id: string;
         batteryCode: string;
@@ -37,15 +42,15 @@ export type BatteryLookupResult =
         isReplacement: boolean; // it was itself handed over as a replacement
         dealerId: string | null;
       };
-      model: { id: string; family: string; type: string; capacity: string | null; warrantyMonths: number } | null;
+      model: LookupModel | null;
       chain: BatteryChainInfo | null;
       custody: BatteryCustody;
       cover: BatteryCover;
     };
 
 // architecture.md §9.9 — never reveals which OTHER dealer holds a battery to a dealer caller.
-export function lookupBattery(code: string, accessToken: string) {
-  return apiGet<BatteryLookupResult>(`/batteries/lookup?code=${encodeURIComponent(code)}`, { accessToken });
+export function lookupBattery(code: string, accessToken: string, modelId?: string) {
+  return apiGet<BatteryLookupResult>(`/batteries/lookup?code=${encodeURIComponent(code)}${modelId ? `&modelId=${encodeURIComponent(modelId)}` : ''}`, { accessToken });
 }
 
 export type ApiBattery = {

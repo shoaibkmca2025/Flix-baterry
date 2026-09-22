@@ -21,19 +21,33 @@ export function expiryFrom(startDate: string, months: number): string {
 
 export type WarrantyCheck = {
   mfgMonth: string;
+  /** first day of the manufacture month — where the cover is counted from */
+  startDate: string;
   expiryDate: string;
   inWarranty: boolean;
   daysRemaining: number;
+  /** the model's term (months) and the grace added on top, so the app can explain the number */
+  termMonths: number;
+  graceMonths: number;
 };
 
+export const DEFAULT_TERM_MONTHS = 24;
+export const DEFAULT_GRACE_MONTHS = 2;
+
 /**
- * V1 rule (memory.md D-03, open — no chain/inheritance yet): a battery's own warranty is its
- * own manufacture month + termMonths, recalculated fresh every time. Isolated in this one
- * function so switching to sale-date-anchored, chain-inherited warranty later (the documented
- * long-term design) means changing this function's body, not every call site.
+ * The warranty rule (memory.md D-11, 22 Sep 2026, superseding D-03's sale-date anchor): cover
+ * runs from the first day of the MANUFACTURE month printed in the code, for the term the
+ * (plate, model) combination carries, plus a grace of `graceMonths` because a battery may sit
+ * up to two months between manufacture and sale. So a 24-month M2200 made in April 2026 is
+ * covered 2026-04-01 → 2028-05-31. Chains still inherit the first battery's dates unchanged.
  */
-export function checkWarranty(mfgMonth: string, now: string, termMonths = 24): WarrantyCheck {
-  const expiryDate = expiryFrom(`${mfgMonth}-01`, termMonths);
-  const daysRemaining = Math.ceil((Date.parse(expiryDate) - Date.parse(now)) / 86_400_000);
-  return { mfgMonth, expiryDate, inWarranty: daysRemaining >= 0, daysRemaining };
+export function coverFromMfg(mfgMonth: string, termMonths = DEFAULT_TERM_MONTHS, graceMonths = DEFAULT_GRACE_MONTHS) {
+  const startDate = `${mfgMonth}-01`;
+  return { startDate, expiryDate: expiryFrom(startDate, termMonths + graceMonths), termMonths, graceMonths };
+}
+
+export function checkWarranty(mfgMonth: string, now: string, termMonths = DEFAULT_TERM_MONTHS, graceMonths = DEFAULT_GRACE_MONTHS): WarrantyCheck {
+  const cover = coverFromMfg(mfgMonth, termMonths, graceMonths);
+  const daysRemaining = Math.ceil((Date.parse(cover.expiryDate) - Date.parse(now)) / 86_400_000);
+  return { mfgMonth, ...cover, inWarranty: daysRemaining >= 0, daysRemaining };
 }

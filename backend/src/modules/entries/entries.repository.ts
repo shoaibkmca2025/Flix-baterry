@@ -51,6 +51,7 @@ export type NewEntryItem = {
   batteryCodeEntered: string;
   oldBatteryCode: string | null;
   oldBatteryCodeEntered: string | null;
+  oldModelId?: string | null;
   faultCode: string | null;
   remarks: string | null;
 };
