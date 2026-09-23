@@ -1,0 +1,41 @@
+{
+  "name": "admin",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "web": "expo start --web",
+    "start": "expo start --web",
+    "build": "expo export --platform web --output-dir dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@expo-google-fonts/barlow": "^0.4.1",
+    "@expo-google-fonts/barlow-semi-condensed": "^0.4.1",
+    "@expo-google-fonts/ibm-plex-mono": "^0.4.1",
+    "@expo/vector-icons": "^15.0.3",
+    "@felix/shared": "*",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo": "~57.0.22",
+    "expo-camera": "~57.0.5",
+    "expo-constants": "~57.0.18",
+    "expo-document-picker": "^57.0.2",
+    "expo-file-system": "^57.0.7",
+    "expo-font": "~57.0.4",
+    "expo-image-picker": "^57.0.17",
+    "expo-location": "^57.0.17",
+    "expo-print": "^57.0.2",
+    "expo-sharing": "^57.0.19",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-svg": "15.15.4",
+    "react-native-web": "^0.21.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  }
+}

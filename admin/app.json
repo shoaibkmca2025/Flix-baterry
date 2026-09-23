@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "Felix Head Office",
+    "slug": "felix-head-office",
+    "version": "1.0.0",
+    "orientation": "default",
+    "userInterfaceStyle": "light",
+    "web": {
+      "bundler": "metro",
+      "name": "Felix Batteries | Head Office",
+      "output": "single"
+    },
+    "plugins": []
+  }
+}
