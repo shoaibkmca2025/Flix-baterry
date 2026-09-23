@@ -6,6 +6,7 @@ export type EntryItemInput = {
   modelId: string;
   code: string;
   oldCode?: string;
+  oldModelId?: string; // the old battery's plate + model when it is not on record (its warranty term)
   faultCode?: string;
   remarks?: string;
 };

@@ -6,10 +6,12 @@ vi.mock('../../database/client', () => ({
 }));
 
 vi.mock('../../utils/audit', () => ({ audit: vi.fn() }));
+vi.mock('../../utils/settings', () => ({ graceMonths: vi.fn(async () => 2) }));
 vi.mock('../batteries/batteries.repository', () => ({ listModels: vi.fn(async () => [{ id: 'M5', family: 'M', type: 'IT tall tubular', capacity: '150Ah', warrantyMonths: 24, active: true }]) }));
 
 vi.mock('./masters.repository', () => ({
   listCities: vi.fn(),
+  listPlateTypes: vi.fn(async () => [{ code: 'M', label: 'M plates', sortOrder: 1, active: true }, { code: 'X', label: 'old', sortOrder: 9, active: false }]),
   findCityById: vi.fn(),
   findCityByName: vi.fn(),
   insertCity: vi.fn(),
@@ -40,6 +42,8 @@ describe('bundle', () => {
 
     expect(result.cities).toHaveLength(1);
     expect(result.models).toHaveLength(1); // the app's model catalogue rides along
+    expect(result.plateTypes).toEqual([expect.objectContaining({ code: 'M' })]); // active plate types only
+    expect(result.warrantyGraceMonths).toBe(2);
     expect(result.cities[0]).toMatchObject({ name: 'Dhule' });
   });
 });

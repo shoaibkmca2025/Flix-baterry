@@ -3,6 +3,7 @@ import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
 import { listModels } from '../batteries/batteries.repository';
+import { graceMonths } from '../../utils/settings';
 import * as repo from './masters.repository';
 import type { CityCreateBody, CityUpdateBody } from './masters.validation';
 
@@ -10,8 +11,8 @@ import type { CityCreateBody, CityUpdateBody } from './masters.validation';
 // a later addition — plugins/etag.ts doesn't exist yet). Public: a not-yet-registered
 // dealer needs the city list before they have any token (d04's city picker).
 export async function bundle() {
-  const [allCities, models] = await Promise.all([repo.listCities(db), listModels(db)]);
-  return { cities: allCities.filter((c) => c.active), models };
+  const [allCities, models, plateTypes, grace] = await Promise.all([repo.listCities(db), listModels(db), repo.listPlateTypes(db), graceMonths(db)]);
+  return { cities: allCities.filter((c) => c.active), models, plateTypes: plateTypes.filter((p) => p.active), warrantyGraceMonths: grace };
 }
 
 function requireManageActor(ctx: Ctx) {

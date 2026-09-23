@@ -1,5 +1,6 @@
 import { db } from '../client';
-import { batteryModels, cities } from '../../models/masters.model';
+import { batteryModels, cities, plateTypes } from '../../models/masters.model';
+import { settings } from '../../models/governance.model';
 import { roles } from '../../models/identity.model';
 
 // Matches src/seed.ts's demo `cities` list exactly so the app's demo mode and the real
@@ -69,15 +70,36 @@ const ROLES = [
   { key: 'read_only', label: 'Read-only', scope: 'admin' as const, templatePermissions: ['*.read', 'reports.run'], system: true },
 ];
 
-// memory.md §9 D-08 — demo credit-rate values name these exact models; kept in sync.
-const BATTERY_MODELS = [
-  { id: 'M3', family: 'M', type: 'IT tall tubular', capacity: '135Ah' },
-  { id: 'M5', family: 'M', type: 'IT tall tubular', capacity: '150Ah' },
-  { id: 'M7', family: 'M', type: 'IT tall tubular', capacity: '165Ah' },
-  { id: 'B5', family: 'B', type: 'Standard flat plate', capacity: '88Ah' },
-  { id: 'S5', family: 'S', type: 'SMF', capacity: '35Ah' },
-  { id: 'I700', family: 'I', type: 'Inverter battery', capacity: '150Ah' },
+// The rows from before 22 Sep 2026 ("M5" etc.). Batteries already on the register reference
+// them, so they stay resolvable — but inactive, so the dropdowns no longer offer them.
+// memory.md §9 D-08 — the demo credit-rate map names these ids; kept in sync.
+const LEGACY_MODELS = [
+  { id: 'M3', family: 'M', type: 'IT tall tubular', capacity: '135Ah', active: false },
+  { id: 'M5', family: 'M', type: 'IT tall tubular', capacity: '150Ah', active: false },
+  { id: 'M7', family: 'M', type: 'IT tall tubular', capacity: '165Ah', active: false },
+  { id: 'B5', family: 'B', type: 'Standard flat plate', capacity: '88Ah', active: false },
+  { id: 'S5', family: 'S', type: 'SMF', capacity: '35Ah', active: false },
+  { id: 'I700', family: 'I', type: 'Inverter battery', capacity: '150Ah', active: false },
 ];
+
+// memory.md D-11 (22 Sep 2026): the label reads PLATE + MODEL NUMBER ("M2200"); the plate
+// letter is what the warranty term follows. Letters, numbers and months below are the
+// client's EXAMPLES from the conversation — the real grid is still to come (D-12, open).
+const PLATE_TYPES = [
+  { code: 'M', label: 'M plates', sortOrder: 1 },
+  { code: 'N', label: 'N plates', sortOrder: 2 },
+  { code: 'L', label: 'L plates', sortOrder: 3 },
+  { code: 'S', label: 'S plates', sortOrder: 4 },
+  { code: 'I', label: 'I plates', sortOrder: 5 },
+  { code: 'T', label: 'T plates', sortOrder: 6 },
+];
+const MODEL_NUMBERS = ['600', '700', '1200', '1300', '2200'];
+// months of cover per plate letter, before the grace months (M2200 = 30 and N2200 = 24 were the client's own examples)
+const PLATE_TERM_MONTHS: Record<string, number> = { M: 30, N: 24, L: 36, S: 24, I: 18, T: 18 };
+
+const PLATE_MODELS = PLATE_TYPES.flatMap((p) =>
+  MODEL_NUMBERS.map((n) => ({ id: `${p.code}${n}`, family: p.code, plate: p.code, modelNo: n, type: `${p.label} · ${n}`, capacity: null, warrantyMonths: PLATE_TERM_MONTHS[p.code]!, active: true })),
+);
 
 export async function seedMasters() {
   for (const city of CITIES) {
@@ -86,8 +108,12 @@ export async function seedMasters() {
   for (const role of ROLES) {
     await db.insert(roles).values(role).onConflictDoNothing({ target: roles.key });
   }
-  for (const model of BATTERY_MODELS) {
+  for (const plate of PLATE_TYPES) {
+    await db.insert(plateTypes).values(plate).onConflictDoNothing({ target: plateTypes.code });
+  }
+  for (const model of [...LEGACY_MODELS, ...PLATE_MODELS]) {
     await db.insert(batteryModels).values(model).onConflictDoNothing({ target: batteryModels.id });
   }
-  console.log(`Seeded ${CITIES.length} cities, ${ROLES.length} roles, ${BATTERY_MODELS.length} battery models.`);
+  await db.insert(settings).values({ key: 'warranty.grace_months', value: 2 }).onConflictDoNothing({ target: settings.key });
+  console.log(`Seeded ${CITIES.length} cities, ${ROLES.length} roles, ${PLATE_TYPES.length} plate types, ${LEGACY_MODELS.length + PLATE_MODELS.length} battery models.`);
 }

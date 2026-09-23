@@ -9,7 +9,17 @@ describe('deriveCode', () => {
       entered: '26041212',
       normalised: '26041212',
       valid: true,
+      plate: null,
+      modelNo: null,
+      modelId: null,
     });
+  });
+
+  it("reads the plate and model from a prefixed label — 'M2200-26041212', with a space, or run together", () => {
+    for (const label of ['M2200-26041212', 'm2200 26041212', 'M220026041212']) {
+      expect(deriveCode(label)).toMatchObject({ plate: 'M', modelNo: '2200', modelId: 'M2200', normalised: '26041212', mfgMonth: '2026-04', serialNo: '1212', valid: true });
+    }
+    expect(deriveCode('N700-25091006')).toMatchObject({ modelId: 'N700', normalised: '25091006' });
   });
 
   it('keeps leading zeros in the serial (I-4)', () => {

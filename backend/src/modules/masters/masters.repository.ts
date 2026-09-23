@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db, type Tx } from '../../database/client';
-import { cities } from '../../models/masters.model';
+import { cities, plateTypes } from '../../models/masters.model';
 
 type DbOrTx = typeof db | Tx;
 
@@ -24,4 +24,8 @@ export async function insertCity(tx: Tx, input: { name: string; state: string })
 export async function updateCity(tx: Tx, id: string, input: { name?: string; state?: string; active?: boolean }) {
   const [row] = await tx.update(cities).set(input).where(eq(cities.id, id)).returning();
   return row!;
+}
+
+export function listPlateTypes(dbh: DbOrTx) {
+  return dbh.select().from(plateTypes).orderBy(plateTypes.sortOrder, plateTypes.code);
 }

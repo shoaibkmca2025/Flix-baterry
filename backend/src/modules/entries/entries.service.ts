@@ -1,6 +1,7 @@
 import { db, withTransaction, type Tx } from '../../database/client';
 import { deriveCode } from '../../domain/serials';
-import { expiryFrom } from '../../domain/warranty';
+import { coverFromMfg } from '../../domain/warranty';
+import { graceMonths } from '../../utils/settings';
 import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
@@ -55,11 +56,22 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
     const oldDerived = item.oldCode ? deriveCode(item.oldCode) : null;
     if (item.oldCode && !oldDerived!.valid) throw new AppError('format_mismatch', 422, 'Use an 8-digit code with a valid YYMM prefix.', { field: `items.${i}.oldCode` });
     if (oldDerived && oldDerived.normalised === newDerived.normalised) throw new AppError('old_equals_new', 422, 'Old and new batteries must be different.', { field: `items.${i}.oldCode` });
-    return { ...item, newDerived, oldDerived };
+    // the old battery's (plate, model): what the dealer chose, else what its label prefix says, else like-for-like
+    const oldModelId = item.oldCode ? (item.oldModelId ?? oldDerived?.modelId ?? item.modelId) : null;
+    return { ...item, newDerived, oldDerived, oldModelId };
   });
   const codes = derivedItems.map((i) => i.newDerived.normalised);
   const dupe = codes.find((c, i) => codes.indexOf(c) !== i);
   if (dupe) throw new AppError('duplicate_serial', 422, 'The same battery code appears twice in this entry.', { field: 'items' });
+  // every (plate, model) named must be a combination the factory makes — that row carries the warranty term
+  for (const [i, item] of derivedItems.entries()) {
+    for (const [field, id] of [['modelId', item.modelId], ['oldModelId', item.oldModelId]] as const) {
+      if (!id) continue;
+      const model = await batteriesRepo.findModelById(db, id);
+      if (!model) throw new AppError('model_unknown', 422, `${id} is not a known plate + model combination.`, { field: `items.${i}.${field}` });
+      if (!model.active && field === 'modelId') throw new AppError('model_inactive', 422, `${id} is no longer sold.`, { field: `items.${i}.${field}` });
+    }
+  }
 
   return withTransaction(async (tx) => {
     const ref = await nextFormattedRef(tx, 'ENT', 'entry', monthKey(ctx.now()));
@@ -87,6 +99,7 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
         batteryCodeEntered: item.code,
         oldBatteryCode: item.oldDerived?.normalised ?? null,
         oldBatteryCodeEntered: item.oldCode ?? null,
+        oldModelId: item.oldModelId,
         faultCode: item.faultCode ?? null,
         remarks: item.remarks ?? null,
       });
@@ -100,9 +113,12 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
 async function approveReplacementItem(tx: Tx, ctx: Ctx, entry: { id: string; dealerId: string; entryDate: string }, item: Awaited<ReturnType<typeof repo.findItemsByEntryId>>[number]) {
   if (!item.oldBatteryCode) throw new AppError('old_serial_required', 422, 'Old battery code is required for a replacement.', { field: `items.${item.seq}.oldBatteryCode` });
 
-  const old = await batteriesRepo.findBatteryByCode(db, item.oldBatteryCode);
+  let old = await batteriesRepo.findBatteryByCode(db, item.oldBatteryCode);
   if (!old || !old.chainId) {
-    throw new AppError('old_not_on_record', 422, 'This old battery is not on record — its warranty cannot be verified.', { field: `items.${item.seq}.oldBatteryCode` });
+    // Not on record (sold before the app, or a legacy import without dates): since 22 Sep 2026
+    // (memory.md D-11) the cover is counted from the MANUFACTURE month in the code for the
+    // (plate, model) the dealer named, so the battery can be put on record here and judged.
+    old = await putOldBatteryOnRecord(tx, ctx, entry, item, old);
   }
   if (old.custodian === 'dealer' && old.dealerId !== entry.dealerId) {
     throw new AppError('custody_conflict', 409, 'This old battery belongs to another dealer.', { field: `items.${item.seq}.oldBatteryCode` });
@@ -111,7 +127,7 @@ async function approveReplacementItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
     throw new AppError('already_replaced', 409, 'This battery has already been replaced. Use the current battery in the chain.', { field: `items.${item.seq}.oldBatteryCode` });
   }
 
-  const chain = await batteriesRepo.findChainById(db, old.chainId);
+  const chain = await batteriesRepo.findChainById(tx, old.chainId!);
   if (!chain) throw new AppError('chain_missing', 500, 'This battery is missing its warranty record.');
   if (Date.parse(chain.warrantyExpiry) < Date.parse(entry.entryDate)) {
     throw new AppError('warranty_expired', 422, `Warranty expired on ${chain.warrantyExpiry}. Request an admin override before submitting.`, {
@@ -152,13 +168,48 @@ async function approveReplacementItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
   return { newBattery, claim };
 }
 
+// An old battery the app has never seen: create it (notOnRecord) with the dealer as custodian
+// and a chain anchored on its manufacture month, so the replacement rule can judge it.
+async function putOldBatteryOnRecord(
+  tx: Tx,
+  ctx: Ctx,
+  entry: { id: string; dealerId: string },
+  item: Awaited<ReturnType<typeof repo.findItemsByEntryId>>[number],
+  existing: Awaited<ReturnType<typeof batteriesRepo.findBatteryByCode>>,
+) {
+  const derived = deriveCode(item.oldBatteryCodeEntered ?? item.oldBatteryCode!);
+  const modelId = item.oldModelId ?? derived.modelId ?? item.modelId;
+  const model = await batteriesRepo.findModelById(tx, modelId);
+  if (!model) throw new AppError('model_unknown', 422, `${modelId} is not a known plate + model combination.`, { field: `items.${item.seq}.oldModelId` });
+  const cover = coverFromMfg(derived.mfgMonth!, model.warrantyMonths, await graceMonths(tx));
+
+  let battery = existing;
+  if (!battery) {
+    battery = await batteriesRepo.insertBattery(tx, {
+      batteryCode: derived.normalised,
+      batteryCodeEntered: item.oldBatteryCodeEntered ?? item.oldBatteryCode!,
+      serialNo: derived.serialNo,
+      modelId,
+      mfgMonth: derived.mfgMonth,
+      state: 'sold',
+      custodian: 'customer',
+      dealerId: entry.dealerId,
+      origin: 'entry',
+      notOnRecord: true,
+    } as never);
+    await postMovementInTx(tx, ctx, { battery: null, batteryId: battery.id, toState: 'sold', toCustodian: 'customer', toDealerId: entry.dealerId, entryId: entry.id, reasonCode: 'entry_approved', reasonText: 'Put on record at replacement (not sold through the app)' });
+  }
+  const chain = await batteriesRepo.insertChain(tx, { rootBatteryId: battery.id, warrantyStart: cover.startDate, warrantyExpiry: cover.expiryDate, termMonths: cover.termMonths + cover.graceMonths });
+  return batteriesRepo.updateBatteryChainId(tx, battery.id, chain.id);
+}
+
 async function approveRegularSaleItem(tx: Tx, ctx: Ctx, entry: { id: string; dealerId: string; entryDate: string }, item: Awaited<ReturnType<typeof repo.findItemsByEntryId>>[number]) {
   const existing = await batteriesRepo.findBatteryByCode(db, item.batteryCode);
   if (existing) throw new AppError('duplicate_serial', 409, 'This battery code is already registered.', { field: `items.${item.seq}.batteryCode` });
 
   const derived = deriveCode(item.batteryCodeEntered);
   const model = await batteriesRepo.findModelById(db, item.modelId);
-  const warrantyMonths = model?.warrantyMonths ?? 24;
+  const cover = coverFromMfg(derived.mfgMonth!, model?.warrantyMonths ?? 24, await graceMonths(tx));
 
   const battery = await batteriesRepo.insertBattery(tx, {
     batteryCode: item.batteryCode,
@@ -173,9 +224,9 @@ async function approveRegularSaleItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
   });
   const chain = await batteriesRepo.insertChain(tx, {
     rootBatteryId: battery.id,
-    warrantyStart: entry.entryDate,
-    warrantyExpiry: expiryFrom(entry.entryDate, warrantyMonths),
-    termMonths: warrantyMonths,
+    warrantyStart: cover.startDate,
+    warrantyExpiry: cover.expiryDate,
+    termMonths: cover.termMonths + cover.graceMonths,
   });
   const updated = await batteriesRepo.updateBatteryChainId(tx, battery.id, chain.id);
   await postMovementInTx(tx, ctx, { battery: null, batteryId: battery.id, toState: 'sold', toCustodian: 'customer', toDealerId: entry.dealerId, entryId: entry.id, reasonCode: 'entry_approved' });

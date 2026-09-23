@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 export const BatteryLookupQuery = z.object({
-  code: z.string().trim().min(1, 'Enter a battery code.'),
+  code: z.string().trim().min(1, 'Enter a battery code.'), // 8 digits, or a prefixed label like M2200-26041212
+  modelId: z.string().trim().min(1).optional(), // the (plate, model) the dealer chose — decides the term when the battery is not on record
 });
 export type BatteryLookupQuery = z.infer<typeof BatteryLookupQuery>;
 

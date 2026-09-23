@@ -1,10 +1,10 @@
 export type Role = 'Dealer' | 'Main Admin' | 'Co-Admin' | 'Read-only';
 export type Status = 'Draft' | 'Pending sync' | 'Submitted' | 'Under Review' | 'Approved' | 'Rejected' | 'Corrected' | 'Cancelled' | 'Conflict';
-export type Item = { id: string; model: string; code: string; serial: string; oldSerial: string; mfg: string; rpl: string; rtn: string; wr: string; remarks: string; exception?: string; fault?: string };
+export type Item = { id: string; model: string; oldModel?: string; code: string; serial: string; oldSerial: string; mfg: string; rpl: string; rtn: string; wr: string; remarks: string; exception?: string; fault?: string };
 export type Entry = { id: string; dealerId: string; type: string; date: string; customer: string; place: string; order: string; remarks: string; items: Item[]; status: Status; evidence: string[]; gps?: string; signature?: string; createdAt: string; retries: number; correction?: { reason: string; value: string; status: string }; handover?: string; returnState?: string; returnNote?: string; linkedTo?: string; evidenceTags?: string[]; coverTold?: string; apiId?: string; claimId?: string; claimStatus?: string; decidedAt?: string; decisionReason?: string };
 export type Battery = { code: string; serial: string; model: string; dealerId: string; customer: string; mfg: string; oldSerial?: string; start?: string; expiry?: string; policy?: string; state: string };
 export type Dealer = { id: string; code?: string; name: string; contact: string; mobile: string; email: string; city: string; place: string; address: string; pin: string; state: string; status: string; reason?: string; documents?: string[] };
-export type Model = { id: string; type: string; capacity: string; months: number; threshold: number; active: boolean };
+export type Model = { id: string; plate?: string; modelNo?: string; type: string; capacity: string; months: number; threshold: number; active: boolean };
 export type Movement = { id: string; code: string; model: string; dealerId: string; from: string; to: string; reason: string; date: string };
 export type Audit = { id: string; actor: string; action: string; ref: string; reason: string; at: string; before?: string; after?: string };
 export type Customer = { id: string; dealerId: string; name: string; mobile: string; address: string; equipment: string; consent: boolean; mergedInto?: string };
@@ -12,7 +12,7 @@ export type Policy = { id: string; months: number; effective: string; anchor: st
 export type Notice = { id: string; title: string; body: string; route: string; read: boolean; dealerId?: string };
 export type Challan = { no: string; dealerId: string; at: string; vehicle: string; driver: string; entryIds: string[]; rows: { serial: string; model: string; ref: string; fault: string; lineId?: string; stage?: string }[]; serverId?: string; receivedAt?: string };
 export type Staff = { id: string; name: string; email: string; role: string; roleKey?: string; status: string; dealerId?: string; permissions: string[] };
-export type State = { entries: Entry[]; batteries: Battery[]; dealers: Dealer[]; models: Model[]; movements: Movement[]; audits: Audit[]; customers: Customer[]; policies: Policy[]; notices: Notice[]; staff: Staff[]; reports: {id:string;name:string;type:string;model:string;status:string;schedule:string}[]; exports: {id:string;name:string;rows:number;date:string}[]; overrides: {id:string;code:string;days:number;reason:string;status:string}[]; cities: string[]; entryTypes: string[]; lastSync: string; offline: boolean; language: 'English'|'मराठी'; challans: Challan[]; smsAlerts?: boolean; };
+export type State = { entries: Entry[]; batteries: Battery[]; dealers: Dealer[]; models: Model[]; movements: Movement[]; audits: Audit[]; customers: Customer[]; policies: Policy[]; notices: Notice[]; staff: Staff[]; reports: {id:string;name:string;type:string;model:string;status:string;schedule:string}[]; exports: {id:string;name:string;rows:number;date:string}[]; overrides: {id:string;code:string;days:number;reason:string;status:string}[]; cities: string[]; plateTypes?: { code: string; label: string }[]; graceMonths?: number; entryTypes: string[]; lastSync: string; offline: boolean; language: 'English'|'मराठी'; challans: Challan[]; smsAlerts?: boolean; };
 export const uid = (prefix = 'ID') => `${prefix}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
 export const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 export const normalize = (s: string) => s.trim().toUpperCase().replace(/\s/g, '');
@@ -30,11 +30,18 @@ export function warranty(b: Battery, now = today(), alertDays = 30) {
   const total = Math.max(1,(Date.parse(b.expiry)-Date.parse(b.start || now))/86400000);
   return {status: days < 0 ? 'Expired' : days <= alertDays ? 'Expiring soon' : 'Active',days:Math.max(0,days),progress:Math.max(0,Math.min(1,days/total))};
 }
-export function deriveCode(code: string) {
-  const c=normalize(code); const month=Number(c.slice(2,4));
-  return {serial:c.slice(-4),mfg:/^\d{8}$/.test(c)&&month>=1&&month<=12?`20${c.slice(0,2)}-${c.slice(2,4)}`:''};
+/** The label may carry the plate letter + model number in front of the 8 digits ('M2200-26041212'); the digits are the code. */
+export function splitLabel(code: string) {
+  const whole=normalize(code); const m=/^([A-Z])(\d{3,4})-?(\d{8})$/.exec(whole);
+  return m ? { code: m[3], plate: m[1], modelNo: m[2], modelId: `${m[1]}${m[2]}` } : { code: whole, plate: '', modelNo: '', modelId: '' };
 }
-export const newItem = (): Item => ({id:uid('ITEM'),model:'M5',code:'',serial:'',oldSerial:'',mfg:'',rpl:today().slice(0,7),rtn:'',wr:'',remarks:''});
+export function deriveCode(code: string) {
+  const { code: c, modelId }=splitLabel(code); const month=Number(c.slice(2,4));
+  return {serial:c.slice(-4),mfg:/^\d{8}$/.test(c)&&month>=1&&month<=12?`20${c.slice(0,2)}-${c.slice(2,4)}`:'',labelModelId:modelId};
+}
+/** Plate letter + model number of a model id ('M2200' → M / 2200); legacy ids ('M5') split the same way. */
+export const splitModelId = (id: string) => { const m=/^([A-Z])(\d+)$/.exec(id||''); return m ? { plate: m[1], modelNo: m[2] } : { plate: '', modelNo: '' }; };
+export const newItem = (): Item => ({id:uid('ITEM'),model:'',code:'',serial:'',oldSerial:'',mfg:'',rpl:today().slice(0,7),rtn:'',wr:'',remarks:''});
 export const newEntry = (dealerId: string, type = 'Replacement'): Entry => ({id:uid('ENT'),dealerId,type,date:today(),customer:'',place:'Sakri Road',order:'',remarks:'',items:[newItem()],status:'Draft',evidence:[],createdAt:new Date().toISOString(),retries:0});
 export function validateEntry(e: Entry, state: State): Record<string,string> {
   const errors: Record<string,string>={};

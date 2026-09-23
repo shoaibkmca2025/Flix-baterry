@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useStore } from '../store';
-import { Entry, Item, State, deriveCode, expiryFrom, newEntry, newItem, normalize, today, validateEntry } from '../domain';
+import { Entry, Item, State, deriveCode, expiryFrom, newEntry, newItem, normalize, splitLabel, splitModelId, today, validateEntry } from '../domain';
 import { T } from './theme';
 import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, BigTile, ChipRow, CapBtn, IconBtn, Plate, PlateLab, PlateVal, Meter, Gap } from './kit';
 import { Screen, AppBar, Sheet, PickList, useD } from './shell';
@@ -29,7 +29,7 @@ function withPhoto(e: Entry, tag: string, uri: string): Partial<Entry> {
   if (k >= 0) evidence[k] = uri; else { tags.push(tag); evidence.push(uri); }
   return { evidence, evidenceTags: tags };
 }
-const codeFrom = (data: string) => (data.match(/\d{8}/)?.[0]) || data.replace(/\D/g, '').slice(0, 8);
+const codeFrom = (data: string) => (data.match(/[A-Za-z]\d{3,4}-?\d{8}/)?.[0]) || (data.match(/\d{8}/)?.[0]) || data.replace(/\D/g, '').slice(0, 8);
 
 /** Checks the dealer app adds on top of the shared validation. */
 function dealerErrors(e: Entry, state: State) {
@@ -74,19 +74,19 @@ function useFlow() {
 /** Live warranty/custody check against the real backend (architecture.md §9.9), replacing
  * the local demo store's `findBattery`/`coverOf` wherever a dealer needs the truth about a
  * battery that might have been sold/replaced by anyone, not just recorded on this phone. */
-function useLiveLookup(code: string, token: string | null) {
+function useLiveLookup(code: string, token: string | null, modelId?: string) {
   const [result, setResult] = useState<BatteryLookupResult | null>(null);
   const [loading, setLoading] = useState(false);
   useEffect(() => {
     if (!token || !/^\d{8}$/.test(code)) { setResult(null); return; }
     let alive = true;
     setLoading(true);
-    lookupBattery(code, token)
+    lookupBattery(code, token, modelId || undefined)
       .then(r => { if (alive) setResult(r); })
       .catch(() => { if (alive) setResult(null); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [code, token]);
+  }, [code, token, modelId]);
   return { lookup: result, looking: loading };
 }
 const slugFault = (label: string) => label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
@@ -99,12 +99,36 @@ export function buildEntryBody(e: Entry): EntryCreateInput {
   const items: EntryItemInput[] = e.items.map(it => ({
     modelId: it.model,
     code: it.code,
-    ...(entryType === 'replacement' ? { oldCode: it.oldSerial, faultCode: it.fault ? slugFault(it.fault) : undefined } : {}),
+    ...(entryType === 'replacement' ? { oldCode: it.oldSerial, oldModelId: it.oldModel || undefined, faultCode: it.fault ? slugFault(it.fault) : undefined } : {}),
     remarks: it.remarks || undefined,
   }));
   // Note: `evidence`/`evidenceTags` (the photos) have no field on the backend yet — evidence
   // storage is Cloudinary, still open (memory.md D-10). Photos stay local-only for now.
   return { entryType, place: e.place, customerName: e.customer || undefined, items, gps: e.gps, signature: e.signature, coverTold: !!e.coverTold };
+}
+
+/* ---------- plate + model picker (memory.md D-11: the label reads plate letter + model number, e.g. M2200) ---------- */
+function PlateModelPicker({ value, onChange, error, label = 'Battery model' }: { value: string; onChange: (id: string) => void; error?: string; label?: string }) {
+  const { state } = useStore();
+  const [open, setOpen] = useState<'plate' | 'model' | null>(null);
+  const active = state.models.filter(m => m.active && m.plate && m.modelNo);
+  const plates = (state.plateTypes?.length ? state.plateTypes : [...new Set(active.map(m => m.plate!))].map(code => ({ code, label: `${code} plates` }))).filter(p => active.some(m => m.plate === p.code));
+  const cur = state.models.find(m => m.id === value);
+  const { plate, modelNo } = cur?.plate ? { plate: cur.plate, modelNo: cur.modelNo! } : splitModelId(value);
+  const numbers = [...new Set(active.filter(m => !plate || m.plate === plate).map(m => m.modelNo!))].sort((a, b) => Number(a) - Number(b));
+  const months = cur ? `${cur.months} months cover${state.graceMonths ? ` + ${state.graceMonths} grace` : ''}` : value ? 'Not a combination the factory makes' : '';
+  const pick = (nextPlate: string, nextNo: string) => { onChange(nextPlate && nextNo ? `${nextPlate}${nextNo}` : nextPlate || nextNo); setOpen(null); };
+  return <>
+    <Sheet open={open === 'plate'} title="Number of plates" onClose={() => setOpen(null)}>
+      <PickList options={plates.map(p => ({ v: p.code, sub: p.label }))} value={plate} onPick={v => pick(v, active.some(m => m.plate === v && m.modelNo === modelNo) ? modelNo : '')} /></Sheet>
+    <Sheet open={open === 'model'} title="Model" onClose={() => setOpen(null)}>
+      <PickList options={numbers.map(n => ({ v: n, sub: plate ? `${plate}${n}${active.find(m => m.id === `${plate}${n}`) ? ` · ${active.find(m => m.id === `${plate}${n}`)!.months} months` : ''}` : undefined }))} value={modelNo} onPick={v => pick(plate, v)} /></Sheet>
+    <View style={{ flexDirection: 'row', gap: 9 }}>
+      <Field style={{ flex: 1 }} label="Plates" req mr="प्लेट्स" value={plate ? (plates.find(p => p.code === plate)?.label || plate) : ''} ph="M, N, L…" onPress={() => setOpen('plate')} tail={<Ic n="chev" color={T.slate} />} />
+      <Field style={{ flex: 1 }} label={label} req mr="मॉडेल" value={modelNo} ph="2200, 700…" onPress={() => setOpen('model')} tail={<Ic n="chev" color={T.slate} />} error={error} />
+    </View>
+    {!!months && !error && <Hint icon={cur ? 'shield' : 'alert'} tone={cur ? 'ok' : 'err'} style={{ marginTop: -9, marginBottom: 13 }}>{cur ? `${cur.id} · ${months}` : months}</Hint>}
+  </>;
 }
 
 /* ---------- scanner ---------- */
@@ -167,53 +191,56 @@ export function D10() {
  * bought (the chain's original sale), when it was itself installed as a replacement, how many
  * replacements the chain has had, its current state, and the cover dates. */
 const STATE_LABEL: Record<string, string> = { available: 'In stock', allocated: 'Allocated', sold: 'With customer', returned: 'Returned', replacement: 'Given as replacement', repair: 'Under repair', damaged: 'Damaged', scrap: 'Scrapped' };
-const WARRANTY_MONTHS = 24; // fixed V1 term (memory.md D-03) — the server's default too
+const DEFAULT_TERM = 24, DEFAULT_GRACE = 2; // the server's defaults (backend domain/warranty.ts) when no model is chosen yet
 const leftText = (expiry: string) => { const days = Math.ceil((Date.parse(expiry) - Date.parse(today())) / 86_400_000); return days >= 0 ? `${spanLong(span(today(), expiry))} left` : `Expired ${-days} day${days === -1 ? '' : 's'} ago`; };
 /** "Warranty left" headline + meter: start → expiry, with how much of the term is used. */
-function WarrantyLeft({ start, expiry, from, months = WARRANTY_MONTHS }: { start: string; expiry: string; from: string; months?: number }) {
+function WarrantyLeft({ start, expiry, from, months = DEFAULT_TERM, grace = DEFAULT_GRACE }: { start: string; expiry: string; from: string; months?: number; grace?: number }) {
   const total = Math.max(1, Date.parse(expiry) - Date.parse(start)), used = (Date.parse(today()) - Date.parse(start)) / total;
   const ok = Date.parse(expiry) >= Date.parse(today());
   return <View style={{ marginTop: 12 }}>
     <X s={11.5} w={6} c={T.slate}>Warranty left · {from}</X>
     <X s={19} w={7} c={ok ? '#12603C' : '#992A15'} style={{ marginTop: 2, marginBottom: 8 }}>{leftText(expiry)}</X>
-    <Meter used={used} labels={[dLong(start), `${months} months`, dLong(expiry)]} />
+    <Meter used={used} labels={[dLong(start), grace ? `${months} + ${grace} months` : `${months} months`, dLong(expiry)]} />
   </View>;
 }
 function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code: string; lookup: BatteryLookupResult | null; looking: boolean; token: string | null; fallbackModel?: string }) {
+  const { state } = useStore();
   if (code.length !== 8) return null;
   const local = deriveCode(code);
   const mfg = (lookup?.mfgMonth) || local.mfg;
-  const ident: [string, React.ReactNode, ('mono' | '')?][] = [['Serial number', code, 'mono'], ['Manufactured', mfg ? monthLong(mfg) : 'Not a valid YYMM']];
-  // With nothing else on record the manufacture month is the only anchor — the same rule the
-  // server applies for a battery it has never seen (backend domain/warranty.checkWarranty).
-  const fromMfg = mfg ? { start: `${mfg}-01`, expiry: expiryFrom(`${mfg}-01`, WARRANTY_MONTHS) } : null;
+  // The rule (memory.md D-11): cover runs from the first day of the manufacture month for the
+  // (plate, model)'s term plus the grace months — the same maths as the server's checkWarranty.
+  const chosen = state.models.find(m => m.id === fallbackModel);
+  const term = chosen?.months ?? DEFAULT_TERM, grace = state.graceMonths ?? DEFAULT_GRACE;
+  const ident: [string, React.ReactNode, ('mono' | '')?][] = [['Serial number', code, 'mono'], ['Manufactured', mfg ? monthLong(mfg) : 'Not a valid YYMM'], ['Plates · model', chosen ? `${chosen.id} · ${chosen.months} months` : fallbackModel || 'Choose above'], ['Cover rule', `${term} + ${grace} months from manufacture`]];
+  const fromMfg = mfg ? { start: `${mfg}-01`, expiry: expiryFrom(`${mfg}-01`, term + grace) } : null;
 
   if (!token) return <Card style={{ borderColor: '#EBD49C', backgroundColor: '#FFFBF1', marginBottom: 14 }}>
     <CardH title="From the label" right={<Chip tone="warn" icon="alert" label="Preview mode" />} />
     <KV pairs={ident} />
-    {fromMfg && <WarrantyLeft start={fromMfg.start} expiry={fromMfg.expiry} from="manufacture date" />}
+    {fromMfg && <WarrantyLeft start={fromMfg.start} expiry={fromMfg.expiry} from="manufacture date" months={term} grace={grace} />}
     <Gap h={8} /><X s={13} c={T.slate}>Not signed in to the real server, so the purchase date, model and any recorded cover cannot be checked live — this is from the label alone.</X></Card>;
 
   if (looking || !lookup) return <Card style={{ marginBottom: 14 }}>
     <CardH title="Checking with head office…" right={<Chip tone="mute" icon="clock" label="Please wait" />} />
     <KV pairs={ident} />
-    {fromMfg && <WarrantyLeft start={fromMfg.start} expiry={fromMfg.expiry} from="manufacture date" />}</Card>;
+    {fromMfg && <WarrantyLeft start={fromMfg.start} expiry={fromMfg.expiry} from="manufacture date" months={term} grace={grace} />}</Card>;
 
   if (!lookup.found) return <Card style={{ borderColor: '#EBD49C', backgroundColor: '#FFFBF1', marginBottom: 14 }}>
     <CardH title="Not on record" right={<Chip tone="warn" icon="eye" label="Head office will check" />} />
-    <KV pairs={[...ident, ['Bought on', 'Not on record'], ['Cover ends', dLong(lookup.cover.expiryDate)]]} />
-    {mfg && <WarrantyLeft start={`${mfg}-01`} expiry={lookup.cover.expiryDate} from="manufacture date" />}
-    <Gap h={8} /><X s={13} c={T.slate}>Often an old sale from before the app. Warranty is counted from the manufacture month on the label because no purchase date is on record. You can still send it.</X></Card>;
+    <KV pairs={[ident[0], ident[1], ['Plates · model', lookup.model ? `${lookup.model.id} · ${lookup.model.warrantyMonths} months` : lookup.labelModelId || fallbackModel || 'Choose above'], ['Cover rule', `${lookup.cover.termMonths} + ${lookup.cover.graceMonths} months from manufacture`], ['Cover ends', dLong(lookup.cover.expiryDate)]]} />
+    {mfg && <WarrantyLeft start={lookup.cover.startDate} expiry={lookup.cover.expiryDate} from="manufacture date" months={lookup.cover.termMonths} grace={lookup.cover.graceMonths} />}
+    {lookup.labelModelId && lookup.labelModelId !== fallbackModel && <Hint tone="err" style={{ marginTop: 10 }}>The label says {lookup.labelModelId}, but {fallbackModel || 'nothing'} is chosen above. Check the plates and model.</Hint>}
+    <Gap h={8} /><X s={13} c={T.slate}>Not sold through the app yet. Its cover is worked out from the manufacture month on the label and the plates + model you chose — head office puts it on record when it approves the replacement.</X></Card>;
 
   const { battery, model, chain, cover, custody } = lookup;
   const status = coverStatus(cover), [chipLabel, chipTone] = coverChip(status);
-  const modelText = model ? `${model.id} · ${model.type}${model.capacity ? ` · ${model.capacity}` : ''}` : fallbackModel || '—';
+  const modelText = fallbackModel || '—';
   const pairs: [string, React.ReactNode, ('mono' | '')?][] = [
-    ...ident,
-    ['Model', modelText],
-    ['Type', model ? `${model.family} series · ${model.warrantyMonths} mo cover` : '—'],
-    ['Bought on', chain ? dLong(chain.purchaseDate) : 'Not on record'],
-    ['Cover', chain ? `${dLong(chain.purchaseDate)} → ${dLong(cover.expiryDate)}` : `Ends ${dLong(cover.expiryDate)} (from label)`],
+    ident[0], ident[1],
+    ['Plates · model', model ? `${model.id}${model.plate ? ` (${model.plate} plates, ${model.modelNo})` : ''}` : modelText],
+    ['Cover rule', `${cover.termMonths} + ${cover.graceMonths} months from manufacture`],
+    ['Cover', `${dLong(cover.startDate)} → ${dLong(cover.expiryDate)}`],
     ['Status', STATE_LABEL[battery.state] || battery.state],
   ];
   if (chain) pairs.push(['Replacements on this chain', chain.replacementCount === 0 ? 'None yet' : String(chain.replacementCount)]);
@@ -229,8 +256,8 @@ function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code:
   return <Card style={{ borderColor: blocked ? '#F0C7BC' : '#B8DFCB', backgroundColor: blocked ? '#FFF8F6' : '#F7FCF9', marginBottom: 14 }}>
     <CardH title="Found on record" right={<Chip tone={battery.alreadyReplaced ? 'bad' : chipTone} icon={battery.alreadyReplaced ? 'lock' : status === 'Active' ? 'shield' : 'clock'} label={battery.alreadyReplaced ? 'Already replaced' : chipLabel} />} />
     <KV pairs={pairs} />
-    <WarrantyLeft start={chain ? chain.purchaseDate : `${mfg}-01`} expiry={cover.expiryDate} from={chain ? 'purchase date' : 'manufacture date'} months={chain?.termMonths ?? model?.warrantyMonths} />
-    {chain && !chain.isOriginal && <Hint icon="link" style={{ marginTop: 10 }}>This is a replacement battery. Its cover runs from the first battery's sale on {dLong(chain.purchaseDate)}, not from its own manufacture month.</Hint>}
+    <WarrantyLeft start={cover.startDate} expiry={cover.expiryDate} from={chain && !chain.isOriginal ? "first battery's manufacture date" : 'manufacture date'} months={cover.termMonths} grace={cover.graceMonths} />
+    {chain && !chain.isOriginal && <Hint icon="link" style={{ marginTop: 10 }}>This is a replacement battery. Its cover runs from the FIRST battery in the chain ({dLong(cover.startDate)}), not from its own manufacture month.</Hint>}
     {blocked && <Hint tone="err" style={{ marginTop: 10 }}>{blocked}</Hint>}
   </Card>;
 }
@@ -242,16 +269,17 @@ export function D11() {
   const [scan, setScan] = useState(false), [errs, setErrs] = useState<Record<string, string>>({});
   if (!f) return null;
   const e = f.entry, i = f.cur, it = e.items[i];
-  const { lookup, looking } = useLiveLookup(it.oldSerial, token);
+  const { lookup, looking } = useLiveLookup(it.oldSerial, token, it.oldModel);
   useEffect(() => {
-    // auto-fill the model once we hear back that this is genuinely the dealer's own battery —
-    // the real backend has no per-battery "customer" field, so unlike the old demo autofill
-    // this only ever fills the model, never the customer name.
-    if (lookup?.found && lookup.custody === 'yours' && lookup.model && !it.model) item({ model: lookup.model.id });
+    // a battery on record knows its own plate + model — show it, and start the NEW battery
+    // as the same model (a replacement is like-for-like unless the dealer changes it)
+    if (lookup?.found && lookup.model) { if (it.oldModel !== lookup.model.id) item({ oldModel: lookup.model.id }); if (!it.model || it.model === newItem().model) item({ model: lookup.model.id }); }
   }, [lookup]);
   const setOld = (v: string) => {
-    const code = v.replace(/\D/g, '').slice(0, 8);
-    item({ oldSerial: code }); setErrs(x => ({ ...x, oldSerial: '' }));
+    const { code: digits, modelId } = splitLabel(v);
+    const code = digits.replace(/\D/g, '').slice(0, 8);
+    item({ oldSerial: code, ...(modelId ? { oldModel: modelId, ...(it.model === newItem().model ? { model: modelId } : {}) } : {}) });
+    setErrs(x => ({ ...x, oldSerial: '' }));
   };
   const next = () => {
     const all = dealerErrors(e, state), mine = itemErrors(all, i, ['oldSerial', 'fault']);
@@ -267,7 +295,10 @@ export function D11() {
     <Field label="Old battery serial number" req mr="जुनी बॅटरी" mono numeric maxLength={8} value={it.oldSerial} onChange={setOld} ph="8 digits on the label" error={errs.oldSerial}
       hint={looking ? 'Checking warranty…' : undefined}
       tail={<><CapBtn n="scan" tone="alt" label="Scan old battery" onPress={() => setScan(true)} /><CapBtn n="cam" tone={oldPhoto ? 'done' : 'dark'} label="Photograph old battery label" onPress={async () => { const u = await takePhoto(d.toast); if (u) { upd(withPhoto(e, tagFor('Old battery', i), u)); d.toast('Photo saved. Check the number above matches it.'); } }} /></>} />
-    <OldBatteryInfo code={it.oldSerial} lookup={lookup} looking={looking} token={token} fallbackModel={it.model} />
+    {!(lookup?.found && lookup.model) && it.oldSerial.length === 8 && <>
+      <View style={{ marginBottom: 13 }}><Label text="Old battery: plates and model" req mr="जुनी बॅटरी · मॉडेल" /></View>
+      <PlateModelPicker value={it.oldModel || ''} onChange={v => item({ oldModel: v, ...(it.model === newItem().model || it.model === it.oldModel ? { model: v } : {}) })} label="Model" /></>}
+    <OldBatteryInfo code={it.oldSerial} lookup={lookup} looking={looking} token={token} fallbackModel={it.oldModel || it.model} />
     <View style={{ marginBottom: 13 }}><Label text="What is the problem?" req mr="काय बिघडले" /></View>
     <ChipRow options={FAULTS} value={it.fault || ''} onChange={v => { item({ fault: v }); setErrs(x => ({ ...x, fault: '' })); }} />
     {errs.fault && <Hint tone="err" style={{ marginTop: -9, marginBottom: 13 }}>{errs.fault}</Hint>}
@@ -282,10 +313,12 @@ export function D11() {
 export function D13() {
   const { f, d, upd, item, saveDraft } = useFlow(); const { state } = useStore();
   const token = useAccessToken();
-  const [modelOpen, setModelOpen] = useState(false), [errs, setErrs] = useState<Record<string, string>>({});
+  const [errs, setErrs] = useState<Record<string, string>>({});
   const setCode = (v: string, scanned = false) => {
-    const code = v.replace(/\D/g, '').slice(0, 8);
-    item({ code, ...deriveCode(code) });
+    const { code: digits, modelId } = splitLabel(v);
+    const code = digits.replace(/\D/g, '').slice(0, 8);
+    const { serial, mfg } = deriveCode(code);
+    item({ code, serial, mfg, ...(modelId ? { model: modelId } : {}) }); // a prefixed label names the model too
     d.setFlow(x => x && { ...x, scanned: { ...x.scanned, [`new-${x.cur}`]: scanned } });
     setErrs(x => ({ ...x, code: '', serial: '', model: '' }));
   };
@@ -305,8 +338,7 @@ export function D13() {
         : lookup?.found && lookup.custody === 'other' ? { t: 'This battery belongs to another shop — check the label again.', ok: false, bad: true }
         : { t: 'Not on record — head office will check it.', ok: false, bad: false });
   return <Screen top={<AppBar title={rep ? 'New battery' : 'Returned battery'} back={rep ? 'd11' : 'd10'} right={<Chip tone="mute" mono label={e.id} />} />}
-    overlay={<Sheet open={modelOpen} title="Battery model" onClose={() => setModelOpen(false)}>
-      <PickList options={state.models.filter(m => m.active).map(m => ({ v: m.id, sub: `${m.type} · ${m.capacity}` }))} value={it.model} onPick={v => { item({ model: v }); setModelOpen(false); setErrs(x => ({ ...x, model: '' })); }} /></Sheet>}>
+>
     <Steps labels={rep ? REP_STEPS : RET_STEPS} now={rep ? 2 : 1} />
     <Gap h={14} />
     <ScanBox code={it.code} active={sc.active} onCode={sc.handle} />
@@ -316,8 +348,7 @@ export function D13() {
     </View>
     {f.scanned[`new-${i}`] ? <Banner tone="ok" icon="check" style={{ marginVertical: 14 }}><B>Read from the label.</B> Check each line. You can change any of them, and typing it all by hand is always allowed.</Banner>
       : <Banner tone="info" icon="scan" style={{ marginVertical: 14 }}><B>Scan the code on the label.</B> Or type the serial below — typing it all by hand is always allowed.</Banner>}
-    <Field label="Battery model" req mr="मॉडेल" value={it.model} onPress={() => setModelOpen(true)} error={errs.model}
-      tail={<Ic n="chev" color={T.slate} />} />
+    <PlateModelPicker value={it.model} onChange={v => { item({ model: v }); setErrs(x => ({ ...x, model: '' })); }} error={errs.model} />
     <Field label="Serial number" req mr="सिरीयल" mono numeric maxLength={8} value={it.code} onChange={v => setCode(v)} ph="8 digits on the label" error={errs.code || errs.serial}
       tail={<CapBtn n="cam" tone={photoOf(e, labelTag) ? 'done' : 'dark'} label="Photograph the serial" onPress={async () => { const u = await takePhoto(d.toast); if (u) { upd(withPhoto(e, labelTag, u)); d.toast('Photo of the serial saved.'); } }} />}
       hint={serialHint.t} hintTone={serialHint.ok ? 'ok' : serialHint.bad ? 'err' : undefined} hintIcon={serialHint.ok ? 'check' : serialHint.bad ? 'alert' : undefined} />

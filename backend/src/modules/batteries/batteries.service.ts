@@ -1,6 +1,7 @@
 import { db } from '../../database/client';
 import { deriveCode } from '../../domain/serials';
 import { checkWarranty } from '../../domain/warranty';
+import { graceMonths } from '../../utils/settings';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
 import * as repo from './batteries.repository';
@@ -12,9 +13,9 @@ function todayIso(ctx: Ctx): string {
   return ctx.now().toISOString().slice(0, 10);
 }
 
-function coverFromChain(chain: { warrantyStart: string; warrantyExpiry: string }, mfgMonth: string | null, today: string) {
+function coverFromChain(chain: { warrantyStart: string; warrantyExpiry: string; termMonths: number }, mfgMonth: string | null, today: string, grace: number) {
   const daysRemaining = Math.ceil((Date.parse(chain.warrantyExpiry) - Date.parse(today)) / 86_400_000);
-  return { mfgMonth, expiryDate: chain.warrantyExpiry, inWarranty: daysRemaining >= 0, daysRemaining, warrantyStart: chain.warrantyStart };
+  return { mfgMonth, startDate: chain.warrantyStart, expiryDate: chain.warrantyExpiry, inWarranty: daysRemaining >= 0, daysRemaining, warrantyStart: chain.warrantyStart, termMonths: Math.max(0, chain.termMonths - grace), graceMonths: grace };
 }
 
 // architecture.md §9.9 batteries.lookup — capture-time lookup. Never reveals which OTHER
@@ -27,7 +28,7 @@ function coverFromChain(chain: { warrantyStart: string; warrantyExpiry: string }
 // (from the code's YYMM), model/type/capacity, the date it was bought (the chain's start),
 // when it was itself installed as a replacement, how many replacements the chain has had,
 // its current state, and the cover dates.
-export async function lookup(ctx: Ctx, code: string) {
+export async function lookup(ctx: Ctx, code: string, modelIdHint?: string) {
   if (!ctx.user) {
     throw new AppError('unauthenticated', 401, 'Sign in required.');
   }
@@ -37,13 +38,24 @@ export async function lookup(ctx: Ctx, code: string) {
     throw new AppError('format_mismatch', 422, 'Use an 8-digit code with a valid YYMM prefix.', { field: 'code' });
   }
 
-  const battery = await repo.findBatteryByCode(db, derived.normalised);
+  const [battery, grace] = await Promise.all([repo.findBatteryByCode(db, derived.normalised), graceMonths(db)]);
 
   if (!battery) {
-    // Not on record yet — still useful: shows what warranty WOULD be if this code is used
-    // for a brand-new sale (chain doesn't exist yet, so this is the mfg-month preview).
-    const cover = checkWarranty(derived.mfgMonth!, todayIso(ctx), DEFAULT_WARRANTY_MONTHS);
-    return { found: false as const, mfgMonth: derived.mfgMonth, serialNo: derived.serialNo, model: null, custody: null, chain: null, cover };
+    // Not on record yet: since D-11 the cover is knowable from the label alone — manufacture
+    // month + the term of the (plate, model) the dealer chose (or the label's prefix) + grace.
+    const hintId = modelIdHint ?? derived.modelId;
+    const hinted = hintId ? await repo.findModelById(db, hintId) : undefined;
+    const cover = checkWarranty(derived.mfgMonth!, todayIso(ctx), hinted?.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS, grace);
+    return {
+      found: false as const,
+      mfgMonth: derived.mfgMonth,
+      serialNo: derived.serialNo,
+      labelModelId: derived.modelId, // what the printed label says, if it carried a prefix
+      model: hinted ? { id: hinted.id, plate: hinted.plate, modelNo: hinted.modelNo, family: hinted.family, type: hinted.type, capacity: hinted.capacity, warrantyMonths: hinted.warrantyMonths } : null,
+      custody: null,
+      chain: null,
+      cover,
+    };
   }
 
   const mfgMonth = battery.mfgMonth ?? derived.mfgMonth;
@@ -52,7 +64,7 @@ export async function lookup(ctx: Ctx, code: string) {
     battery.chainId ? repo.findChainById(db, battery.chainId) : undefined,
     battery.replacedFromId ? repo.findReplacementLinkByNewBatteryId(db, battery.id) : undefined,
   ]);
-  const cover = chain ? coverFromChain(chain, mfgMonth, todayIso(ctx)) : checkWarranty(mfgMonth!, todayIso(ctx), model?.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS);
+  const cover = chain ? coverFromChain(chain, mfgMonth, todayIso(ctx), grace) : checkWarranty(mfgMonth!, todayIso(ctx), model?.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS, grace);
 
   // custody never names which OTHER dealer holds it — 'other' is as specific as a dealer
   // caller gets. An admin caller additionally gets the real dealerId via `battery.dealerId`
@@ -78,7 +90,8 @@ export async function lookup(ctx: Ctx, code: string) {
       isReplacement: battery.replacedFromId !== null,
       dealerId: ctx.user.scope === 'admin' ? battery.dealerId : custody === 'yours' ? battery.dealerId : null,
     },
-    model: model ? { id: model.id, family: model.family, type: model.type, capacity: model.capacity, warrantyMonths: model.warrantyMonths } : null,
+    labelModelId: derived.modelId,
+    model: model ? { id: model.id, plate: model.plate, modelNo: model.modelNo, family: model.family, type: model.type, capacity: model.capacity, warrantyMonths: model.warrantyMonths } : null,
     chain: chain
       ? {
           id: chain.id,

@@ -4,7 +4,7 @@ import * as service from './batteries.service';
 import type { BatteryListQuery, BatteryLookupQuery } from './batteries.validation';
 
 export async function lookup(request: FastifyRequest<{ Querystring: BatteryLookupQuery }>, reply: FastifyReply) {
-  const result = await service.lookup(buildCtx(request), request.query.code);
+  const result = await service.lookup(buildCtx(request), request.query.code, request.query.modelId);
   reply.status(200).send(result);
 }
 
