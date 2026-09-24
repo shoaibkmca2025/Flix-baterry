@@ -106,8 +106,12 @@ describe('register', () => {
 });
 
 describe('getMe', () => {
-  it('rejects when not signed in as a dealer', async () => {
-    await expect(getMe(ctx)).rejects.toMatchObject({ code: 'unauthenticated' });
+  it('rejects a signed-in admin with 403, not 401 (a 401 would sign them out)', async () => {
+    await expect(getMe(adminCtx)).rejects.toMatchObject({ code: 'dealer_only', status: 403 });
+  });
+
+  it('rejects an anonymous caller with 401', async () => {
+    await expect(getMe(ctx)).rejects.toMatchObject({ code: 'unauthenticated', status: 401 });
   });
 
   it('returns the dealer for a signed-in dealer user', async () => {

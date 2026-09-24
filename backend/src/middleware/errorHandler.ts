@@ -48,9 +48,33 @@ export function registerErrorHandler(app: FastifyInstance) {
       return;
     }
 
+    // Postgres rejected a value's text form (e.g. `/claims/not-a-uuid` reaching a uuid column).
+    // Routes don't schema-check path params, so this is the client's input, not our fault.
+    if ((err as { code?: unknown }).code === '22P02') {
+      reply.status(422).send({
+        error: { code: 'validation_failed', message: 'One or more values are not in the expected format.' },
+      });
+      return;
+    }
+
+    // Fastify's own client errors (malformed JSON, empty JSON body, unsupported content-type,
+    // body too large) carry a 4xx statusCode — pass it through instead of reporting a 500.
+    const status = (err as { statusCode?: unknown }).statusCode;
+    if (typeof status === 'number' && status >= 400 && status < 500) {
+      const code = status === 413 ? 'payload_too_large' : status === 415 ? 'unsupported_media_type' : status === 429 ? 'rate_limited' : 'bad_request';
+      reply.status(status).send({ error: { code, message: (err as Error).message } });
+      return;
+    }
+
     request.log.error({ err }, 'unhandled error');
     reply.status(500).send({
       error: { code: 'internal_error', message: 'Something went wrong on our side.' },
+    });
+  });
+
+  app.setNotFoundHandler((request, reply) => {
+    reply.status(404).send({
+      error: { code: 'route_not_found', message: `No route for ${request.method} ${request.url.split('?')[0]}.` },
     });
   });
 }

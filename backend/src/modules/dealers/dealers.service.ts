@@ -67,10 +67,17 @@ export async function register(ctx: Ctx, input: DealerRegisterBody) {
   return { id: dealer.id, name: dealer.name, status: dealer.status };
 }
 
-export async function getMe(ctx: Ctx) {
-  if (!ctx.user || ctx.user.scope !== 'dealer' || !ctx.user.dealerId) {
-    throw new AppError('unauthenticated', 401, 'Sign in required.');
+// No session → 401 (the client signs out on it); a signed-in admin → 403, so hitting a
+// dealer-only route never logs a head-office user out.
+function requireDealerUser(ctx: Ctx): asserts ctx is Ctx & { user: { dealerId: string } } {
+  if (!ctx.user) throw new AppError('unauthenticated', 401, 'Sign in required.');
+  if (ctx.user.scope !== 'dealer' || !ctx.user.dealerId) {
+    throw new AppError('dealer_only', 403, 'Only a dealer account can do this.');
   }
+}
+
+export async function getMe(ctx: Ctx) {
+  requireDealerUser(ctx);
   const dealer = await repo.findDealerById(db, ctx.user.dealerId);
   if (!dealer) {
     throw new AppError('dealer_not_found', 404, 'Shop not found.');
@@ -79,9 +86,7 @@ export async function getMe(ctx: Ctx) {
 }
 
 export async function updateMe(ctx: Ctx, input: DealerProfileUpdateBody) {
-  if (!ctx.user || ctx.user.scope !== 'dealer' || !ctx.user.dealerId) {
-    throw new AppError('unauthenticated', 401, 'Sign in required.');
-  }
+  requireDealerUser(ctx);
   const dealerId = ctx.user.dealerId;
   const before = await repo.findDealerById(db, dealerId);
   if (!before) throw new AppError('dealer_not_found', 404, 'Shop not found.');
