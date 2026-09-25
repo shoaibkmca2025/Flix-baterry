@@ -8,10 +8,12 @@ import { AppError } from '../../utils/errors';
 import { monthKey, nextFormattedRef } from '../../utils/ids';
 import * as batteriesRepo from '../batteries/batteries.repository';
 import * as claimsRepo from '../claims/claims.repository';
+import * as claimsService from '../claims/claims.service';
 import { findDealerById } from '../dealers/dealers.repository';
 import { postMovementInTx } from '../stock/stock.service';
+import * as returnsRepo from '../returns/returns.repository';
 import * as repo from './entries.repository';
-import type { EntryCreateBody, EntryListQuery } from './entries.validation';
+import type { EntryCreateBody, EntryListQuery, EntrySettleBody } from './entries.validation';
 
 // This module is the real, permanent home for what three temporary endpoints used to do
 // separately (POST /batteries/sell, POST /batteries/replace, POST /claims) — see logs.md
@@ -275,6 +277,9 @@ export async function approve(ctx: Ctx, entryId: string, reason: string) {
     throw new AppError('invalid_transition', 409, `Cannot approve an entry that is already ${entry.status}.`);
   }
   const items = await repo.findItemsByEntryId(db, entryId);
+  // Head office decides a replacement only once the old battery is physically at the factory
+  // (client rule, 25 Sep 2026): they verify it offline, then approve or refuse.
+  if (entry.entryType === 'replacement') await assertOldBatteriesArrived(items);
 
   return withTransaction(async (tx) => {
     const results = [];
@@ -287,6 +292,76 @@ export async function approve(ctx: Ctx, entryId: string, reason: string) {
     await audit(tx, { ctx, action: 'entry.approved', entityType: 'entry', entityId: entry.id, entityRef: entry.ref, before: { status: 'submitted' }, after: { status: 'approved' }, reason, outcome: 'ok' });
     return { entry: updated, items: results };
   });
+}
+
+// A challan line at any of these stages means the old battery has reached the factory.
+const ARRIVED_STAGES = new Set(['received', 'testing', 'repaired', 'scrapped', 'closed']);
+const ARRIVED_CLAIM = new Set(['received', 'checked']);
+
+async function assertOldBatteriesArrived(items: { id: string; seq: number; oldBatteryCode: string | null; claimId?: string | null }[]) {
+  const withOld = items.filter((it) => it.oldBatteryCode);
+  if (!withOld.length) return;
+  const lines = await returnsRepo.findLinesByEntryItemIds(db, withOld.map((it) => it.id));
+  const arrived = new Set(lines.filter((l) => ARRIVED_STAGES.has(l.stage)).map((l) => l.entryItemId));
+  const missing: typeof withOld = [];
+  for (const it of withOld) {
+    if (arrived.has(it.id)) continue;
+    // entries approved before this rule reached the factory through claims.receive, not a challan
+    const claim = it.claimId ? await claimsRepo.findClaimById(db, it.claimId) : undefined;
+    if (!claim || !ARRIVED_CLAIM.has(claim.status)) missing.push(it);
+  }
+  if (missing.length) {
+    throw new AppError('old_battery_not_arrived', 409, 'The old battery has not reached the factory yet. Approve or refuse it from Old battery returns once it arrives.', {
+      details: { items: missing.map((it) => it.seq) },
+    });
+  }
+}
+
+/**
+ * Head office's one decision on a replacement, taken once the old battery is at the factory
+ * and verified offline. Approve = entry approved (stock, chain, claim) + claim carried to
+ * received + checked + approved, which issues the dealer's credit note. Refuse = the entry
+ * (or, for an already-approved entry, its claim) is refused with the reason.
+ * Each step is its own transaction in the owning module; a failure part-way leaves the entry
+ * at a valid earlier state and settling again resumes from there.
+ */
+export async function settle(ctx: Ctx, entryId: string, input: EntrySettleBody) {
+  if (!ctx.user || ctx.user.scope !== 'admin') throw new AppError('unauthenticated', 401, 'Sign in required.');
+  const entry = await repo.findEntryById(db, entryId);
+  if (!entry) throw new AppError('entry_not_found', 404, 'Entry not found.');
+  if (entry.entryType !== 'replacement') throw new AppError('not_a_replacement', 422, 'Only replacements are decided on arrival. Use Approve for this entry.');
+  if (entry.status !== 'submitted' && entry.status !== 'approved') {
+    throw new AppError('invalid_transition', 409, `This request is already ${entry.status}.`);
+  }
+  await assertOldBatteriesArrived(await repo.findItemsByEntryId(db, entryId));
+
+  if (entry.status === 'submitted') {
+    if (input.decision === 'refused') {
+      const r = await reject(ctx, entryId, input.reason);
+      return { entry: r, creditNotes: [] };
+    }
+    await approve(ctx, entryId, input.reason);
+  }
+
+  const creditNotes = [];
+  for (const it of await repo.findItemsByEntryId(db, entryId)) {
+    if (!it.claimId) continue;
+    let claim = await claimsRepo.findClaimById(db, it.claimId);
+    if (!claim) continue;
+    if (claim.status === 'raised') claim = await claimsService.dispatch(ctx, claim.id);
+    if (claim.status === 'awaiting_return') claim = await claimsService.receive(ctx, claim.id);
+    if (input.decision === 'refused') {
+      if (claim.status === 'received') await claimsService.check(ctx, claim.id, { findingCode: 'refused_on_arrival', conditionNote: input.reason, disposition: 'hold', disqualify: true, reason: input.reason });
+      else if (claim.status === 'checked') await claimsService.decide(ctx, claim.id, { outcome: 'refused', reason: input.reason });
+      continue;
+    }
+    if (claim.status === 'received') claim = await claimsService.check(ctx, claim.id, { findingCode: 'verified_on_arrival', conditionNote: input.reason, disposition: 'hold', disqualify: false });
+    if (claim.status === 'checked') {
+      const decided = await claimsService.decide(ctx, claim.id, { outcome: 'approved', reason: input.reason });
+      if (decided.creditNote) creditNotes.push(decided.creditNote);
+    }
+  }
+  return { entry: await repo.findEntryById(db, entryId), creditNotes };
 }
 
 export async function reject(ctx: Ctx, entryId: string, reason: string) {

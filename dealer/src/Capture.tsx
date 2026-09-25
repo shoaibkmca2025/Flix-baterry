@@ -96,31 +96,65 @@ function coverStatus(cover: { inWarranty: boolean; daysRemaining: number }): 'Ac
   return !cover.inWarranty ? 'Expired' : cover.daysRemaining <= 30 ? 'Expiring soon' : 'Active';
 }
 
-/* ---------- plate + model picker (memory.md D-11: the label reads plate letter + model number, e.g. M2200) ---------- */
-function PlateModelPicker({ value, onChange, error, label = 'Battery model' }: { value: string; onChange: (id: string) => void; error?: string; label?: string }) {
+/** The battery's full number as printed on its label: plates + model + the 8 digits,
+ * e.g. "M 1000 2609 0676" or "GP M 1000 2609 0676" (D-13 — the digits alone are not unique). */
+function printedNumber(m: { plate?: string; modelNo?: string; brand?: string; id: string } | undefined, digits: string): string {
+  const d = digits.length === 8 ? `${digits.slice(0, 4)} ${digits.slice(4)}` : digits;
+  if (!m) return d;
+  const head = m.plate && m.modelNo ? `${m.brand === 'gold_power' ? 'GP ' : ''}${m.plate} ${m.modelNo}` : m.id;
+  return `${head} ${d}`.trim();
+}
+
+/* ---------- plates → model picker (D-12: the label reads plates + model, e.g. "M 1000") ----------
+ * Plates first, then only the models made with those plates, so a dealer never scrolls the whole
+ * catalogue and cannot pick a plate/model pair Felix does not make. */
+type Mdl = State['models'][number];
+const printedPlate = (m: Mdl) => `${m.brand === 'gold_power' ? 'GP ' : ''}${m.plate}`; // 'M', or 'GP M' for the Gold Power (red) case
+const modelOrder = (a: Mdl, b: Mdl) => (Number(a.modelNo) || 9e9) - (Number(b.modelNo) || 9e9) || (a.modelNo ?? '').localeCompare(b.modelNo ?? '');
+function PlateModelPicker({ value, onChange, error, label = 'Battery' }: { value: string; onChange: (id: string) => void; error?: string; label?: string }) {
   const { state } = useStore();
   const [open, setOpen] = useState<'plate' | 'model' | null>(null);
   const active = state.models.filter(m => m.active && m.plate && m.modelNo);
   const cur = state.models.find(m => m.id === value);
-  const modelNo = cur?.modelNo ?? '';
-  // the code as it is printed on the label: 'M', or 'GP M' for the Gold Power (red) case
-  const printed = (m: typeof active[number]) => `${m.brand === 'gold_power' ? 'GP ' : ''}${m.plate}`;
-  const plateLabel = (m: typeof active[number]) => `${printed(m)} · ${m.plateCount ? `${m.plateCount} plates` : `${m.plate} series`} · ${m.months} months`;
-  const models = [...new Set(active.map(m => m.modelNo!))].sort((a, b) => (Number(a) || 9e9) - (Number(b) || 9e9) || a.localeCompare(b));
-  const forModel = active.filter(m => m.modelNo === modelNo);
-  const months = cur ? `${cur.months} months cover${state.graceMonths ? ` + ${state.graceMonths} grace` : ''}` : value ? 'Not a model Felix makes' : '';
+  const [plate, setPlate] = useState(cur?.plate ? printedPlate(cur) : '');
+  // a scanned label (or a battery found on record) sets the model directly — follow it
+  useEffect(() => { if (cur?.plate) setPlate(printedPlate(cur)); }, [value]);
+
+  const rank = new Map((state.plateTypes ?? []).map((p, k) => [p.code, k]));
+  const plates = [...new Set(active.map(printedPlate))].sort((a, b) => {
+    const pa = a.replace(/^GP /, ''), pb = b.replace(/^GP /, '');
+    return (rank.get(pa) ?? 999) - (rank.get(pb) ?? 999) || pa.localeCompare(pb) || Number(a.startsWith('GP ')) - Number(b.startsWith('GP '));
+  });
+  const modelsOf = (p: string) => active.filter(m => printedPlate(m) === p).sort(modelOrder);
+  const forPlate = modelsOf(plate);
+  const plateSub = (p: string) => {
+    const ms = modelsOf(p), first = ms[0];
+    const kind = first?.plateCount ? `${first.plateCount} plates` : 'Tubular series';
+    return `${kind}${p.startsWith('GP ') ? ' · Gold Power' : ''} · ${ms.length === 1 ? `model ${first!.modelNo}` : `${ms.length} models`}`;
+  };
+  const pickPlate = (p: string) => {
+    setPlate(p);
+    const ms = modelsOf(p);
+    if (ms.length === 1) { onChange(ms[0]!.id); setOpen(null); return; }        // only one model: nothing to ask
+    if (!cur || printedPlate(cur) !== p) onChange('');                              // old model does not exist on these plates
+    setOpen('model');
+  };
+
+  if (!active.length) return <Banner tone="bad" icon="alert" style={{ marginBottom: 13 }}>
+    The plates and models list has not loaded from head office yet. Go back and tap Sync now. If it stays empty, the server needs updating — call head office.
+  </Banner>;
+
   return <>
-    <Sheet open={open === 'model'} title="Model" onClose={() => setOpen(null)}>
-      <PickList options={models.map(n => ({ v: n, sub: `${active.filter(m => m.modelNo === n).length} plate options` }))} value={modelNo}
-        onPick={v => { const same = active.find(m => m.modelNo === v && m.plate === cur?.plate && m.brand === cur?.brand); onChange(same?.id ?? ''); setOpen(v === modelNo ? null : 'plate'); }} /></Sheet>
     <Sheet open={open === 'plate'} title="Plates" onClose={() => setOpen(null)}>
-      <PickList options={forModel.map(m => ({ v: printed(m), sub: plateLabel(m) }))} value={cur ? printed(cur) : ''}
-        onPick={v => { const picked = forModel.find(m => printed(m) === v); if (picked) onChange(picked.id); setOpen(null); }} /></Sheet>
-    <View style={{ flexDirection: 'row', gap: 9 }}>
-      <Field style={{ flex: 1 }} label={label} req mr="मॉडेल" value={modelNo} ph="1000, 700…" onPress={() => setOpen('model')} tail={<Ic n="chev" color={T.slate} />} />
-      <Field style={{ flex: 1 }} label="Plates" req mr="प्लेट्स" value={cur ? printed(cur) : ''} ph={modelNo ? 'M, N, O…' : 'Choose a model first'} onPress={() => modelNo && setOpen('plate')} tail={<Ic n="chev" color={T.slate} />} error={error} />
-    </View>
-    {!!months && !error && <Hint icon={cur ? 'shield' : 'alert'} tone={cur ? 'ok' : 'err'} style={{ marginTop: -9, marginBottom: 13 }}>{cur ? `${printed(cur)} ${cur.modelNo} · ${months}` : months}</Hint>}
+      <PickList search="Search plates — M, 13, tubular…" options={plates.map(p => ({ v: p, sub: plateSub(p) }))} value={plate} onPick={pickPlate} /></Sheet>
+    <Sheet open={open === 'model'} title={plate ? `Models with ${plate} plates` : 'Model'} onClose={() => setOpen(null)}>
+      <PickList search={forPlate.length > 4 ? 'Search models' : undefined} options={forPlate.map(m => ({ v: m.modelNo!, sub: `${m.months} months cover${m.capacity ? ` · ${m.capacity}` : ''}` }))} value={cur && printedPlate(cur) === plate ? cur.modelNo! : ''}
+        onPick={v => { const picked = forPlate.find(m => m.modelNo === v); if (picked) onChange(picked.id); setOpen(null); }} /></Sheet>
+    <Field label={`${label} plates`} req mr="प्लेट्स" value={plate} ph="Choose plates (G, M, S…)" onPress={() => setOpen('plate')} tail={<Ic n="chev" color={T.slate} />}
+      hint={plate && !error ? plateSub(plate) : undefined} />
+    <Field label={`${label} model`} req mr="मॉडेल" value={cur && printedPlate(cur) === plate ? cur.modelNo! : ''} ph={plate ? `Choose from ${forPlate.length} model${forPlate.length === 1 ? '' : 's'}` : 'Choose the plates first'}
+      readonly={!plate} onPress={plate ? () => setOpen('model') : undefined} tail={<Ic n="chev" color={T.slate} />} error={error} />
+    {cur && !error && <Hint icon="shield" tone="ok" style={{ marginTop: -9, marginBottom: 13 }}>{printedPlate(cur)} {cur.modelNo} · {cur.months} months cover{state.graceMonths ? ` + ${state.graceMonths} grace` : ''}</Hint>}
   </>;
 }
 
@@ -205,7 +239,7 @@ function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code:
   // (plate, model)'s term plus the grace months — the same maths as the server's checkWarranty.
   const chosen = state.models.find(m => m.id === fallbackModel);
   const term = chosen?.months ?? DEFAULT_TERM, grace = state.graceMonths ?? DEFAULT_GRACE;
-  const ident: [string, React.ReactNode, ('mono' | '')?][] = [['Serial number', code, 'mono'], ['Manufactured', mfg ? monthLong(mfg) : 'Not a valid YYMM'], ['Plates · model', chosen ? `${chosen.id} · ${chosen.months} months` : fallbackModel || 'Choose above'], ['Cover rule', `${term} + ${grace} months from manufacture`]];
+  const ident: [string, React.ReactNode, ('mono' | '')?][] = [['Full battery number', printedNumber(chosen, code), 'mono'], ['Serial number', code, 'mono'], ['Manufactured', mfg ? monthLong(mfg) : 'Not a valid YYMM'], ['Plates · model', chosen ? `${chosen.id} · ${chosen.months} months` : fallbackModel || 'Choose above'], ['Cover rule', `${term} + ${grace} months from manufacture`]];
   const fromMfg = mfg ? { start: `${mfg}-01`, expiry: expiryFrom(`${mfg}-01`, term + grace) } : null;
 
   if (!token) return <Card style={{ borderColor: '#EBD49C', backgroundColor: '#FFFBF1', marginBottom: 14 }}>
@@ -278,22 +312,29 @@ export function D11() {
   };
   const next = () => {
     const all = dealerErrors(e, state), mine = itemErrors(all, i, ['oldSerial', 'fault']);
+    if (!it.oldModel) mine.oldModel = 'Choose the plates and model printed on the old battery.';
     setErrs(mine); if (Object.keys(mine).length) return;
     saveDraft(); d.go('d13');
   };
   const oldPhoto = photoOf(e, tagFor('Old battery', i));
+  const oldChosen = state.models.find(m => m.id === it.oldModel);
   return <Screen top={<AppBar title="Old battery" back={i > 0 ? 'd12' : 'd10'} right={<Chip tone="mute" mono label={e.id} />} />}
     overlay={<ScanSheet open={scan} title="Scan the old battery" onClose={() => setScan(false)} onCode={c => { setOld(c); d.setFlow(x => x && { ...x, scanned: { ...x.scanned, [`old-${i}`]: true } }); d.toast('Scanned. Check the number matches the label.'); }} />}>
     <Steps labels={REP_STEPS} now={1} />
     <Gap h={14} />
-    <Banner tone="info" icon="batt" style={{ marginBottom: 14 }}>Start with the battery the customer brought back. Scan it, or photograph the label and type the number.</Banner>
-    <Field label="Old battery serial number" req mr="जुनी बॅटरी" mono numeric maxLength={8} value={it.oldSerial} onChange={setOld} ph="8 digits on the label" error={errs.oldSerial}
+    <Banner tone="info" icon="batt" style={{ marginBottom: 14 }}>Start with the battery the customer brought back: choose its plates, then its model, then type the 8 digits — or scan the label to fill all three.</Banner>
+    <PlateModelPicker value={it.oldModel || ''} error={errs.oldModel} label="Old battery"
+      onChange={v => { item({ oldModel: v, ...(it.model === newItem().model || it.model === it.oldModel ? { model: v } : {}) }); setErrs(x => ({ ...x, oldModel: '' })); }} />
+    <Field label="Old battery serial number (8 digits)" req mr="जुनी बॅटरी" mono numeric maxLength={8} value={it.oldSerial} onChange={setOld}
+      readonly={!oldChosen} ph={oldChosen ? '8 digits on the label' : 'Choose the plates and model first'} error={errs.oldSerial}
       hint={looking ? 'Checking warranty…' : undefined}
       tail={<><CapBtn n="scan" tone="alt" label="Scan old battery" onPress={() => setScan(true)} /><CapBtn n="cam" tone={oldPhoto ? 'done' : 'dark'} label="Photograph old battery label" onPress={async () => { const u = await takePhoto(d.toast); if (u) { upd(withPhoto(e, tagFor('Old battery', i), u)); d.toast('Photo saved. Check the number above matches it.'); } }} /></>} />
-    {!(lookup?.found && lookup.model) && it.oldSerial.length === 8 && <>
-      <View style={{ marginBottom: 13 }}><Label text="Old battery: plates and model" req mr="जुनी बॅटरी · मॉडेल" /></View>
-      <PlateModelPicker value={it.oldModel || ''} onChange={v => item({ oldModel: v, ...(it.model === newItem().model || it.model === it.oldModel ? { model: v } : {}) })} label="Model" /></>}
-    <OldBatteryInfo code={it.oldSerial} lookup={lookup} looking={looking} token={token} fallbackModel={it.oldModel || it.model} />
+    {oldChosen && it.oldSerial.length === 8 && <Card style={{ marginBottom: 14, backgroundColor: T.ink, borderColor: T.ink }}>
+      <X s={11.5} w={6} c="#A8B6C7">Full battery number · पूर्ण नंबर</X>
+      <X s={22} w={7} f="m" c={T.white} style={{ marginTop: 4 }}>{printedNumber(oldChosen, it.oldSerial)}</X>
+      <X s={12} c="#A8B6C7" style={{ marginTop: 4 }}>{oldChosen.plateCount ? `${oldChosen.plateCount} plates` : `${oldChosen.plate ?? ''} series`} · model {oldChosen.modelNo ?? oldChosen.id} · serial {it.oldSerial.slice(-4)}</X>
+    </Card>}
+    <OldBatteryInfo code={it.oldSerial} lookup={lookup} looking={looking} token={token} fallbackModel={it.oldModel} />
     <View style={{ marginBottom: 13 }}><Label text="What is the problem?" req mr="काय बिघडले" /></View>
     <ChipRow options={FAULTS} value={it.fault || ''} onChange={v => { item({ fault: v }); setErrs(x => ({ ...x, fault: '' })); }} />
     {errs.fault && <Hint tone="err" style={{ marginTop: -9, marginBottom: 13 }}>{errs.fault}</Hint>}

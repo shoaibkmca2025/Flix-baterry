@@ -32,6 +32,8 @@ export const NAV: [string, NavItem[]][] = [
 ];
 const MR: Record<string, string> = { Dashboard: 'डॅशबोर्ड', 'Requests to approve': 'मंजुरी', 'Old battery returns': 'जुन्या बॅटरी', 'All entries': 'सर्व नोंदी', 'Record an entry': 'नवीन नोंद', Dealers: 'डीलर', Customers: 'ग्राहक', 'Battery search': 'बॅटरी शोध', Warranty: 'हमी', Stock: 'साठा', 'Reports & exports': 'अहवाल', Notifications: 'सूचना', 'Settings & sync': 'सेटिंग्ज' };
 const ROOTS = ['home', 'approvals', 'returns', 'search', 'more'];
+const SYNC_ROUTES = ['home', 'approvals', 'corrections', 'registrations', 'returns', 'entries', 'dealers', 'stock', 'audit'];
+const POLL_MS = 30_000;
 
 const SCREENS: Record<string, React.ComponentType<{ id?: string }>> = {
   home: Home, approvals: Approvals, corrections: Corrections, registrations: Registrations, returns: Returns,
@@ -56,9 +58,15 @@ export function AdminApp({ session, onSignedIn, onSignOut }: { session: Session 
     return () => sub.remove();
   }, [route, history]);
 
-  // Real register: entries + dealers come from the server, re-pulled whenever the queue or home is opened.
+  // Real register: entries + dealers come from the server, re-pulled whenever a queue or home is opened,
+  // and polled while the console stays open so new dealer sign-ups and requests show up without a reload.
   const { sync } = useSync();
-  useEffect(() => { if (session && ['home', 'requests', 'returns'].includes(route.r)) sync(true); }, [route.r, session, sync]);
+  useEffect(() => { if (session && SYNC_ROUTES.includes(route.r)) sync(true); }, [route.r, session, sync]);
+  useEffect(() => {
+    if (!session) return;
+    const id = setInterval(() => sync(true), POLL_MS);
+    return () => clearInterval(id);
+  }, [session, sync]);
 
   const user = { name: session?.user.name || '', role };
   const ctx: AdminCtx = { route, go, root: (r: string) => { setHistory([]); setRoute({ r }); }, back, canBack: history.length > 0, toast, wide, openMenu: () => go('more'), openSwitcher: () => setAccount(true), signOut: () => { setAccount(false); onSignOut(); }, user };

@@ -40,6 +40,10 @@ const reason = z.string().trim().min(5, 'Give a short reason (at least 5 charact
 export const EntryDecisionBody = z.object({ reason });
 export type EntryDecisionBody = z.infer<typeof EntryDecisionBody>;
 
+// the final decision on a replacement once its old battery is at the factory (entries.settle)
+export const EntrySettleBody = z.object({ decision: z.enum(['approved', 'refused']), reason });
+export type EntrySettleBody = z.infer<typeof EntrySettleBody>;
+
 export const EntryListQuery = z.object({
   status: z.enum(['submitted', 'approved', 'rejected'] as const).optional(),
   dealerId: z.string().uuid().optional(), // admins only; a dealer's scope always comes from the token

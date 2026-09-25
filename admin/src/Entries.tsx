@@ -9,13 +9,19 @@ import { CREDIT_VALUE, coverChip, coverOf, dLong, dShort, findBattery, nextEntry
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
 import { getAccessToken } from '@felix/shared/api/session';
-import { approveEntry as apiApproveEntry, createEntry as apiCreateEntry, rejectEntry as apiRejectEntry, type EntryCreateInput, type EntryType } from '@felix/shared/api/entries';
+import { approveEntry as apiApproveEntry, createEntry as apiCreateEntry, rejectEntry as apiRejectEntry, settleEntry, type EntryCreateInput, type EntryType } from '@felix/shared/api/entries';
 import { buildEntryBody } from '@felix/shared/api/entry-body';
 import { checkClaim, decideClaim } from '@felix/shared/api/claims';
 import { errorMessage } from '@felix/shared/api/client';
 import { useSync } from '@felix/shared/api/sync';
 
 const PENDING = ['Submitted', 'Under Review', 'Conflict'];
+/** The old battery is physically at the factory (challan confirmed, or any later stage). */
+export const arrivedAtFactory = (e: Entry) => ['Received', 'Testing', 'Repaired', 'Scrapped', 'Closed'].includes(e.returnState || '');
+/** Client rule (25 Sep 2026): head office verifies the old battery offline and decides a replacement
+ * only after it reaches the factory — until then there is nothing to approve or refuse. */
+export const awaitingOldBattery = (e: Entry) => e.type === 'Replacement' && !arrivedAtFactory(e);
+const whereIsOld = (e: Entry) => e.returnState === 'In transit' ? 'Old battery on the way' : 'Old battery still at the dealer';
 const creditOf = (e: Entry) => e.type === 'Replacement' ? e.items.reduce((t, i) => t + (CREDIT_VALUE[i.model] || 0), 0) : 0;
 const APPROVE_REASONS = ['Warranty checked against the first sale', 'Battery checked — manufacturing defect', 'Photos and serials match the label'];
 const REJECT_REASONS = ['Outside warranty cover', 'Physical damage — not covered', 'Serial does not match the label photo'];
@@ -62,6 +68,16 @@ export function useDecisions() {
     } catch (err) { a.toast(errorMessage(err)); return false; }
     finally { sync(true); }
   };
+  /** Replacements: one call approves (entry + claim + credit note) or refuses, once the old battery is in. */
+  const settleLive = async (e: Entry, decision: 'approved' | 'refused', reason: string) => {
+    const token = await getAccessToken(); if (!token) return notInV1();
+    try {
+      const r = await settleEntry(e.apiId!, decision, reason, token);
+      const cn = r.creditNotes[0];
+      a.toast(decision === 'refused' ? 'Refused. The dealer sees the reason in their app.' : cn ? `Approved. Credit note ${cn.no} for ${rupees(r.creditNotes.reduce((t, c) => t + c.amount, 0))} issued to the dealer.` : 'Approved.');
+    } catch (err) { a.toast(errorMessage(err)); return false; }
+    finally { sync(true); }
+  };
   const rejectLive = async (e: Entry, reason: string) => {
     const token = await getAccessToken(); if (!token) return notInV1();
     try {
@@ -79,13 +95,25 @@ export function useDecisions() {
     guard,
     approve: (e: Entry, reason: string) => {
       if (!guard()) return false;
+      if (live(e) && e.type === 'Replacement') {
+        if (awaitingOldBattery(e)) { a.toast(`${whereIsOld(e)}. Approve it from Old battery returns once it reaches the factory.`); return false; }
+        settleLive(e, 'approved', reason); return;
+      }
       if (live(e)) { approveLive(e, reason); return; }
       const errs = validateEntry(e, state);
       if (Object.keys(errs).length) { a.toast(`Cannot approve yet — ${Object.values(errs)[0]}`); return false; }
       setState(s => { const n = approveEntry(s, e); return audit({ ...n, notices: [notice(e.dealerId, `${e.id} approved`, reason), ...n.notices] }, 'Entry approved', e.id, reason, e.status, 'Approved'); });
       a.toast(e.type === 'Replacement' ? `Approved. Stock, warranty history and a ${rupees(creditOf(e))} dealer credit are updated.` : 'Approved. Stock and battery history are updated.');
     },
-    reject: (e: Entry, reason: string) => live(e) ? (guard() ? void rejectLive(e, reason) : false) : status(e, 'Rejected', 'Reject entry', reason, 'Refused. The dealer sees the reason in their app.'),
+    reject: (e: Entry, reason: string) => {
+      if (!live(e)) return status(e, 'Rejected', 'Reject entry', reason, 'Refused. The dealer sees the reason in their app.');
+      if (!guard()) return false;
+      if (e.type === 'Replacement') {
+        if (awaitingOldBattery(e)) { a.toast(`${whereIsOld(e)}. Refuse it from Old battery returns once it reaches the factory.`); return false; }
+        void settleLive(e, 'refused', reason); return;
+      }
+      void rejectLive(e, reason);
+    },
     review: (e: Entry, reason: string) => live(e) ? notInV1() : status(e, 'Under Review', 'Start review', reason, 'Marked as under review.'),
     voidEntry: (e: Entry, reason: string) => live(e) ? notInV1() : status(e, 'Cancelled', 'Void / archive entry', reason, 'Voided. It stays searchable and in the audit log.'),
     requestCorrection: (e: Entry, value: string, reason: string) => {
@@ -128,7 +156,7 @@ export function Approvals({ id }: { id?: string }) {
   const n = q.trim().toLowerCase();
   const rows = pending.filter(groups[f]).filter(e => !n || [e.id, e.customer, dealer(e.dealerId)?.name || '', ...e.items.flatMap(i => [i.code, i.oldSerial])].some(v => v.toLowerCase().includes(n)));
   return <Page title="Requests to approve" sub={`${pending.length} waiting · the battery is already with the customer`}>
-    <Banner tone="info" icon="shield" style={{ marginBottom: 14 }}><B>What approving does.</B> It accepts the claim, moves the new battery into the register with the original cover dates, marks the old one returned and credits the dealer. A serial exception cannot be approved until it is fixed.</Banner>
+    <Banner tone="info" icon="shield" style={{ marginBottom: 14 }}><B>Replacements are decided at the factory.</B> Approve or refuse appears once the old battery has arrived and been checked (Old battery returns). Approving moves the new battery into the register with the original cover dates and credits the dealer. A serial exception cannot be approved until it is fixed.</Banner>
     <Box filters={<><Pills value={f} onChange={setF} items={[['waiting', `Waiting ${pending.filter(groups.waiting).length}`], ['conflict', `Serial exceptions ${pending.filter(groups.conflict).length}`], ['review', `Under review ${pending.filter(groups.review).length}`], ['all', `All ${pending.length}`]]} /><SearchBox value={q} onChange={setQ} ph="Dealer, serial or request" /></>}>
       <Table rows={rows} keyOf={e => e.id} onRow={e => a.go('entry', e.id)} empty={f === 'conflict' ? 'No serial exceptions.' : 'Nothing waiting here.'}
         cols={[
@@ -139,6 +167,7 @@ export function Approvals({ id }: { id?: string }) {
           { h: 'Raised', w: 0.7, cell: e => dShort(e.createdAt) },
           { h: 'Credit', w: 0.7, cell: e => creditOf(e) ? rupees(creditOf(e)) : '—' },
           { h: 'Decision', w: 1.6, cell: e => e.status === 'Conflict' ? <View style={{ gap: 5 }}><StatusChip status="Conflict" /><Btn kind="ghost" sm label="Open to fix" onPress={() => a.go('entry', e.id)} /></View>
+            : awaitingOldBattery(e) ? <Chip tone="warn" icon={e.returnState === 'In transit' ? 'truck' : 'shop'} label={whereIsOld(e)} />
             : canEdit ? <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}><Btn kind="ghost" sm label="Refuse" color={T.terminal} borderColor="#F0C7BC" onPress={() => setAct({ kind: 'reject', e })} /><Btn kind="blue" sm label="Approve" onPress={() => setAct({ kind: 'approve', e })} /></View> : <StatusChip status={e.status} /> },
         ]}
         mobile={{ title: e => dealer(e.dealerId)?.name, sub: e => <><Mono>{e.id}</Mono> · {e.type} · {dShort(e.createdAt)}</>, right: e => <StatusChip status={e.status} /> }} />
@@ -251,9 +280,10 @@ export function EntryDetail({ id }: { id?: string }) {
     : <Banner tone="info" icon="x"><B>Voided.</B> Removed from live totals, kept in search and the audit log.</Banner>;
   return <Page back title={e.id} sub={`${dealer?.name || e.dealerId} · ${e.type} · ${dLong(e.date)}`}
     actions={<>
-      {canEdit && pending && e.status !== 'Conflict' && <Btn kind="blue" sm icon="check" label="Approve" onPress={() => setAct('approve')} />}
+      {canEdit && pending && awaitingOldBattery(e) && <Chip tone="warn" icon={e.returnState === 'In transit' ? 'truck' : 'shop'} label={`${whereIsOld(e)} — decide once it arrives`} />}
+      {canEdit && pending && !awaitingOldBattery(e) && e.status !== 'Conflict' && <Btn kind="blue" sm icon="check" label="Approve" onPress={() => setAct('approve')} />}
       {canEdit && pending && e.status !== 'Under Review' && <Btn kind="ghost" sm icon="eye" label="Start review" onPress={() => setAct('review')} />}
-      {canEdit && pending && <Btn kind="ghost" sm icon="x" label="Refuse" color={T.terminal} borderColor="#F0C7BC" onPress={() => setAct('reject')} />}
+      {canEdit && pending && !awaitingOldBattery(e) && <Btn kind="ghost" sm icon="x" label="Refuse" color={T.terminal} borderColor="#F0C7BC" onPress={() => setAct('reject')} />}
       {canEdit && !['Cancelled', 'Corrected'].includes(e.status) && <Btn kind="ghost" sm icon="pen" label="Correct it" onPress={() => setApply(true)} />}
       <Btn kind="ghost" sm icon="down" label="Print acknowledgement" onPress={() => { if (dealer) printEntry(e, dealer).catch(() => a.toast('Printing is not available on this device.')); }} />
     </>}>

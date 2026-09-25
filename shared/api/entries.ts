@@ -81,3 +81,8 @@ export function approveEntry(id: string, reason: string, accessToken: string) {
 export function rejectEntry(id: string, reason: string, accessToken: string) {
   return apiPost<EntryResult>(`/entries/${id}/reject`, { reason }, { accessToken });
 }
+
+/** Head office's one decision on a replacement once its old battery is at the factory (entries.settle). */
+export function settleEntry(id: string, decision: 'approved' | 'refused', reason: string, accessToken: string) {
+  return apiPost<{ entry: EntryResult; creditNotes: { no: string; amount: number }[] }>(`/entries/${id}/settle`, { decision, reason }, { accessToken });
+}

@@ -17,7 +17,14 @@ export async function syncStore(setState: (fn: (s: State) => State) => void): Pr
     const [session, token] = await Promise.all([loadSession(), getAccessToken()]);
     if (!session || !token) return null;
     const data = await fetchHydrated(session, token);
-    setState((s) => ({ ...s, ...data }));
+    setState((s) => {
+      // Entries saved on this phone but not sent yet (offline mode, drafts) are not on the server —
+      // keep them, or a refresh would silently delete the dealer's work. Challans always come from
+      // the server: a phone-only challan is never real.
+      const onServer = new Set((data.entries ?? []).map((e) => e.id));
+      const unsent = s.entries.filter((e) => (e.status === 'Draft' || e.status === 'Pending sync') && !onServer.has(e.id));
+      return { ...s, ...data, entries: [...unsent, ...(data.entries ?? [])] };
+    });
     return data;
   })().finally(() => { inflight = null; });
   return inflight;

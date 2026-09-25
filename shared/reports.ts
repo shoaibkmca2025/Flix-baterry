@@ -20,3 +20,15 @@ export async function exportReport(entries:Entry[],state:State,format:string,sel
 }
 export async function printHtml(body:string) {const html=`<html><head><meta charset="utf-8"/><style>body{font-family:Arial;color:#19232c;padding:25px;font-size:11px}h1{font-size:23px}table{border-collapse:collapse;width:100%;font-size:9px}td,th{padding:7px;border:1px solid #ddd;text-align:left}th{background:#fff4da}p{line-height:1.7}@page{size:A4 landscape;margin:12mm}</style></head><body>${body}</body></html>`;if(Platform.OS==='web')await Print.printAsync({html});else {const {uri}=await Print.printToFileAsync({html});await Sharing.shareAsync(uri,{mimeType:'application/pdf'});}}
 export async function printEntry(e:Entry,d:Dealer) {await printHtml(`<h1>Felix Batteries · Entry acknowledgement</h1><p><b>${escapeHtml(e.id)}</b><br/>${escapeHtml(d.name)} · ${escapeHtml(d.city)}<br/>${escapeHtml(e.date)} · ${escapeHtml(e.type)} · ${escapeHtml(e.status)}<br/>Customer: ${escapeHtml(e.customer)}<br/>Total quantity: ${e.items.length}</p><table><tr><th>Model</th><th>Battery code</th><th>Serial</th><th>Old serial</th><th>Mfg</th><th>Rpl</th><th>Return</th></tr>${e.items.map(i=>`<tr>${[i.model,i.code,i.serial,i.oldSerial,i.mfg,i.rpl,i.rtn].map(v=>`<td>${escapeHtml(v)}</td>`).join('')}</tr>`).join('')}</table><p>Recorded: ${escapeHtml(e.createdAt)}. This is a transaction acknowledgement, not a tax invoice.</p>`);}
+
+/** Saves a printable HTML document: downloads it on the web (open it, then print or save as PDF),
+ * shares it as a PDF on a phone. The dealer app and the head-office console both save challans with it. */
+export async function saveHtmlDocument(html: string, fileName: string, title: string) {
+  if (Platform.OS === 'web') {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' })); a.download = `${fileName}.html`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 6000);
+    return;
+  }
+  const { uri } = await Print.printToFileAsync({ html });
+  await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: title });
+}

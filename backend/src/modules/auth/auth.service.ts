@@ -21,6 +21,9 @@ const LOCKOUT_MAX_BAD_PASSWORDS = 10;
 // Deliberately console.log, not the pino logger — the logger redacts otp/mobile/email
 // (utils/logger.ts REDACT_PATHS), which would defeat the point of a dev-visible code.
 function sendOtp(target: string, purpose: string, code: string) {
+  const line = `  OTP ${code}  ·  ${purpose}  ·  ${target}  `;
+  const bar = '═'.repeat(line.length);
+  console.log(`\n╔${bar}╗\n║${line}║\n╚${bar}╝`);
   console.log(`[otp:console-adapter] purpose=${purpose} target=${target} code=${code}`);
 }
 

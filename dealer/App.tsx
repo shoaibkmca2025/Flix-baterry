@@ -12,7 +12,10 @@ function Root() {
   if (!ready || auth.status === 'loading') {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#141A23' }}><ActivityIndicator color="#E8A72C" /></View>;
   }
-  return <DealerApp signedIn={auth.status === 'signedIn'} onSignedIn={begin} onSignOut={signOut} />;
+  // The key remounts the app when the session flips, so a fresh sign-in lands on the dashboard
+  // instead of staying on d02 (DealerApp only reads `signedIn` for its initial route).
+  const signedIn = auth.status === 'signedIn';
+  return <DealerApp key={signedIn ? 'dealer-in' : 'dealer-out'} signedIn={signedIn} onSignedIn={begin} onSignOut={signOut} />;
 }
 
 export default function App() { return <SafeAreaProvider><Provider><Root /></Provider></SafeAreaProvider>; }

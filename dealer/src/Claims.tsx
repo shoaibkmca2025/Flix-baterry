@@ -4,7 +4,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { useStore } from '@felix/shared/store';
 import { Challan, Entry } from '@felix/shared/domain';
-import { printHtml, escapeHtml } from '@felix/shared/reports';
+import { printHtml, escapeHtml, saveHtmlDocument } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, BigOk, CheckBox, Kpis, Plate, PlateLab, PlateVal, AvTone, IconName } from '@felix/shared/ui/kit';
 import { Screen, AppBar, useD } from './shell';
@@ -65,9 +65,12 @@ export function D33() {
   const dispatch = async () => {
     if (!picked.length) { d.toast('Tick at least one battery to hand over.'); return; }
     const token = await getAccessToken();
-    if (token && !state.offline) {
+    // A challan has to reach head office to mean anything — never make one that lives only on this phone.
+    if (token && state.offline) { d.toast('You are in offline mode. Go online (tap “Offline” on Home), then dispatch — head office must receive the challan.'); return; }
+    if (token) {
       const entryIds = picked.map(e => e.apiId).filter((x): x is string => !!x);
-      if (entryIds.length < picked.length) { d.toast('Open Home first so your entries finish syncing, then try again.'); return; }
+      const unsent = picked.filter(e => !e.apiId).map(e => e.id);
+      if (unsent.length) { d.toast(`${unsent.join(', ')} ${unsent.length === 1 ? 'is' : 'are'} still saved on this phone. Tap Sync now on Home to send ${unsent.length === 1 ? 'it' : 'them'} first, or untick ${unsent.length === 1 ? 'it' : 'them'}.`); return; }
       setBusy(true);
       try {
         const result = await createChallan({ entryIds, vehicleNo: vehicle.trim().toUpperCase() || undefined, driverName: driver.trim() || undefined }, token);
@@ -188,11 +191,8 @@ export function D36({ p }: { p?: string }) {
   const dealer = state.dealers.find(x => x.id === c.dealerId)!;
   const download = async () => {
     try {
-      if (Platform.OS === 'web') {
-        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([challanHtml(c, dealer)], { type: 'text/html' })); a.download = `Challan-${c.no}.html`;
-        document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 6000);
-        d.toast('Challan downloaded. Open it and print or save as PDF.');
-      } else { const { uri } = await Print.printToFileAsync({ html: challanHtml(c, dealer) }); await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: `Challan ${c.no}` }); }
+      await saveHtmlDocument(challanHtml(c, dealer), `Challan-${c.no}`, `Challan ${c.no}`);
+      if (Platform.OS === 'web') d.toast('Challan downloaded. Open it and print or save as PDF.');
     } catch { d.toast('The challan could not be saved on this device.'); }
   };
   const share = async () => {

@@ -112,7 +112,7 @@ export function challanHtml(c: Challan, d: Dealer) {
     '<h1>FELIX BATTERIES INDUSTRIES</h1><div class="sub">Battery Distribution &amp; Warranty Operations · Nashik, Maharashtra</div><hr>' +
     '<h2>Material Return Challan</h2>' +
     `<div class="m"><div><i>Challan No.</i><br><b>${escapeHtml(c.no)}</b></div><div><i>Date</i><br><b>${date}</b></div>` +
-    `<div><i>From · Dealer</i><br><b>${escapeHtml(d.name)}</b><br>${escapeHtml(d.place)}, ${escapeHtml(d.city)} · ${escapeHtml(d.id)}</div>` +
+    `<div><i>From · Dealer</i><br><b>${escapeHtml(d.name)}</b><br>${[d.place, d.city].filter(Boolean).map(escapeHtml).join(', ')} · ${escapeHtml(d.code || d.id)}</div>` +
     '<div><i>To</i><br><b>Felix Batteries Industries</b><br>Warehouse, Nashik</div>' +
     `<div><i>Vehicle</i><br><b>${escapeHtml(c.vehicle || '—')}</b></div><div><i>Collected by</i><br><b>${escapeHtml(c.driver || '—')}</b></div></div>` +
     `<table><thead><tr><th>#</th><th>Serial No.</th><th>Model</th><th>Request Ref.</th><th>Reported fault</th></tr></thead><tbody>${rows}</tbody></table>` +

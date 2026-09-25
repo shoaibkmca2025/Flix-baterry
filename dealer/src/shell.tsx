@@ -77,7 +77,7 @@ export function Sheet({ open, title, onClose, children }: { open: boolean; title
     <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, maxHeight: '88%', backgroundColor: T.zinc, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingBottom: d.framed ? 0 : inset.bottom, overflow: 'hidden' }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingTop: 13, paddingHorizontal: 15, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: T.zinc2 }}>
         <X s={19} w={7} f="c" style={{ flex: 1 }}>{title}</X><IconBtn n="x" label="Close" onPress={onClose} /></View>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 15, paddingBottom: 22 }}>{children}</ScrollView>
+      <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 15, paddingBottom: 22 }}>{children}</ScrollView>
     </View>
   </View>;
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, Pressable, Platform } from 'react-native';
 import { useStore } from '@felix/shared/store';
 import { Dealer } from '@felix/shared/domain';
@@ -63,12 +63,13 @@ export function D02() {
   const [mobile, setMobile] = useState(''), [code, setCode] = useState(''), [sent, setSent] = useState(false), [error, setError] = useState<{ mobile?: string; code?: string }>({});
   const [challengeId, setChallengeId] = useState(''), [busy, setBusy] = useState(false);
   const [left, setLeft] = useCountdown();
+  const inflight = useRef(false); // `busy` lands a render late — a quick double tap would verify the same code twice
   const send = async () => {
     if (mobile.length !== 10) { setError({ mobile: 'Enter the 10-digit mobile number.' }); return; }
     setError({}); setBusy(true);
     try {
       const { challengeId: id } = await requestOtp(mobile, 'login');
-      setChallengeId(id); setSent(true); setLeft(30); d.toast('Code sent to your phone.');
+      setChallengeId(id); setCode(''); setSent(true); setLeft(30); d.toast('Code sent to your phone.');
     } catch (e) {
       setError({ mobile: e instanceof ApiError ? e.message : 'Could not reach the server. Try again.' });
     } finally { setBusy(false); }
@@ -76,10 +77,13 @@ export function D02() {
   const signIn = async () => {
     if (mobile.length !== 10) { setError({ mobile: 'Enter the 10-digit mobile number.' }); return; }
     if (code.length < 6) { setError({ code: 'Enter all 6 digits of the code.' }); return; }
-    if (!challengeId) { setError({ mobile: 'Send the code first.' }); return; }
-    setBusy(true);
+    if (!challengeId) { setError({ code: 'Tap Send code first.' }); return; }
+    if (inflight.current) return;
+    inflight.current = true; setBusy(true);
     try {
       const result = (await verifyOtp(challengeId, code)) as VerifyOtpLoginResult;
+      // a code works once: forget it now, so a second tap can never resend a spent code
+      setChallengeId(''); setCode('');
       const dealer = result.dealer;
       if (!dealer) { setError({ mobile: 'No shop is registered with this number. Register your shop first.' }); return; }
       // bridge: the rest of the app still reads from the local demo store, not the API directly (yet).
@@ -98,19 +102,29 @@ export function D02() {
         const details = e.details as { status?: string; dealerId?: string } | undefined;
         if (details?.status === 'pending_approval' && details.dealerId) { d.go('d05', details.dealerId); return; }
         setError({ mobile: e.message });
+      } else if (e instanceof ApiError && (e.code === 'otp_expired' || e.code === 'too_many_attempts')) {
+        // spent, expired or locked: this code can never work again — send a fresh one straight away
+        setChallengeId(''); setCode('');
+        try {
+          const { challengeId: id } = await requestOtp(mobile, 'login');
+          setChallengeId(id); setSent(true); setLeft(30);
+          setError({ code: 'That code had expired, so a new one has been sent. Enter the new code.' });
+        } catch (e2) {
+          setLeft(0); setError({ code: e2 instanceof ApiError ? e2.message : 'Could not send a new code. Tap Resend code.' });
+        }
       } else {
         setError({ code: e instanceof ApiError ? e.message : 'Could not reach the server. Try again.' });
       }
-    } finally { setBusy(false); }
+    } finally { inflight.current = false; setBusy(false); }
   };
   return <Screen top={<AppBar title="Sign in" />}>
     <Banner tone="info" icon="phone" style={{ marginBottom: 14 }}>Use the mobile number you registered with. We will send a 6-digit code.</Banner>
     <Field label="Mobile number" req mr="मोबाइल नंबर" value={grouped(mobile)} onChange={v => setMobile(digits(v, 10))} phone mono pre={phonePre} ph="98765 43210" error={error.mobile} maxLength={11} />
     <Card style={{ marginBottom: 13 }}>
-      <CardH title="Enter code" right={!sent ? <Pressable accessibilityRole="button" onPress={send}><Chip tone="info" icon="phone" label="Send code" /></Pressable>
+      <CardH title="SMS code (OTP)" right={!sent ? <Pressable accessibilityRole="button" onPress={send}><Chip tone="info" icon="phone" label="Send code" /></Pressable>
         : left > 0 ? <Chip tone="mute" icon="clock" label={`Resend in ${left}s`} /> : <Pressable accessibilityRole="button" onPress={send}><Chip tone="info" icon="sync" label="Resend code" /></Pressable>} />
       <OtpBoxes value={code} onChange={v => { setCode(v); setError({}); }} />
-      {error.code ? <Hint tone="err">{error.code}</Hint> : <Hint icon="lock">Check your SMS for the code.</Hint>}
+      {error.code ? <Hint tone="err">{error.code}</Hint> : <Hint icon="lock">Tap Send code, then type the 6-digit number from the SMS. Your dealer code (like FPP-014) is not needed to sign in.</Hint>}
     </Card>
     <Btn kind="primary" icon="check" label="Sign in" onPress={signIn} disabled={busy} />
     <BtnRow><Btn kind="ghost" sm label="Forgot password" style={{ alignSelf: 'stretch' }} onPress={() => d.go('d03')} /><Btn kind="ghost" sm label="New dealer? Register" style={{ alignSelf: 'stretch' }} onPress={() => d.go('d04')} /></BtnRow>

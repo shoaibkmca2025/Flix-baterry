@@ -12,7 +12,7 @@ function Root() {
   if (!ready || auth.status === 'loading') {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#141A23' }}><ActivityIndicator color="#E8A72C" /></View>;
   }
-  return <AdminApp session={auth.status === 'signedIn' ? auth.session : null} onSignedIn={begin} onSignOut={signOut} />;
+  return <AdminApp key={auth.status === 'signedIn' ? 'admin-in' : 'admin-out'} session={auth.status === 'signedIn' ? auth.session : null} onSignedIn={begin} onSignOut={signOut} />;
 }
 
 export default function App() { return <SafeAreaProvider><Provider><Root /></Provider></SafeAreaProvider>; }
