@@ -71,6 +71,13 @@
       "when": 1790055666043,
       "tag": "0009_plate_types",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790328410360,
+      "tag": "0010_battery_identity",
+      "breakpoints": true
     }
   ]
 }

@@ -5,6 +5,11 @@ export function normalise(code: string): string {
   return code.trim().toUpperCase().replace(/\s+/g, '');
 }
 
+/** Everything a label can be written with, removed: spaces, hyphens, dots, slashes. */
+export function normaliseLabel(input: string): string {
+  return input.trim().toUpperCase().replace(/[\s\-._/]+/g, '');
+}
+
 export type DerivedCode = {
   /** '2026-04' — manufacture year+month, or null if the code doesn't parse. */
   mfgMonth: string | null;
@@ -12,56 +17,77 @@ export type DerivedCode = {
   serialNo: string;
   /** the code as originally entered, before normalisation. */
   entered: string;
-  /** the 8-digit battery code, used for all comparisons/storage (never includes the prefix). */
+  /** the 8 digits (YYMM + serial). NOT unique on its own — see fullCode(). */
   normalised: string;
   valid: boolean;
-  /** plate letter from a prefixed label ('M2200-26041212' → 'M'), or null when the code had none. */
-  plate: string | null;
-  /** model number from a prefixed label ('2200'), or null. */
-  modelNo: string | null;
-  /** plate + modelNo ('M2200') — the battery_models id the label names, or null. */
+  /**
+   * The battery_models id the label names ('M1000', 'GPM1000', 'SG2200'), or null when the
+   * label carried only digits. The plate code and model number are columns on that row —
+   * 'K60L' cannot be split into 'K' + '60L' by shape alone, so read them from the catalogue.
+   */
   modelId: string | null;
 };
 
-// The printed label may carry the plate letter and model number in front of the 8 digits
-// (memory.md D-11): 'M2200-26041212', 'M2200 26041212' or 'M220026041212'. The prefix is
-// informative (it pre-fills the dealer's dropdowns); the 8 digits are the battery's identity.
-const PREFIXED = /^([A-Z])(\d{3,4})-?(\d{8})$/;
+// Default rule: 8 digits, first 2 = YY, next 2 = MM, last 4 = the serial. The serial restarts
+// at 1 on the 26th of every month AND counts separately per product (client, 25 Sep 2026), so
+// "M1000 26090001" and "S1000 26090001" are two different batteries — see fullCode().
+const DIGITS = /^\d{8}$/;
 
-// Default rule: 8 digits, first 2 = YY, next 2 = MM, last 4 = random serial.
-// A per-family override (serial_rules table) can replace this once masters exist (P1-01) —
-// this function takes the rule's shape as an optional param so that swap is a call-site change,
-// not a rewrite.
-export function deriveCode(
-  entered: string,
-  rule: { pattern: RegExp; shortSerialFrom: number; shortSerialLen: number } = {
-    pattern: /^\d{8}$/,
-    shortSerialFrom: 5, // 1-indexed, matches architecture.md §9.2
-    shortSerialLen: 4,
-  },
-): DerivedCode {
-  const whole = normalise(entered);
-  const prefixed = PREFIXED.exec(whole);
-  const normalised = prefixed ? prefixed[3]! : whole;
-  const plate = prefixed ? prefixed[1]! : null;
-  const modelNo = prefixed ? prefixed[2]! : null;
-  const formatOk = rule.pattern.test(normalised);
+/**
+ * Splits a scanned or typed label into the product it names and its 8 digits.
+ *
+ * The printed forms all exist in the field (client's samples, 25 Sep 2026):
+ *   "M 1000 2609 0676"      code then model
+ *   "GP M 1000 2609 0075"   Gold Power brand in front
+ *   "SS 2500 2609 0493"     two-character tubular series code
+ *   "IT 2200 SG 1125 0058"  tubular, code AFTER the model, with the range prefix
+ *   "I Din 75 …" / "K 60L" / "O H29"   model numbers that are not plain digits
+ *
+ * A regex cannot separate "K60L" into K + 60L reliably, so this matches against the ids the
+ * catalogue actually holds — longest first, so 'GPM1000' wins over 'M1000'.
+ */
+export function splitLabel(input: string, knownModelIds: readonly string[] = []): { modelId: string | null; code: string } {
+  const whole = normaliseLabel(input);
+  if (DIGITS.test(whole)) return { modelId: null, code: whole }; // just the digits
+
+  const tail = whole.slice(-8);
+  const head = whole.slice(0, -8);
+  if (!DIGITS.test(tail) || !head) return { modelId: null, code: whole };
+
+  const ids = [...knownModelIds].sort((a, b) => b.length - a.length);
+  const direct = ids.find((id) => id === head);
+  if (direct) return { modelId: direct, code: tail };
+
+  // "IT2200SG" / "FT2500SS" — range prefix, model, then the code. Rebuild it as code+model.
+  const swapped = /^(?:IT|FT)?(\d{3,4})([A-Z][A-Z0-9]?)$/.exec(head);
+  if (swapped) {
+    const rebuilt = `${swapped[2]}${swapped[1]}`;
+    if (ids.includes(rebuilt)) return { modelId: rebuilt, code: tail };
+  }
+  // an unknown product still yields its digits; the caller decides whether that is an error
+  return { modelId: ids.find((id) => head.endsWith(id)) ?? null, code: tail };
+}
+
+/** The battery's identity as printed on it: the product code and the 8 digits together. */
+export function fullCode(modelId: string, code: string): string {
+  return `${normaliseLabel(modelId)}${normalise(code)}`;
+}
+
+export function deriveCode(entered: string, knownModelIds: readonly string[] = []): DerivedCode {
+  const { modelId, code: normalised } = splitLabel(entered, knownModelIds);
+  const formatOk = DIGITS.test(normalised);
 
   const yy = normalised.slice(0, 2);
   const mm = normalised.slice(2, 4);
   const month = Number(mm);
   const monthOk = formatOk && month >= 1 && month <= 12;
 
-  const serialNo = normalised.slice(rule.shortSerialFrom - 1, rule.shortSerialFrom - 1 + rule.shortSerialLen);
-
   return {
     mfgMonth: monthOk ? `20${yy}-${mm}` : null,
-    serialNo,
+    serialNo: normalised.slice(4, 8),
     entered,
     normalised,
     valid: formatOk && monthOk,
-    plate,
-    modelNo,
-    modelId: plate && modelNo ? `${plate}${modelNo}` : null,
+    modelId,
   };
 }

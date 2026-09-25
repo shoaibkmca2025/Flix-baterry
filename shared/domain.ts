@@ -4,7 +4,7 @@ export type Item = { id: string; model: string; oldModel?: string; code: string;
 export type Entry = { id: string; dealerId: string; type: string; date: string; customer: string; place: string; order: string; remarks: string; items: Item[]; status: Status; evidence: string[]; gps?: string; signature?: string; createdAt: string; retries: number; correction?: { reason: string; value: string; status: string }; handover?: string; returnState?: string; returnNote?: string; linkedTo?: string; evidenceTags?: string[]; coverTold?: string; apiId?: string; claimId?: string; claimStatus?: string; decidedAt?: string; decisionReason?: string };
 export type Battery = { code: string; serial: string; model: string; dealerId: string; customer: string; mfg: string; oldSerial?: string; start?: string; expiry?: string; policy?: string; state: string };
 export type Dealer = { id: string; code?: string; name: string; contact: string; mobile: string; email: string; city: string; place: string; address: string; pin: string; state: string; status: string; reason?: string; documents?: string[] };
-export type Model = { id: string; plate?: string; modelNo?: string; type: string; capacity: string; months: number; threshold: number; active: boolean };
+export type Model = { id: string; plate?: string; modelNo?: string; brand?: string; plateCount?: number | null; type: string; capacity: string; months: number; threshold: number; active: boolean };
 export type Movement = { id: string; code: string; model: string; dealerId: string; from: string; to: string; reason: string; date: string };
 export type Audit = { id: string; actor: string; action: string; ref: string; reason: string; at: string; before?: string; after?: string };
 export type Customer = { id: string; dealerId: string; name: string; mobile: string; address: string; equipment: string; consent: boolean; mergedInto?: string };
@@ -12,7 +12,7 @@ export type Policy = { id: string; months: number; effective: string; anchor: st
 export type Notice = { id: string; title: string; body: string; route: string; read: boolean; dealerId?: string };
 export type Challan = { no: string; dealerId: string; at: string; vehicle: string; driver: string; entryIds: string[]; rows: { serial: string; model: string; ref: string; fault: string; lineId?: string; stage?: string }[]; serverId?: string; receivedAt?: string };
 export type Staff = { id: string; name: string; email: string; role: string; roleKey?: string; status: string; dealerId?: string; permissions: string[] };
-export type State = { entries: Entry[]; batteries: Battery[]; dealers: Dealer[]; models: Model[]; movements: Movement[]; audits: Audit[]; customers: Customer[]; policies: Policy[]; notices: Notice[]; staff: Staff[]; reports: {id:string;name:string;type:string;model:string;status:string;schedule:string}[]; exports: {id:string;name:string;rows:number;date:string}[]; overrides: {id:string;code:string;days:number;reason:string;status:string}[]; cities: string[]; plateTypes?: { code: string; label: string }[]; graceMonths?: number; entryTypes: string[]; lastSync: string; offline: boolean; language: 'English'|'मराठी'; challans: Challan[]; smsAlerts?: boolean; };
+export type State = { entries: Entry[]; batteries: Battery[]; dealers: Dealer[]; models: Model[]; movements: Movement[]; audits: Audit[]; customers: Customer[]; policies: Policy[]; notices: Notice[]; staff: Staff[]; reports: {id:string;name:string;type:string;model:string;status:string;schedule:string}[]; exports: {id:string;name:string;rows:number;date:string}[]; overrides: {id:string;code:string;days:number;reason:string;status:string}[]; cities: string[]; plateTypes?: { code: string; label: string; plateCount?: number | null }[]; graceMonths?: number; entryTypes: string[]; lastSync: string; offline: boolean; language: 'English'|'मराठी'; challans: Challan[]; smsAlerts?: boolean; };
 export const uid = (prefix = 'ID') => `${prefix}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
 export const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 export const normalize = (s: string) => s.trim().toUpperCase().replace(/\s/g, '');
@@ -30,17 +30,37 @@ export function warranty(b: Battery, now = today(), alertDays = 30) {
   const total = Math.max(1,(Date.parse(b.expiry)-Date.parse(b.start || now))/86400000);
   return {status: days < 0 ? 'Expired' : days <= alertDays ? 'Expiring soon' : 'Active',days:Math.max(0,days),progress:Math.max(0,Math.min(1,days/total))};
 }
-/** The label may carry the plate letter + model number in front of the 8 digits ('M2200-26041212'); the digits are the code. */
-export function splitLabel(code: string) {
-  const whole=normalize(code); const m=/^([A-Z])(\d{3,4})-?(\d{8})$/.exec(whole);
-  return m ? { code: m[3], plate: m[1], modelNo: m[2], modelId: `${m[1]}${m[2]}` } : { code: whole, plate: '', modelNo: '', modelId: '' };
+/**
+ * Splits a scanned or typed label into the product it names and its 8 digits.
+ * The printed forms (client samples, 25 Sep 2026): "M 1000 2609 0676", "GP M 1000 …",
+ * "SS 2500 …", "IT 2200 SG …", "K 60L …", "I Din 75 …". "K60L" cannot be cut into K + 60L by
+ * shape alone, so this matches against the ids the catalogue holds — longest first.
+ */
+export function splitLabel(input: string, knownModelIds: readonly string[] = []) {
+  const whole = (input||'').trim().toUpperCase().replace(/[\s\-._/]+/g,'');
+  if (/^\d{8}$/.test(whole)) return { modelId: '', code: whole };
+  const tail = whole.slice(-8), head = whole.slice(0, -8);
+  if (!/^\d{8}$/.test(tail) || !head) return { modelId: '', code: whole };
+  const ids = [...knownModelIds].sort((a,b) => b.length - a.length);
+  const direct = ids.find(id => id === head);
+  if (direct) return { modelId: direct, code: tail };
+  const swapped = /^(?:IT|FT)?(\d{3,4})([A-Z][A-Z0-9]?)$/.exec(head);       // "IT2200SG"
+  if (swapped) { const rebuilt = `${swapped[2]}${swapped[1]}`; if (ids.includes(rebuilt)) return { modelId: rebuilt, code: tail }; }
+  return { modelId: ids.find(id => head.endsWith(id)) ?? '', code: tail };
 }
-export function deriveCode(code: string) {
-  const { code: c, modelId }=splitLabel(code); const month=Number(c.slice(2,4));
+/**
+ * The battery's identity as printed on it. The 8 digits are NOT unique on their own: the
+ * factory restarts the serial at 1 on the 26th of each month and counts separately per
+ * product, so "M1000 26090001" and "S1000 26090001" are two different batteries (D-13).
+ */
+export const fullCode = (modelId: string, code: string) =>
+  `${(modelId||'').toUpperCase().replace(/[\s\-._/]+/g,'')}${normalize(code)}`;
+/** The digits half of an identity, for display and for date/serial maths. */
+export const digitsOf = (fullOrDigits: string) => (fullOrDigits||'').slice(-8);
+export function deriveCode(code: string, knownModelIds: readonly string[] = []) {
+  const { code: c, modelId }=splitLabel(code, knownModelIds); const month=Number(c.slice(2,4));
   return {serial:c.slice(-4),mfg:/^\d{8}$/.test(c)&&month>=1&&month<=12?`20${c.slice(0,2)}-${c.slice(2,4)}`:'',labelModelId:modelId};
 }
-/** Plate letter + model number of a model id ('M2200' → M / 2200); legacy ids ('M5') split the same way. */
-export const splitModelId = (id: string) => { const m=/^([A-Z])(\d+)$/.exec(id||''); return m ? { plate: m[1], modelNo: m[2] } : { plate: '', modelNo: '' }; };
 export const newItem = (): Item => ({id:uid('ITEM'),model:'',code:'',serial:'',oldSerial:'',mfg:'',rpl:today().slice(0,7),rtn:'',wr:'',remarks:''});
 export const newEntry = (dealerId: string, type = 'Replacement'): Entry => ({id:uid('ENT'),dealerId,type,date:today(),customer:'',place:'Sakri Road',order:'',remarks:'',items:[newItem()],status:'Draft',evidence:[],createdAt:new Date().toISOString(),retries:0});
 export function validateEntry(e: Entry, state: State): Record<string,string> {
@@ -53,7 +73,7 @@ export function validateEntry(e: Entry, state: State): Record<string,string> {
   e.items.forEach((item,i)=>{
     const key=`items.${i}.`; const code=normalize(item.code);
     if(!state.models.some(m=>m.id===item.model&&m.active)) errors[key+'model']='Choose an active model.';
-    if(!/^\d{8}$/.test(code)||!deriveCode(code).mfg) errors[key+'code']='Use an 8-digit code with a valid YYMM prefix.';
+    if(!/^\d{8}$/.test(digitsOf(code))||!deriveCode(code).mfg) errors[key+'code']='Use an 8-digit code with a valid YYMM prefix.';
     if(!/^\d{4}$/.test(item.serial)) errors[key+'serial']='Enter the 4-digit serial, keeping leading zeroes.';
     if(e.items.some((x,j)=>j!==i&&normalize(x.code)===code)) errors[key+'code']='This battery is already in this entry.';
     const existing=state.batteries.find(b=>normalize(b.code)===code);

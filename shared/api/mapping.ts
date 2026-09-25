@@ -206,7 +206,8 @@ export async function fetchHydrated(session: Session, token: string): Promise<Hy
   const customerByCode = new Map<string, string>();
   for (const e of entries) for (const it of e.items) if (e.customer && it.code) customerByCode.set(it.code, e.customer);
 
-  const models: Model[] = masters.models.map((m) => ({ id: m.id, plate: m.plate ?? undefined, modelNo: m.modelNo ?? undefined, type: m.type, capacity: m.capacity ?? '', months: m.warrantyMonths, threshold: 0, active: m.active }));
+  const plateCountOf = new Map(masters.plateTypes.map((p) => [p.code, p.plateCount]));
+  const models: Model[] = masters.models.map((m) => ({ id: m.id, plate: m.plate ?? undefined, modelNo: m.modelNo ?? undefined, brand: m.brand, plateCount: m.plate ? plateCountOf.get(m.plate) ?? null : null, type: m.type, capacity: m.capacity ?? '', months: m.warrantyMonths, threshold: 0, active: m.active }));
   const dealers: Dealer[] = dealersPage ? dealersPage.items.map((d) => toDealer(d, cityName)) : session.dealer ? [session.dealer] : [];
   const dealerLabel = (id: string | null) => (id ? (dealers.find((d) => d.id === id)?.name ?? id) : 'Company');
 
@@ -242,7 +243,7 @@ export async function fetchHydrated(session: Session, token: string): Promise<Hy
     syncedAt: new Date().toISOString(),
     models,
     cities: masters.cities.map((c) => c.name),
-    plateTypes: masters.plateTypes.map((p) => ({ code: p.code, label: p.label })),
+    plateTypes: masters.plateTypes.map((p) => ({ code: p.code, label: p.label, plateCount: p.plateCount })),
     graceMonths: masters.warrantyGraceMonths,
     dealers,
     entries,

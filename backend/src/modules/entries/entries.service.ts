@@ -1,5 +1,5 @@
 import { db, withTransaction, type Tx } from '../../database/client';
-import { deriveCode } from '../../domain/serials';
+import { deriveCode, fullCode } from '../../domain/serials';
 import { coverFromMfg } from '../../domain/warranty';
 import { graceMonths } from '../../utils/settings';
 import { audit } from '../../utils/audit';
@@ -50,19 +50,25 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
 
   // format-validate every item up front, and reject duplicate codes WITHIN the same entry —
   // before opening a transaction, matching architecture.md §9.3's "errors first" pipeline.
+  const modelIds = (await batteriesRepo.listModels(db)).map((m) => m.id);
   const derivedItems = input.items.map((item, i) => {
-    const newDerived = deriveCode(item.code);
+    const newDerived = deriveCode(item.code, modelIds);
     if (!newDerived.valid) throw new AppError('format_mismatch', 422, 'Use an 8-digit code with a valid YYMM prefix.', { field: `items.${i}.code` });
-    const oldDerived = item.oldCode ? deriveCode(item.oldCode) : null;
+    const oldDerived = item.oldCode ? deriveCode(item.oldCode, modelIds) : null;
     if (item.oldCode && !oldDerived!.valid) throw new AppError('format_mismatch', 422, 'Use an 8-digit code with a valid YYMM prefix.', { field: `items.${i}.oldCode` });
-    if (oldDerived && oldDerived.normalised === newDerived.normalised) throw new AppError('old_equals_new', 422, 'Old and new batteries must be different.', { field: `items.${i}.oldCode` });
-    // the old battery's (plate, model): what the dealer chose, else what its label prefix says, else like-for-like
+    // the old battery's product: what the dealer chose, else what its label prefix says, else like-for-like
+    const modelId = newDerived.modelId ?? item.modelId;
     const oldModelId = item.oldCode ? (item.oldModelId ?? oldDerived?.modelId ?? item.modelId) : null;
-    return { ...item, newDerived, oldDerived, oldModelId };
+    // A battery is identified by product + digits together, so two batteries only clash when
+    // BOTH match — 'M1000 26090001' and 'S1000 26090001' are different batteries.
+    const batteryCode = fullCode(modelId, newDerived.normalised);
+    const oldBatteryCode = oldDerived ? fullCode(oldModelId!, oldDerived.normalised) : null;
+    if (oldBatteryCode && oldBatteryCode === batteryCode) throw new AppError('old_equals_new', 422, 'Old and new batteries must be different.', { field: `items.${i}.oldCode` });
+    return { ...item, modelId, newDerived, oldDerived, oldModelId, batteryCode, oldBatteryCode };
   });
-  const codes = derivedItems.map((i) => i.newDerived.normalised);
+  const codes = derivedItems.map((i) => i.batteryCode);
   const dupe = codes.find((c, i) => codes.indexOf(c) !== i);
-  if (dupe) throw new AppError('duplicate_serial', 422, 'The same battery code appears twice in this entry.', { field: 'items' });
+  if (dupe) throw new AppError('duplicate_serial', 422, 'The same battery appears twice in this entry.', { field: 'items' });
   // every (plate, model) named must be a combination the factory makes — that row carries the warranty term
   for (const [i, item] of derivedItems.entries()) {
     for (const [field, id] of [['modelId', item.modelId], ['oldModelId', item.oldModelId]] as const) {
@@ -95,9 +101,9 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
         entryId: entry.id,
         seq: i,
         modelId: item.modelId,
-        batteryCode: item.newDerived.normalised,
+        batteryCode: item.batteryCode,
         batteryCodeEntered: item.code,
-        oldBatteryCode: item.oldDerived?.normalised ?? null,
+        oldBatteryCode: item.oldBatteryCode,
         oldBatteryCodeEntered: item.oldCode ?? null,
         oldModelId: item.oldModelId,
         faultCode: item.faultCode ?? null,
@@ -139,7 +145,7 @@ async function approveReplacementItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
   const existingNew = await batteriesRepo.findBatteryByCode(db, item.batteryCode);
   if (existingNew) throw new AppError('duplicate_serial', 409, 'This new battery code is already registered.', { field: `items.${item.seq}.batteryCode` });
 
-  const newDerived = deriveCode(item.batteryCodeEntered);
+  const newDerived = deriveCode(item.batteryCode.slice(-8));
   const newBattery = await batteriesRepo.insertBattery(tx, {
     batteryCode: item.batteryCode,
     batteryCodeEntered: item.batteryCodeEntered,
@@ -177,8 +183,8 @@ async function putOldBatteryOnRecord(
   item: Awaited<ReturnType<typeof repo.findItemsByEntryId>>[number],
   existing: Awaited<ReturnType<typeof batteriesRepo.findBatteryByCode>>,
 ) {
-  const derived = deriveCode(item.oldBatteryCodeEntered ?? item.oldBatteryCode!);
-  const modelId = item.oldModelId ?? derived.modelId ?? item.modelId;
+  const modelId = item.oldModelId ?? item.modelId;
+  const derived = deriveCode(item.oldBatteryCode!.slice(-8));
   const model = await batteriesRepo.findModelById(tx, modelId);
   if (!model) throw new AppError('model_unknown', 422, `${modelId} is not a known plate + model combination.`, { field: `items.${item.seq}.oldModelId` });
   const cover = coverFromMfg(derived.mfgMonth!, model.warrantyMonths, await graceMonths(tx));
@@ -186,7 +192,7 @@ async function putOldBatteryOnRecord(
   let battery = existing;
   if (!battery) {
     battery = await batteriesRepo.insertBattery(tx, {
-      batteryCode: derived.normalised,
+      batteryCode: item.oldBatteryCode!,
       batteryCodeEntered: item.oldBatteryCodeEntered ?? item.oldBatteryCode!,
       serialNo: derived.serialNo,
       modelId,
@@ -207,7 +213,7 @@ async function approveRegularSaleItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
   const existing = await batteriesRepo.findBatteryByCode(db, item.batteryCode);
   if (existing) throw new AppError('duplicate_serial', 409, 'This battery code is already registered.', { field: `items.${item.seq}.batteryCode` });
 
-  const derived = deriveCode(item.batteryCodeEntered);
+  const derived = deriveCode(item.batteryCode.slice(-8));
   const model = await batteriesRepo.findModelById(db, item.modelId);
   const cover = coverFromMfg(derived.mfgMonth!, model?.warrantyMonths ?? 24, await graceMonths(tx));
 
@@ -240,7 +246,7 @@ async function approveSalesReturnItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
   if (existing) {
     battery = (await postMovementInTx(tx, ctx, { battery: existing, toState: 'returned', toCustodian: 'dealer', toDealerId: entry.dealerId, entryId: entry.id, reasonCode: 'entry_approved' })).battery!;
   } else {
-    const derived = deriveCode(item.batteryCodeEntered);
+    const derived = deriveCode(item.batteryCode.slice(-8));
     battery = await batteriesRepo.insertBattery(tx, {
       batteryCode: item.batteryCode,
       batteryCodeEntered: item.batteryCodeEntered,

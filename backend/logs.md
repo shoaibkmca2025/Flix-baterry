@@ -38,6 +38,21 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-25 · the real catalogue, and a battery's identity is its whole label (Claude Code)
+**Worked on:** the client sent the warranty grid keyed by the code printed on the label (39 rows) and answered the serial-uniqueness question. Both land here: D-12 closed, D-13 closed, D-14 raised.
+**Done:**
+- **Decoded the label code.** The letter before the model number is the plate count as its position in the alphabet — G=7, I=9, M=13, O=15, S=19, W=23. Joined the two client sheets on (model, warranty) to test it: **26 of 27 rows match**; the only exception is the 400 at 18 months, which is also the row the first sheet listed twice. Tubular uses series codes (SE, S5, ME, SG, BE, MG, SS), all 30 months; `GP` = the Gold Power red case, always 12 months. All five of the client's sample labels now resolve.
+- **Real catalogue seeded** (`seed/masters.ts`): 20 plate/series codes carrying their plate count, 38 products, `battery_models.brand` ('felix' | 'gold_power'). The D-11 placeholder grid and the pre-22-Sep rows are deactivated but still resolvable for the batteries that reference them; the unused placeholder `I700` is deleted because `I 700` is a real product.
+- **Battery identity changed (D-13).** The serial restarts on the 26th of each month, per product — so the 8 digits are not unique. `batteries.battery_code` now holds the **full printed label** (`M100026090676`), which keeps one unique column and matches what is physically on the battery. Migration `0010` rewrites every existing battery and entry_item from its own `model_id`, so nothing was re-keyed by hand. Every lookup now needs the product (label prefix, or the dealer's pick); a miss returns `otherProductsWithTheseDigits` so picking the wrong model is caught instead of silently creating a twin.
+- **Parser rewritten data-driven** (`domain/serials.splitLabel`): matches against the ids the catalogue holds, longest first, because `K60L` and `IDIN75` cannot be cut by shape. Handles every printed form seen: `M1000…`, `GP M 1000…`, `SS2500…`, `IT2200SG…`, `K 60L…`, `I Din 75…`, and bare digits.
+- **Apps**: the dealer's picker is now model-first, then the plates that exist for that model, each showing its own months and marking the Gold Power variant; a label that names a product pre-fills both. Shared `fullCode`/`digitsOf`/`splitLabel` mirror the backend.
+- **Tests: 189 backend + 8 shared**, all green. **Verified live on Neon**: all five sample labels priced correctly (M 1000 → 12+2 months, SS 2500 → 30+2); two entries with the **same 4 digits** under M1000 and S1500 both approved and both readable as separate batteries; a lookup of the digits under the wrong product reports both real owners; a discontinued model is refused.
+**Decisions:** identity = full label rather than a composite key — one unique column, every existing call site keeps working, and it is what the dealer reads off the battery. `H 400 = 18 months` seeded on the alphabet rule (D-12, one row assumed).
+**Blockers / decisions needed:** D-14 (what the YYMM means given the 26th-of-month cutover); the `H 400`/`I 400` row; and the DIN sizes — the two client sheets say Din 44/55 and Din 50/60, the catalogue PDF says Din 44/55/88. Seeded as the newest sheet (DIN 50/60/66/75).
+**Next:** the admin console's "Record an entry" still uses a single model dropdown (`admin/src/Entries.tsx`) — it should use the same model+plates pair.
+
+---
+
 ### 2026-09-22 · warranty rule rewritten: plate × model term, counted from manufacture + grace (Claude Code)
 **Worked on:** the client's insight relayed by the team — warranty depends on the **plates** (letter) and **model number** on the label (`M2200`), each combination has its own term, and 2 months are added because a battery may be sold up to two months after manufacture. Three questions confirmed with the team before building: anchor = manufacture month + grace (supersedes D-03's sale date); term per (plate, model) combination, not plate alone; the label carries the prefix in front of the 8 digits.
 **Done:**

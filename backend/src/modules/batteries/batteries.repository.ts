@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, or } from 'drizzle-orm';
+import { and, desc, eq, like, lt, or } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db, type Tx } from '../../database/client';
 import { batteries, batteryState } from '../../models/batteries.model';
@@ -7,8 +7,19 @@ import { replacementLinks, warrantyChains } from '../../models/warranty.model';
 
 type DbOrTx = typeof db | Tx;
 
+/**
+ * `code` is the battery's FULL printed identity — product code + the 8 digits, e.g.
+ * 'M100026090676' (domain/serials.fullCode). The 8 digits alone are not unique: the factory
+ * restarts the serial at 1 on the 26th of every month and counts separately per product, so
+ * 'M1000 26090001' and 'S1000 26090001' are two different batteries (client, 25 Sep 2026).
+ */
 export function findBatteryByCode(dbh: DbOrTx, code: string) {
   return dbh.select().from(batteries).where(eq(batteries.batteryCode, code)).then((r) => r[0]);
+}
+
+/** Same 8 digits, any product — used to tell a dealer "you may have picked the wrong model". */
+export function findBatteriesByDigits(dbh: DbOrTx, digits: string) {
+  return dbh.select().from(batteries).where(like(batteries.batteryCode, `%${digits}`));
 }
 
 export function findBatteryById(dbh: DbOrTx, id: string) {

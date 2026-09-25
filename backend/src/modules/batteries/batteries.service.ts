@@ -1,5 +1,5 @@
 import { db } from '../../database/client';
-import { deriveCode } from '../../domain/serials';
+import { deriveCode, fullCode } from '../../domain/serials';
 import { checkWarranty } from '../../domain/warranty';
 import { graceMonths } from '../../utils/settings';
 import type { Ctx } from '../../utils/context';
@@ -33,25 +33,35 @@ export async function lookup(ctx: Ctx, code: string, modelIdHint?: string) {
     throw new AppError('unauthenticated', 401, 'Sign in required.');
   }
 
-  const derived = deriveCode(code);
+  const modelIds = (await repo.listModels(db)).map((m) => m.id);
+  const derived = deriveCode(code, modelIds);
   if (!derived.valid) {
     throw new AppError('format_mismatch', 422, 'Use an 8-digit code with a valid YYMM prefix.', { field: 'code' });
   }
 
-  const [battery, grace] = await Promise.all([repo.findBatteryByCode(db, derived.normalised), graceMonths(db)]);
+  // The product is half of the battery's identity, so a lookup needs it: from the label's own
+  // prefix, else from the plates + model the dealer chose.
+  const productId = derived.modelId ?? modelIdHint ?? null;
+  const [battery, grace] = await Promise.all([
+    productId ? repo.findBatteryByCode(db, fullCode(productId, derived.normalised)) : undefined,
+    graceMonths(db),
+  ]);
 
   if (!battery) {
-    // Not on record yet: since D-11 the cover is knowable from the label alone — manufacture
-    // month + the term of the (plate, model) the dealer chose (or the label's prefix) + grace.
-    const hintId = modelIdHint ?? derived.modelId;
-    const hinted = hintId ? await repo.findModelById(db, hintId) : undefined;
+    // Not on record under this product. Since D-11 the cover is still knowable from the label
+    // alone — manufacture month + the product's term + grace.
+    const hinted = productId ? await repo.findModelById(db, productId) : undefined;
     const cover = checkWarranty(derived.mfgMonth!, todayIso(ctx), hinted?.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS, grace);
+    // These same digits may belong to a battery of a DIFFERENT product — the serial repeats
+    // across products — so say so rather than silently treating this as a new battery.
+    const sameDigits = await repo.findBatteriesByDigits(db, derived.normalised);
     return {
       found: false as const,
       mfgMonth: derived.mfgMonth,
       serialNo: derived.serialNo,
       labelModelId: derived.modelId, // what the printed label says, if it carried a prefix
-      model: hinted ? { id: hinted.id, plate: hinted.plate, modelNo: hinted.modelNo, family: hinted.family, type: hinted.type, capacity: hinted.capacity, warrantyMonths: hinted.warrantyMonths } : null,
+      model: hinted ? { id: hinted.id, plate: hinted.plate, modelNo: hinted.modelNo, family: hinted.family, type: hinted.type, capacity: hinted.capacity, warrantyMonths: hinted.warrantyMonths, brand: hinted.brand } : null,
+      otherProductsWithTheseDigits: sameDigits.filter((b) => b.modelId !== productId).map((b) => b.modelId),
       custody: null,
       chain: null,
       cover,
@@ -91,7 +101,8 @@ export async function lookup(ctx: Ctx, code: string, modelIdHint?: string) {
       dealerId: ctx.user.scope === 'admin' ? battery.dealerId : custody === 'yours' ? battery.dealerId : null,
     },
     labelModelId: derived.modelId,
-    model: model ? { id: model.id, plate: model.plate, modelNo: model.modelNo, family: model.family, type: model.type, capacity: model.capacity, warrantyMonths: model.warrantyMonths } : null,
+    model: model ? { id: model.id, plate: model.plate, modelNo: model.modelNo, family: model.family, type: model.type, capacity: model.capacity, warrantyMonths: model.warrantyMonths, brand: model.brand } : null,
+    otherProductsWithTheseDigits: [] as string[],
     chain: chain
       ? {
           id: chain.id,

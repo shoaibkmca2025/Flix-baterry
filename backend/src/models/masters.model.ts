@@ -11,9 +11,14 @@ export const cities = pgTable('cities', {
 
 // Plate types — the letter on the label ("M", "N", "L", …) that, together with the model
 // number, decides the warranty term (client insight, 22 Sep 2026 — memory.md D-11).
+// The code printed in front of the model number on the label. For a flooded/automotive
+// battery it is a single letter whose ALPHABET POSITION is the number of plates — G=7, I=9,
+// M=13, W=23 (client's grid, 25 Sep 2026; memory.md D-12). For the tubular range it is a
+// two-character series code (SE, S5, ME, SG, BE, MG, SS) that carries no plate count.
 export const plateTypes = pgTable('plate_types', {
-  code: text('code').primaryKey(), // 'M'
-  label: text('label').notNull(), // 'M plates'
+  code: text('code').primaryKey(), // 'M' | 'SG'
+  label: text('label').notNull(), // '13 plates'
+  plateCount: integer('plate_count'), // 13; null for the tubular series codes
   sortOrder: integer('sort_order').notNull().default(0),
   active: boolean('active').notNull().default(true),
 });
@@ -28,7 +33,8 @@ export const batteryModels = pgTable('battery_models', {
   id: text('id').primaryKey(),
   family: text('family').notNull(), // legacy grouping letter; equals `plate` for new rows
   plate: text('plate').references(() => plateTypes.code), // 'M'
-  modelNo: text('model_no'), // '2200'
+  modelNo: text('model_no'), // '1000' | 'DIN75' | 'H29'
+  brand: text('brand').notNull().default('felix'), // 'felix' | 'gold_power' (the red 'GP' case)
   type: text('type').notNull(),
   capacity: text('capacity'),
   warrantyMonths: integer('warranty_months').notNull().default(24), // the term BEFORE the grace months (settings warranty.grace_months)

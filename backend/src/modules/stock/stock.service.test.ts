@@ -9,6 +9,7 @@ vi.mock('../../utils/audit', () => ({ audit: vi.fn() }));
 
 vi.mock('../batteries/batteries.repository', () => ({
   findBatteryByCode: vi.fn(),
+  listModels: vi.fn(async () => [{ id: 'M1000' }, { id: 'GPM1000' }, { id: 'S1000' }, { id: 'M2200' }, { id: 'N2200' }, { id: 'SG2200' }, { id: 'M5' }, { id: 'OLD1' }]),
   applyMovement: vi.fn(async (_tx: unknown, id: string, input: object) => ({ id, ...input })),
 }));
 
@@ -31,7 +32,7 @@ const adminCtx: Ctx = { ...base, user: { id: 'admin-1', scope: 'admin', role: 'm
 const dealerCtx: Ctx = { ...base, user: { id: 'user-1', scope: 'dealer', role: 'dealer_manager', dealerId: 'dealer-1' } };
 const anonCtx: Ctx = { ...base, user: null };
 
-const sold = { id: 'batt-1', batteryCode: '26041212', state: 'sold', custodian: 'customer', dealerId: 'dealer-1' } as const;
+const sold = { id: 'batt-1', batteryCode: 'M100026041212', modelId: 'M1000', state: 'sold', custodian: 'customer', dealerId: 'dealer-1' } as const;
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -79,29 +80,29 @@ describe('postMovementInTx — the single writer of battery state', () => {
 
 describe('postMovement — admin manual post', () => {
   it('is admin-only', async () => {
-    await expect(postMovement(dealerCtx, { batteryCode: '26041212', toState: 'returned', reasonText: 'Counted at shop' })).rejects.toMatchObject({ code: 'permission_denied' });
-    await expect(postMovement(anonCtx, { batteryCode: '26041212', toState: 'returned', reasonText: 'Counted at shop' })).rejects.toMatchObject({ code: 'unauthenticated' });
+    await expect(postMovement(dealerCtx, { batteryCode: 'M100026041212', toState: 'returned', reasonText: 'Counted at shop' })).rejects.toMatchObject({ code: 'permission_denied' });
+    await expect(postMovement(anonCtx, { batteryCode: 'M100026041212', toState: 'returned', reasonText: 'Counted at shop' })).rejects.toMatchObject({ code: 'unauthenticated' });
   });
 
   it('404s an unknown code (normalised first) and audits a successful post', async () => {
     vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValueOnce(undefined);
-    await expect(postMovement(adminCtx, { batteryCode: ' 2604 1212 ', toState: 'returned', reasonText: 'Brought back by hand' })).rejects.toMatchObject({ code: 'battery_not_found' });
-    expect(batteriesRepo.findBatteryByCode).toHaveBeenCalledWith(expect.anything(), '26041212');
+    await expect(postMovement(adminCtx, { batteryCode: ' M1000 2604 1212 ', toState: 'returned', reasonText: 'Brought back by hand' })).rejects.toMatchObject({ code: 'battery_not_found' });
+    expect(batteriesRepo.findBatteryByCode).toHaveBeenCalledWith(expect.anything(), 'M100026041212');
 
     vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValueOnce(sold as never);
-    const result = await postMovement(adminCtx, { batteryCode: '26041212', toState: 'returned', toCustodian: 'dealer', reasonText: 'Brought back by hand' });
+    const result = await postMovement(adminCtx, { batteryCode: 'M100026041212', toState: 'returned', toCustodian: 'dealer', reasonText: 'Brought back by hand' });
 
     expect(result.movement).toMatchObject({ reasonCode: 'manual', reasonText: 'Brought back by hand' });
-    expect(audit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'stock.movement_posted', entityRef: '26041212', before: { state: 'sold', custodian: 'customer', dealerId: 'dealer-1' } }));
+    expect(audit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'stock.movement_posted', entityRef: 'M100026041212', before: { state: 'sold', custodian: 'customer', dealerId: 'dealer-1' } }));
   });
 
   it('a correction must point at a movement on the same battery, and is tagged as such', async () => {
     vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValue(sold as never);
     vi.mocked(repo.findMovementById).mockResolvedValueOnce({ id: 'mv-9', batteryId: 'other' } as never);
-    await expect(postMovement(adminCtx, { batteryCode: '26041212', toState: 'returned', reasonText: 'Undo wrong post', correctionOfId: '0b6d1e1e-7d1a-4b6c-9f8e-2f4a1c3d5e6f' })).rejects.toMatchObject({ code: 'movement_not_found' });
+    await expect(postMovement(adminCtx, { batteryCode: 'M100026041212', toState: 'returned', reasonText: 'Undo wrong post', correctionOfId: '0b6d1e1e-7d1a-4b6c-9f8e-2f4a1c3d5e6f' })).rejects.toMatchObject({ code: 'movement_not_found' });
 
     vi.mocked(repo.findMovementById).mockResolvedValueOnce({ id: 'mv-9', batteryId: 'batt-1' } as never);
-    const result = await postMovement(adminCtx, { batteryCode: '26041212', toState: 'returned', reasonText: 'Undo wrong post', correctionOfId: '0b6d1e1e-7d1a-4b6c-9f8e-2f4a1c3d5e6f' });
+    const result = await postMovement(adminCtx, { batteryCode: 'M100026041212', toState: 'returned', reasonText: 'Undo wrong post', correctionOfId: '0b6d1e1e-7d1a-4b6c-9f8e-2f4a1c3d5e6f' });
     expect(result.movement).toMatchObject({ reasonCode: 'correction', correctionOfId: '0b6d1e1e-7d1a-4b6c-9f8e-2f4a1c3d5e6f' });
   });
 });
@@ -110,13 +111,13 @@ describe('ledger / positions — dealer scope is always the token, never the que
   it('ledger forces the dealer filter for a dealer and resolves a code to an id', async () => {
     vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValue(sold as never);
     vi.mocked(repo.listMovements).mockResolvedValue({ items: [], nextCursor: null });
-    await ledger(dealerCtx, { batteryCode: '26041212', dealerId: 'someone-else', limit: 50 });
+    await ledger(dealerCtx, { batteryCode: 'M100026041212', dealerId: 'someone-else', limit: 50 });
     expect(repo.listMovements).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ batteryId: 'batt-1', dealerId: 'dealer-1' }));
   });
 
   it('ledger for an unknown code is simply empty', async () => {
     vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValue(undefined);
-    await expect(ledger(adminCtx, { batteryCode: '99999999', limit: 50 })).resolves.toEqual({ items: [], nextCursor: null });
+    await expect(ledger(adminCtx, { batteryCode: 'M100099999999', limit: 50 })).resolves.toEqual({ items: [], nextCursor: null });
     expect(repo.listMovements).not.toHaveBeenCalled();
   });
 

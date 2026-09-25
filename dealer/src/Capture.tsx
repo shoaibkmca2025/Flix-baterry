@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useStore } from '@felix/shared/store';
-import { Entry, Item, State, deriveCode, expiryFrom, newEntry, newItem, normalize, splitLabel, splitModelId, today, validateEntry } from '@felix/shared/domain';
+import { Entry, Item, State, deriveCode, digitsOf, expiryFrom, fullCode, newEntry, newItem, normalize, splitLabel, today, validateEntry } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, BigTile, ChipRow, CapBtn, IconBtn, Plate, PlateLab, PlateVal, Meter, Gap } from '@felix/shared/ui/kit';
 import { Screen, AppBar, Sheet, useD } from './shell';
@@ -101,22 +101,26 @@ function PlateModelPicker({ value, onChange, error, label = 'Battery model' }: {
   const { state } = useStore();
   const [open, setOpen] = useState<'plate' | 'model' | null>(null);
   const active = state.models.filter(m => m.active && m.plate && m.modelNo);
-  const plates = (state.plateTypes?.length ? state.plateTypes : [...new Set(active.map(m => m.plate!))].map(code => ({ code, label: `${code} plates` }))).filter(p => active.some(m => m.plate === p.code));
   const cur = state.models.find(m => m.id === value);
-  const { plate, modelNo } = cur?.plate ? { plate: cur.plate, modelNo: cur.modelNo! } : splitModelId(value);
-  const numbers = [...new Set(active.filter(m => !plate || m.plate === plate).map(m => m.modelNo!))].sort((a, b) => Number(a) - Number(b));
-  const months = cur ? `${cur.months} months cover${state.graceMonths ? ` + ${state.graceMonths} grace` : ''}` : value ? 'Not a combination the factory makes' : '';
-  const pick = (nextPlate: string, nextNo: string) => { onChange(nextPlate && nextNo ? `${nextPlate}${nextNo}` : nextPlate || nextNo); setOpen(null); };
+  const modelNo = cur?.modelNo ?? '';
+  // the code as it is printed on the label: 'M', or 'GP M' for the Gold Power (red) case
+  const printed = (m: typeof active[number]) => `${m.brand === 'gold_power' ? 'GP ' : ''}${m.plate}`;
+  const plateLabel = (m: typeof active[number]) => `${printed(m)} · ${m.plateCount ? `${m.plateCount} plates` : `${m.plate} series`} · ${m.months} months`;
+  const models = [...new Set(active.map(m => m.modelNo!))].sort((a, b) => (Number(a) || 9e9) - (Number(b) || 9e9) || a.localeCompare(b));
+  const forModel = active.filter(m => m.modelNo === modelNo);
+  const months = cur ? `${cur.months} months cover${state.graceMonths ? ` + ${state.graceMonths} grace` : ''}` : value ? 'Not a model Felix makes' : '';
   return <>
-    <Sheet open={open === 'plate'} title="Number of plates" onClose={() => setOpen(null)}>
-      <PickList options={plates.map(p => ({ v: p.code, sub: p.label }))} value={plate} onPick={v => pick(v, active.some(m => m.plate === v && m.modelNo === modelNo) ? modelNo : '')} /></Sheet>
     <Sheet open={open === 'model'} title="Model" onClose={() => setOpen(null)}>
-      <PickList options={numbers.map(n => ({ v: n, sub: plate ? `${plate}${n}${active.find(m => m.id === `${plate}${n}`) ? ` · ${active.find(m => m.id === `${plate}${n}`)!.months} months` : ''}` : undefined }))} value={modelNo} onPick={v => pick(plate, v)} /></Sheet>
+      <PickList options={models.map(n => ({ v: n, sub: `${active.filter(m => m.modelNo === n).length} plate options` }))} value={modelNo}
+        onPick={v => { const same = active.find(m => m.modelNo === v && m.plate === cur?.plate && m.brand === cur?.brand); onChange(same?.id ?? ''); setOpen(v === modelNo ? null : 'plate'); }} /></Sheet>
+    <Sheet open={open === 'plate'} title="Plates" onClose={() => setOpen(null)}>
+      <PickList options={forModel.map(m => ({ v: printed(m), sub: plateLabel(m) }))} value={cur ? printed(cur) : ''}
+        onPick={v => { const picked = forModel.find(m => printed(m) === v); if (picked) onChange(picked.id); setOpen(null); }} /></Sheet>
     <View style={{ flexDirection: 'row', gap: 9 }}>
-      <Field style={{ flex: 1 }} label="Plates" req mr="प्लेट्स" value={plate ? (plates.find(p => p.code === plate)?.label || plate) : ''} ph="M, N, L…" onPress={() => setOpen('plate')} tail={<Ic n="chev" color={T.slate} />} />
-      <Field style={{ flex: 1 }} label={label} req mr="मॉडेल" value={modelNo} ph="2200, 700…" onPress={() => setOpen('model')} tail={<Ic n="chev" color={T.slate} />} error={error} />
+      <Field style={{ flex: 1 }} label={label} req mr="मॉडेल" value={modelNo} ph="1000, 700…" onPress={() => setOpen('model')} tail={<Ic n="chev" color={T.slate} />} />
+      <Field style={{ flex: 1 }} label="Plates" req mr="प्लेट्स" value={cur ? printed(cur) : ''} ph={modelNo ? 'M, N, O…' : 'Choose a model first'} onPress={() => modelNo && setOpen('plate')} tail={<Ic n="chev" color={T.slate} />} error={error} />
     </View>
-    {!!months && !error && <Hint icon={cur ? 'shield' : 'alert'} tone={cur ? 'ok' : 'err'} style={{ marginTop: -9, marginBottom: 13 }}>{cur ? `${cur.id} · ${months}` : months}</Hint>}
+    {!!months && !error && <Hint icon={cur ? 'shield' : 'alert'} tone={cur ? 'ok' : 'err'} style={{ marginTop: -9, marginBottom: 13 }}>{cur ? `${printed(cur)} ${cur.modelNo} · ${months}` : months}</Hint>}
   </>;
 }
 
@@ -220,6 +224,7 @@ function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code:
     <KV pairs={[ident[0], ident[1], ['Plates · model', lookup.model ? `${lookup.model.id} · ${lookup.model.warrantyMonths} months` : lookup.labelModelId || fallbackModel || 'Choose above'], ['Cover rule', `${lookup.cover.termMonths} + ${lookup.cover.graceMonths} months from manufacture`], ['Cover ends', dLong(lookup.cover.expiryDate)]]} />
     {mfg && <WarrantyLeft start={lookup.cover.startDate} expiry={lookup.cover.expiryDate} from="manufacture date" months={lookup.cover.termMonths} grace={lookup.cover.graceMonths} />}
     {lookup.labelModelId && lookup.labelModelId !== fallbackModel && <Hint tone="err" style={{ marginTop: 10 }}>The label says {lookup.labelModelId}, but {fallbackModel || 'nothing'} is chosen above. Check the plates and model.</Hint>}
+    {!!lookup.otherProductsWithTheseDigits?.length && <Hint tone="err" style={{ marginTop: 10 }}>These same digits belong to a {lookup.otherProductsWithTheseDigits.join(', ')} on record. Serial numbers repeat across models — check the plates and model on the label.</Hint>}
     <Gap h={8} /><X s={13} c={T.slate}>Not sold through the app yet. Its cover is worked out from the manufacture month on the label and the plates + model you chose — head office puts it on record when it approves the replacement.</X></Card>;
 
   const { battery, model, chain, cover, custody } = lookup;
@@ -258,6 +263,7 @@ export function D11() {
   const [scan, setScan] = useState(false), [errs, setErrs] = useState<Record<string, string>>({});
   if (!f) return null;
   const e = f.entry, i = f.cur, it = e.items[i];
+  const modelIds = state.models.map(m => m.id);
   const { lookup, looking } = useLiveLookup(it.oldSerial, token, it.oldModel);
   useEffect(() => {
     // a battery on record knows its own plate + model — show it, and start the NEW battery
@@ -265,7 +271,7 @@ export function D11() {
     if (lookup?.found && lookup.model) { if (it.oldModel !== lookup.model.id) item({ oldModel: lookup.model.id }); if (!it.model || it.model === newItem().model) item({ model: lookup.model.id }); }
   }, [lookup]);
   const setOld = (v: string) => {
-    const { code: digits, modelId } = splitLabel(v);
+    const { code: digits, modelId } = splitLabel(v, modelIds);
     const code = digits.replace(/\D/g, '').slice(0, 8);
     item({ oldSerial: code, ...(modelId ? { oldModel: modelId, ...(it.model === newItem().model ? { model: modelId } : {}) } : {}) });
     setErrs(x => ({ ...x, oldSerial: '' }));
@@ -303,11 +309,12 @@ export function D13() {
   const { f, d, upd, item, saveDraft } = useFlow(); const { state } = useStore();
   const token = useAccessToken();
   const [errs, setErrs] = useState<Record<string, string>>({});
+  const modelIds = state.models.map(m => m.id);
   const setCode = (v: string, scanned = false) => {
-    const { code: digits, modelId } = splitLabel(v);
+    const { code: digits, modelId } = splitLabel(v, modelIds);
     const code = digits.replace(/\D/g, '').slice(0, 8);
     const { serial, mfg } = deriveCode(code);
-    item({ code, serial, mfg, ...(modelId ? { model: modelId } : {}) }); // a prefixed label names the model too
+    item({ code, serial, mfg, ...(modelId ? { model: modelId } : {}) }); // a prefixed label names the product too
     d.setFlow(x => x && { ...x, scanned: { ...x.scanned, [`new-${x.cur}`]: scanned } });
     setErrs(x => ({ ...x, code: '', serial: '', model: '' }));
   };

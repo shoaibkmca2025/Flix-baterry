@@ -10,7 +10,7 @@ export type BatteryCover = {
   graceMonths: number; // … plus the grace the company adds for shelf time
   warrantyStart?: string; // present once the battery is part of a chain
 };
-export type LookupModel = { id: string; plate: string | null; modelNo: string | null; family: string; type: string; capacity: string | null; warrantyMonths: number };
+export type LookupModel = { id: string; plate: string | null; modelNo: string | null; brand?: string; family: string; type: string; capacity: string | null; warrantyMonths: number };
 
 export type BatteryCustody = 'yours' | 'other' | 'customer' | 'company' | 'transit';
 
@@ -25,7 +25,7 @@ export type BatteryChainInfo = {
 };
 
 export type BatteryLookupResult =
-  | { found: false; mfgMonth: string | null; serialNo: string; labelModelId: string | null; model: LookupModel | null; custody: null; chain: null; cover: BatteryCover }
+  | { found: false; mfgMonth: string | null; serialNo: string; labelModelId: string | null; otherProductsWithTheseDigits?: string[]; model: LookupModel | null; custody: null; chain: null; cover: BatteryCover }
   | {
       found: true;
       mfgMonth: string | null;

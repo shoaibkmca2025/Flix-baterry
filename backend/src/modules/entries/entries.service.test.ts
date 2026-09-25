@@ -14,6 +14,7 @@ vi.mock('../../utils/ids', () => ({
 
 vi.mock('../batteries/batteries.repository', () => ({
   findBatteryByCode: vi.fn(),
+  listModels: vi.fn(async () => [{ id: 'M1000' }, { id: 'GPM1000' }, { id: 'S1000' }, { id: 'M2200' }, { id: 'N2200' }, { id: 'SG2200' }, { id: 'M5' }, { id: 'OLD1' }]),
   findModelById: vi.fn(),
   findChainById: vi.fn(),
   insertBattery: vi.fn(),
@@ -121,7 +122,7 @@ describe('create', () => {
 
     expect(result).toMatchObject({ id: 'entry-1', ref: 'ENT-26-09-0001' });
     expect(repo.insertEntry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dealerId: 'dealer-1', entryType: 'regular_sales', totalQty: 1 }));
-    expect(repo.insertEntryItem).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ entryId: 'entry-1', batteryCode: '26041212' }));
+    expect(repo.insertEntryItem).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ entryId: 'entry-1', batteryCode: 'M526041212' })); // product + digits (D-13)
   });
 
   it('refuses an unknown or discontinued plate + model combination (that row is where the warranty term lives)', async () => {
@@ -138,7 +139,7 @@ describe('create', () => {
     expect(repo.insertEntryItem).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ oldModelId: 'N2200' }));
 
     await create(dealerCtx, rep({ oldCode: 'N2200-26041212' }));
-    expect(repo.insertEntryItem).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ oldBatteryCode: '26041212', oldModelId: 'N2200' }));
+    expect(repo.insertEntryItem).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ oldBatteryCode: 'N220026041212', oldModelId: 'N2200' }));
 
     await create(dealerCtx, rep({}));
     expect(repo.insertEntryItem).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ oldModelId: 'M2200' }));
@@ -181,7 +182,7 @@ describe('approve — replacement (inherits the old chain, raises a claim)', () 
   it('an old battery NOT on record is put on record from its manufacture month and the plate + model named, then judged like any other', async () => {
     vi.mocked(repo.findEntryById).mockResolvedValue(entry as never);
     // old code 21030047 → made March 2021; an M2200 (30 + 2 months) would have ended 2023-10-31 → expired
-    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([{ ...item, oldBatteryCode: '21030047', oldBatteryCodeEntered: '21030047', oldModelId: 'M2200' }] as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([{ ...item, oldBatteryCode: 'M220021030047', oldBatteryCodeEntered: '21030047', oldModelId: 'M2200' }] as never);
     vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValue(undefined);
     vi.mocked(batteriesRepo.insertBattery).mockResolvedValue({ id: 'old-new', custodian: 'customer', dealerId: 'dealer-1', replacedById: null } as never);
     vi.mocked(batteriesRepo.insertChain).mockResolvedValue({ id: 'chain-old', warrantyStart: '2021-03-01', warrantyExpiry: '2023-10-31' } as never);
@@ -189,13 +190,13 @@ describe('approve — replacement (inherits the old chain, raises a claim)', () 
     vi.mocked(batteriesRepo.findChainById).mockResolvedValue({ id: 'chain-old', warrantyStart: '2021-03-01', warrantyExpiry: '2023-10-31', replacementCount: 0 } as never);
 
     await expect(approve(adminCtx, 'entry-1', 'ok')).rejects.toMatchObject({ code: 'warranty_expired' });
-    expect(batteriesRepo.insertBattery).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ batteryCode: '21030047', modelId: 'M2200', notOnRecord: true, state: 'sold', custodian: 'customer', dealerId: 'dealer-1' }));
+    expect(batteriesRepo.insertBattery).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ batteryCode: 'M220021030047', modelId: 'M2200', notOnRecord: true, state: 'sold', custodian: 'customer', dealerId: 'dealer-1' }));
     expect(batteriesRepo.insertChain).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ rootBatteryId: 'old-new', warrantyStart: '2021-03-01', warrantyExpiry: '2023-10-31', termMonths: 32 }));
   });
 
   it('a not-on-record old battery still in cover goes through: chain created, replacement linked, claim raised', async () => {
     vi.mocked(repo.findEntryById).mockResolvedValue(entry as never);
-    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([{ ...item, oldBatteryCode: '26010047', oldBatteryCodeEntered: 'M2200-26010047', oldModelId: null }] as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([{ ...item, oldBatteryCode: 'M220026010047', oldBatteryCodeEntered: 'M2200-26010047', oldModelId: 'M2200' }] as never);
     vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined);
     vi.mocked(batteriesRepo.insertBattery).mockResolvedValueOnce({ id: 'old-new', custodian: 'customer', dealerId: 'dealer-1', replacedById: null } as never).mockResolvedValueOnce({ id: 'new-1' } as never);
     vi.mocked(batteriesRepo.insertChain).mockResolvedValue({ id: 'chain-old' } as never);
@@ -207,7 +208,7 @@ describe('approve — replacement (inherits the old chain, raises a claim)', () 
     const result = await approve(adminCtx, 'entry-1', 'ok');
 
     // the label prefix named the old battery's model; 30 + 2 months from Jan 2026
-    expect(batteriesRepo.insertBattery).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ batteryCode: '26010047', modelId: 'M2200', notOnRecord: true }));
+    expect(batteriesRepo.insertBattery).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ batteryCode: 'M220026010047', modelId: 'M2200', notOnRecord: true }));
     expect(batteriesRepo.insertChain).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ warrantyStart: '2026-01-01', warrantyExpiry: '2028-08-31' }));
     expect(result.items[0]).toMatchObject({ newBattery: { id: 'new-1' }, claim: { id: 'claim-1' } });
   });

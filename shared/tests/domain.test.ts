@@ -1,11 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { initialState } from '../seed';
-import { approveEntry, chainFor, deriveCode, expiryFrom, filterEntries, newEntry, validateEntry, warranty } from '../domain';
+import { approveEntry, chainFor, deriveCode, expiryFrom, filterEntries, fullCode, newEntry, splitLabel, validateEntry, warranty } from '../domain';
 const fresh=()=>structuredClone(initialState);
 test('manufacturing derivation preserves the short serial leading zeros',()=>{
  assert.deepEqual(deriveCode('21030047'),{serial:'0047',mfg:'2021-03',labelModelId:''});
- assert.deepEqual(deriveCode('M2200-21030047'),{serial:'0047',mfg:'2021-03',labelModelId:'M2200'}); // prefixed label (D-11)
+ // a label names its product, and that product is half the battery's identity (D-13)
+ assert.deepEqual(deriveCode('M1000-21030047',['M1000']),{serial:'0047',mfg:'2021-03',labelModelId:'M1000'});
+ assert.deepEqual(deriveCode('GP M 1000 2103 0047',['M1000','GPM1000']),{serial:'0047',mfg:'2021-03',labelModelId:'GPM1000'});
+ assert.deepEqual(splitLabel('IT 2200 SG 2103 0047',['SG2200']),{modelId:'SG2200',code:'21030047'});
+ assert.deepEqual(splitLabel('K 60L 2103 0047',['K60L']),{modelId:'K60L',code:'21030047'});
+ assert.equal(fullCode('M1000','21030047'),'M100021030047');
+ assert.notEqual(fullCode('M1000','21030047'),fullCode('S1000','21030047')); // same digits, different battery
  assert.equal(deriveCode('21130047').mfg,'');
 });
 test('warranty ends on the day before a clamped calendar anniversary',()=>{

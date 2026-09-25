@@ -1,6 +1,6 @@
 import { db, withTransaction, type Tx } from '../../database/client';
 import { canTransition, type BatteryState, type Custodian } from '../../domain/stock';
-import { deriveCode } from '../../domain/serials';
+import { deriveCode, fullCode } from '../../domain/serials';
 import type { batteries } from '../../models/batteries.model';
 import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
@@ -29,6 +29,19 @@ export type MovementInput = {
   reasonText?: string;
   correctionOfId?: string;
 };
+
+/**
+ * A battery is identified by its product AND its digits (the serial repeats across products —
+ * client, 25 Sep 2026), so a hand-typed code has to carry both: either as printed
+ * ('M1000 26090676') or as digits plus an explicit modelId.
+ */
+async function findBattery(code: string, modelId?: string) {
+  const modelIds = (await batteriesRepo.listModels(db)).map((m) => m.id);
+  const derived = deriveCode(code, modelIds);
+  const productId = derived.modelId ?? modelId;
+  if (!productId) return undefined;
+  return batteriesRepo.findBatteryByCode(db, fullCode(productId, derived.normalised));
+}
 
 function requireUser(ctx: Ctx) {
   if (!ctx.user) throw new AppError('unauthenticated', 401, 'Sign in required.');
@@ -76,9 +89,8 @@ export async function postMovement(ctx: Ctx, input: StockMovementPostBody) {
   const user = requireUser(ctx);
   if (user.scope !== 'admin') throw new AppError('permission_denied', 403, 'You do not have permission to do this.');
 
-  const derived = deriveCode(input.batteryCode);
-  const battery = await batteriesRepo.findBatteryByCode(db, derived.normalised);
-  if (!battery) throw new AppError('battery_not_found', 404, 'Battery not found.', { field: 'batteryCode' });
+  const battery = await findBattery(input.batteryCode, input.modelId);
+  if (!battery) throw new AppError('battery_not_found', 404, 'Battery not found. Give the code as it is printed, e.g. M1000 26090676.', { field: 'batteryCode' });
   if (input.correctionOfId) {
     const original = await repo.findMovementById(db, input.correctionOfId);
     if (!original || original.batteryId !== battery.id) throw new AppError('movement_not_found', 404, 'That movement is not on this battery.', { field: 'correctionOfId' });
@@ -114,7 +126,7 @@ export async function ledger(ctx: Ctx, query: StockMovementListQuery) {
   const dealerId = user.scope === 'dealer' ? user.dealerId : query.dealerId;
   let batteryId: string | undefined;
   if (query.batteryCode) {
-    const battery = await batteriesRepo.findBatteryByCode(db, deriveCode(query.batteryCode).normalised);
+    const battery = await findBattery(query.batteryCode, query.modelId);
     if (!battery) return { items: [], nextCursor: null };
     batteryId = battery.id;
   }
