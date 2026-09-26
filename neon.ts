@@ -16,7 +16,9 @@ export default defineConfig({
         TZ: "Asia/Kolkata",
         DATABASE_POOL_MAX: "5", // each isolate keeps its own pool — keep it small
         JWT_SECRET: process.env.JWT_SECRET!,
-        OTP_DEMO_CODE: process.env.OTP_DEMO_CODE!,
+        // Fixed demo code for this test deployment, independent of the local .env (where it may be
+        // commented out so the local backend prints real random codes). Remove once SMS is wired.
+        OTP_DEMO_CODE: process.env.OTP_DEMO_CODE ?? "123456",
         ACCESS_TOKEN_TTL_MIN: process.env.ACCESS_TOKEN_TTL_MIN!,
         REFRESH_TOKEN_TTL_DAYS: process.env.REFRESH_TOKEN_TTL_DAYS!,
       },
