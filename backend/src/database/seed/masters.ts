@@ -96,7 +96,7 @@ const letterPlates = (code: string) => code.charCodeAt(0) - 64; // 'G' -> 7
 
 // [code, model, months, brand?]
 const CATALOGUE: [string, string, number, 'gold_power'?][] = [
-  ['G', '400', 12], ['H', '400', 18], ['I', '400', 24],
+  ['G', '400', 12], ['I', '400', 18], // the client settled this row on 25 Sep 2026: I 400 is the 18-month one and the 24-month 400 is withdrawn (D-12)
   ['I', '700', 12], ['I', '700', 12, 'gold_power'], ['J', '700', 18], ['K', '700', 24],
   ['K', '800', 12], ['K', '800', 12, 'gold_power'], ['L', '800', 18], ['M', '800', 24],
   ['M', '1000', 12], ['M', '1000', 12, 'gold_power'], ['N', '1000', 18], ['O', '1000', 24],
@@ -151,10 +151,23 @@ export async function seedMasters() {
       .values(plate)
       .onConflictDoUpdate({ target: plateTypes.code, set: { label: plate.label, plateCount: plate.plateCount, sortOrder: plate.sortOrder, active: true } });
   }
-  // codes from before the client's grid (placeholders) leave the dropdowns
+  // Anything not in the client's current grid — placeholders, and products he withdraws —
+  // leaves the dropdowns but stays resolvable for the batteries that already reference it.
   await db.update(plateTypes).set({ active: false }).where(notInArray(plateTypes.code, PLATE_CODES));
-  for (const model of [...LEGACY_MODELS, ...CATALOGUE_MODELS]) {
+  await db.update(batteryModels).set({ active: false }).where(notInArray(batteryModels.id, CATALOGUE_MODELS.map((m) => m.id)));
+  for (const model of LEGACY_MODELS) {
     await db.insert(batteryModels).values(model).onConflictDoNothing({ target: batteryModels.id });
+  }
+  // The client's grid is the source of truth: re-running the seed brings the database in line
+  // with it, so a term he corrects (or a product he withdraws) actually takes effect.
+  for (const model of CATALOGUE_MODELS) {
+    await db
+      .insert(batteryModels)
+      .values(model)
+      .onConflictDoUpdate({
+        target: batteryModels.id,
+        set: { plate: model.plate, modelNo: model.modelNo, brand: model.brand, type: model.type, warrantyMonths: model.warrantyMonths, active: true, updatedAt: new Date() },
+      });
   }
   await db.insert(settings).values({ key: 'warranty.grace_months', value: 2 }).onConflictDoNothing({ target: settings.key });
   console.log(`Seeded ${CITIES.length} cities, ${ROLES.length} roles, ${PLATE_TYPES.length} plate/series codes, ${LEGACY_MODELS.length + CATALOGUE_MODELS.length} battery models.`);

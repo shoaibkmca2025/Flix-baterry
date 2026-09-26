@@ -38,6 +38,19 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-26 · client settled the 400 range and the date format; seed became the source of truth (Claude Code)
+**Worked on:** applying the client's answers of 25 Sep, and pulling the colleague's entries/stock work.
+**Done:**
+- **D-12 closed.** The client settled the one row I could not derive: `I 400` is the **18-month** variant and the **24-month 400 is withdrawn**. Catalogue is now 37 products; `H 400` retired.
+- **The seed is now the source of truth.** It was insert-only (`onConflictDoNothing`), so correcting `I400` from 24 to 18 months had no effect on the database — the stale row simply stayed. Catalogue rows now upsert (term, plate, model, brand, active) and anything outside the grid is deactivated, so a term the client corrects or a product he withdraws actually takes effect on the next seed. Legacy rows still insert-only.
+- **D-14 closed.** `2609` is year 26, month 09 of manufacturing — not a date — and the 26th-of-month serial restart is an internal practice printed nowhere on the battery. Anchoring cover at the 1st of the stamped month is therefore right, as built.
+- **D-15 raised.** That answer creates a question the client has not been asked yet: the serial restarts on the 26th while the stamp is the calendar month, so one month's production spans two serial cycles — an `M 1000` made 10 Sep and one made 28 Sep are both stamped `2609` and could both be `0001`. That is two batteries with the same printed identity, and the app would reject the second as a duplicate. Sent to the client with the DIN question.
+- Pulled the colleague's `eb93760` (entries validation, stock, shared api). Fast-forward, nothing of ours rewritten; **195 backend tests**, 8 shared, both apps typecheck.
+**Blockers / decisions needed:** D-15 (serial overlap across the 26th) and the DIN sizes — his two sheets say Din 44/55 and Din 50/60, the catalogue PDF says Din 44/55/88; seeded as the newest sheet (DIN 50/60/66/75).
+**Next:** the admin console's "Record an entry" still uses a single model dropdown (`admin/src/Entries.tsx`) — it should use the same model+plates pair as the dealer app.
+
+---
+
 ### 2026-09-25 · the real catalogue, and a battery's identity is its whole label (Claude Code)
 **Worked on:** the client sent the warranty grid keyed by the code printed on the label (39 rows) and answered the serial-uniqueness question. Both land here: D-12 closed, D-13 closed, D-14 raised.
 **Done:**
