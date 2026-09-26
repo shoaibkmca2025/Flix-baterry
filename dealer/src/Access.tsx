@@ -240,7 +240,7 @@ export function D04() {
     <Field label="Mobile number" req mono phone value={grouped(f.mobile)} onChange={v => { set('mobile')(digits(v, 10)); setVerified(false); }} ph="98765 43210" maxLength={11} error={err.mobile}
       tail={verified ? <Chip tone="live" icon="check" label="OTP verified" /> : f.mobile.length === 10 ? <Pressable accessibilityRole="button" onPress={openVerify}><Chip tone="info" icon="phone" label="Verify" /></Pressable> : undefined} />
     <Field label="Email" mr="for alerts and recovery" value={f.email} onChange={set('email')} ph="name@shop.in" error={err.email} />
-    <Field label="City" req value={f.city} ph="Choose city" onPress={() => setCityOpen(true)} tail={<Ic n="chev" color={T.slate} />} error={err.city} hint="Chosen from the company city list — not typed." hintIcon="pin" />
+    <Field select label="City" req value={f.city} ph="Choose city" onPress={() => setCityOpen(true)} error={err.city} hint="Chosen from the company city list — not typed." hintIcon="pin" />
     <View style={{ flexDirection: 'row', gap: 9 }}>
       <Field style={{ flex: 1 }} label="State" req value={f.state} onChange={set('state')} error={err.state} />
       <Field style={{ flex: 1 }} label="PIN code" req mono numeric maxLength={6} value={f.pin} onChange={v => set('pin')(digits(v, 6))} ph="424001" error={err.pin} />

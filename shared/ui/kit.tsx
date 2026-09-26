@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, Text, Pressable, TextInput, Platform, StyleProp, ViewStyle, TextStyle, TextProps } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { T, family, Face, Weight } from './theme';
@@ -49,6 +49,7 @@ export const P = {
   logout: 'M14 4h5v16h-5M10 8l-4 4 4 4M6 12h11',
   swap: 'M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7',
   menu: 'M4 7h16M4 12h16M4 17h16',
+  updown: 'M8 9.5 12 5.5l4 4M8 14.5l4 4 4-4', // a dropdown: opens a list of choices (› means "go to another screen")
 };
 export type IconName = keyof typeof P;
 export const Ic = ({ n, size = 20, color = T.ink, sw = 1.9, style }: { n: IconName; size?: number; color?: string; sw?: number; style?: StyleProp<ViewStyle> }) =>
@@ -65,7 +66,20 @@ export const B = ({ children, onPress, u }: { children: React.ReactNode; onPress
 /** Serial number run inside a parent X. */
 export const Mono = ({ children }: { children: React.ReactNode }) => <Text style={{ fontFamily: family('m', 6) }}>{children}</Text>;
 
-const noOutline = Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null;
+const WEB = Platform.OS === 'web';
+const noOutline = WEB ? ({ outlineStyle: 'none' } as any) : null;
+// Keyboard focus on the web (the head-office console is used with a keyboard): every focusable
+// control gets a visible ring, but only for keyboard focus (:focus-visible), never on a mouse click.
+// Text boxes draw their own focus border instead (see Field), since they sit inside a bordered box.
+if (WEB && typeof document !== 'undefined' && !document.getElementById('felix-focus')) {
+  const css = document.createElement('style'); css.id = 'felix-focus';
+  css.textContent = '[tabindex]:not([tabindex="-1"]):focus-visible{outline:2px solid #2E5AAC!important;outline-offset:2px}';
+  document.head.appendChild(css);
+}
+type PState = { pressed: boolean; hovered?: boolean };
+/** Press feedback everywhere, plus a hover state for the pointer on the web. */
+const fx = ({ pressed, hovered }: PState, hoverBg?: string): ViewStyle | null =>
+  pressed ? { opacity: 0.72 } : WEB && hovered ? (hoverBg ? { backgroundColor: hoverBg } : { opacity: 0.9 }) : null;
 
 /* ---------- chips ---------- */
 export type Tone = 'live' | 'warn' | 'bad' | 'info' | 'mute' | 'vio';
@@ -95,7 +109,8 @@ export function Btn({ label, icon, iconAfter, kind = 'dark', sm, onPress, disabl
   const inset = kind === 'primary' || kind === 'blue';
   const size = sm ? 14 : big ? 17 : 16;
   return <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={disabled} onPress={onPress}
-    style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, paddingTop: pv, paddingBottom: inset ? pv - 3 : pv, paddingHorizontal: sm ? 14 : 16, borderRadius: 10, backgroundColor: bg },
+    style={({ pressed, hovered }: PState) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, paddingTop: pv, paddingBottom: inset ? pv - 3 : pv, paddingHorizontal: sm ? 14 : 16, borderRadius: 10, backgroundColor: bg },
+      sm && !WEB && { minHeight: 44 }, WEB && hovered && !disabled && !pressed && { opacity: 0.9 },
       inset && { borderBottomWidth: 3, borderBottomColor: kind === 'primary' ? 'rgba(0,0,0,0.16)' : 'rgba(0,0,0,0.2)' },
       kind === 'ghost' && { borderWidth: 1.5, borderColor: borderColor || T.zinc3 },
       sm && { alignSelf: 'flex-start' }, pressed && { opacity: 0.85 }, disabled && { opacity: 0.45 }, style]}>
@@ -105,18 +120,18 @@ export function Btn({ label, icon, iconAfter, kind = 'dark', sm, onPress, disabl
 export const BtnRow = ({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) =>
   <View style={[{ flexDirection: 'row', gap: 9, marginTop: 11 }, style]}>{React.Children.map(children, c => c && <View style={{ flex: 1 }}>{c}</View>)}</View>;
 export function IconBtn({ n, onPress, dark, label }: { n: IconName; onPress?: () => void; dark?: boolean; label: string }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={{ width: 38, height: 38, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: dark ? 'rgba(255,255,255,0.1)' : T.white, borderWidth: 1, borderColor: dark ? 'rgba(255,255,255,0.16)' : T.zinc2 }}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} hitSlop={3} style={(st: PState) => [{ width: 38, height: 38, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: dark ? 'rgba(255,255,255,0.1)' : T.white, borderWidth: 1, borderColor: dark ? 'rgba(255,255,255,0.16)' : T.zinc2 }, fx(st, dark ? 'rgba(255,255,255,0.18)' : T.zinc)]}>
     <Ic n={n} size={20} color={dark ? T.white : T.ink} /></Pressable>;
 }
 export function CapBtn({ n, tone = 'dark', onPress, label }: { n: IconName; tone?: 'dark' | 'alt' | 'done'; onPress?: () => void; label: string }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [{ width: 42, height: 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: tone === 'alt' ? T.steel : tone === 'done' ? T.live : T.ink }, pressed && { opacity: 0.85 }]}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} hitSlop={1} style={({ pressed }) => [{ width: 42, height: 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: tone === 'alt' ? T.steel : tone === 'done' ? T.live : T.ink }, pressed && { opacity: 0.85 }]}>
     <Ic n={n} size={21} color={T.white} /></Pressable>;
 }
 
 /* ---------- surfaces ---------- */
 export function Card({ children, style, onPress, label }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; onPress?: () => void; label?: string }) {
   const base: ViewStyle = { backgroundColor: T.white, borderWidth: 1, borderColor: T.zinc2, borderRadius: 10, padding: 14 };
-  if (onPress) return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [base, style, pressed && { opacity: 0.9 }]}>{children}</Pressable>;
+  if (onPress) return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={(st: PState) => [base, style, fx(st, '#FAFBFD')]}>{children}</Pressable>;
   return <View style={[base, style]}>{children}</View>;
 }
 export const CardH = ({ title, right, mono, size = 15.5 }: { title: string; right?: React.ReactNode; mono?: boolean; size?: number }) =>
@@ -133,7 +148,7 @@ export function Kpis({ items, cols = 2 }: { items: { v: string; l: string; tone?
     const flag = k.tone === 'flag', bad = k.tone === 'bad';
     const body = <><X s={29} w={7} f="c" lh={1} c={flag ? '#8A6008' : bad ? '#992A15' : T.ink}>{k.v}</X><X s={11.5} w={6} c={T.slate} lh={1.25} style={{ marginTop: 4 }}>{k.l}</X></>;
     const st: ViewStyle = { flex: 1, backgroundColor: flag ? T.voltSoft : bad ? T.terminalSoft : T.white, borderWidth: 1, borderColor: flag ? '#EBD49C' : bad ? '#F0C7BC' : T.zinc2, borderRadius: 10, paddingVertical: 11, paddingHorizontal: 13 };
-    return k.onPress ? <Pressable key={k.l} accessibilityRole="button" onPress={k.onPress} style={st}>{body}</Pressable> : <View key={k.l} style={st}>{body}</View>;
+    return k.onPress ? <Pressable key={k.l} accessibilityRole="button" accessibilityLabel={`${k.v} ${k.l}`} onPress={k.onPress} style={(ps: PState) => [st, fx(ps)]}>{body}</Pressable> : <View key={k.l} style={st}>{body}</View>;
   })}{Array.from({ length: cols - r.length }, (_, j) => <View key={`pad${j}`} style={{ flex: 1 }} />)}</View>)}</View>;
 }
 
@@ -150,7 +165,7 @@ export function Line({ av, title, sub, sub2, right, chev, onPress, last, titleMo
     {sub2 != null && <X s={12.5} c={T.slate} style={{ marginTop: 2 }}>{sub2}</X>}{children}</View>
     {right}{chev && <Ic n="chev" size={22} color={T.zinc3} />}</>;
   const st: ViewStyle = { flexDirection: 'row', gap: 11, alignItems: 'center', paddingVertical: 11, borderBottomWidth: last ? 0 : 1, borderBottomColor: T.zinc2 };
-  return onPress ? <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [st, pressed && { opacity: 0.7 }]}>{body}</Pressable> : <View style={st}>{body}</View>;
+  return onPress ? <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={(ps: PState) => [st, fx(ps, '#FAFBFD')]}>{body}</Pressable> : <View style={st}>{body}</View>;
 }
 
 /* ---------- form ---------- */
@@ -162,43 +177,49 @@ export function Hint({ icon = 'alert', tone, children, center, style }: { icon?:
 export function Label({ text, req, mr }: { text: string; req?: boolean; mr?: string }) {
   return <X s={13} w={6} c={T.ink3} style={{ marginBottom: 5 }}>{text}{req && <Text style={{ color: T.terminal }}> *</Text>}{mr && <Text style={{ color: T.slate, fontFamily: family('b', 5) }}> · {mr}</Text>}</X>;
 }
-type FieldProps = { label?: string; req?: boolean; mr?: string; value: string; onChange?: (v: string) => void; ph?: string; mono?: boolean; pre?: React.ReactNode; tail?: React.ReactNode; hint?: React.ReactNode; hintTone?: 'err' | 'ok'; hintIcon?: IconName; readonly?: boolean; error?: string; numeric?: boolean; phone?: boolean; maxLength?: number; secure?: boolean; multiline?: boolean; onPress?: () => void; style?: StyleProp<ViewStyle>; autoFocus?: boolean; caps?: boolean };
+type FieldProps = { select?: boolean; label?: string; req?: boolean; mr?: string; value: string; onChange?: (v: string) => void; ph?: string; mono?: boolean; pre?: React.ReactNode; tail?: React.ReactNode; hint?: React.ReactNode; hintTone?: 'err' | 'ok'; hintIcon?: IconName; readonly?: boolean; error?: string; numeric?: boolean; phone?: boolean; maxLength?: number; secure?: boolean; multiline?: boolean; onPress?: () => void; style?: StyleProp<ViewStyle>; autoFocus?: boolean; caps?: boolean };
 export function Field(p: FieldProps) {
   const filled = !!p.value;
-  const box: StyleProp<ViewStyle> = [{ backgroundColor: T.white, borderWidth: 1.5, borderColor: T.zinc3, borderRadius: 9, paddingHorizontal: 13, paddingVertical: 13, minHeight: 50, flexDirection: 'row', alignItems: 'center', gap: 9 },
-    filled && { borderColor: T.ink3 }, p.readonly && { backgroundColor: T.zinc, borderStyle: 'dashed', borderColor: T.zinc3 }, !!p.error && { borderColor: T.terminal, backgroundColor: '#FFF8F6' }];
+  const [focus, setFocus] = useState(false);
+  const box: StyleProp<ViewStyle> = [{ backgroundColor: T.white, borderWidth: 1.5, borderColor: T.line, borderRadius: 9, paddingHorizontal: 13, paddingVertical: 13, minHeight: 50, flexDirection: 'row', alignItems: 'center', gap: 9 },
+    filled && { borderColor: T.ink3 }, p.readonly && { backgroundColor: T.zinc, borderStyle: 'dashed', borderColor: T.zinc3 }, !!p.error && { borderColor: T.terminal, backgroundColor: '#FFF8F6' },
+    focus && { borderColor: T.steel, backgroundColor: T.white }];
   const textStyle: TextStyle = { fontFamily: family(p.mono ? 'm' : 'b', p.mono ? 6 : 5), fontSize: 16, color: T.ink };
   const hint = p.error ? <Hint tone="err" icon="alert">{p.error}</Hint> : p.hint ? <Hint tone={p.hintTone} icon={p.hintIcon}>{p.hint}</Hint> : null;
-  const tailWrap = p.tail ? <View style={{ marginLeft: 'auto', flexDirection: 'row', gap: 8, alignItems: 'center' }}>{p.tail}</View> : null;
+  // A dropdown shows the up-down glyph; dimmed while it cannot be opened yet (e.g. Model before Plates).
+  const tail = p.tail ?? (p.select ? <Ic n="updown" size={20} color={p.onPress ? T.slate : T.zinc3} /> : null);
+  const tailWrap = tail ? <View style={{ marginLeft: 'auto', flexDirection: 'row', gap: 8, alignItems: 'center' }}>{tail}</View> : null;
   const inner = p.onPress || p.readonly || !p.onChange
-    ? <X s={16} w={filled ? (p.mono ? 6 : 5) : 4} f={filled && p.mono ? 'm' : 'b'} c={filled ? T.ink : '#93A0AF'} style={{ flex: 1 }}>{p.value || p.ph}</X>
-    : <TextInput accessibilityLabel={p.label || p.ph} value={p.value} onChangeText={p.onChange} placeholder={p.ph} placeholderTextColor="#93A0AF" autoFocus={p.autoFocus}
+    ? <X s={16} w={filled ? (p.mono ? 6 : 5) : 4} f={filled && p.mono ? 'm' : 'b'} c={filled ? T.ink : T.slate} style={{ flex: 1 }}>{p.value || p.ph}</X>
+    : <TextInput accessibilityLabel={p.label || p.ph} value={p.value} onChangeText={p.onChange} placeholder={p.ph} placeholderTextColor={T.slate} autoFocus={p.autoFocus}
+        onFocus={() => setFocus(true)} onBlur={() => setFocus(false)}
         keyboardType={p.phone ? 'phone-pad' : p.numeric ? 'number-pad' : 'default'} maxLength={p.maxLength} secureTextEntry={p.secure} autoCapitalize={p.caps ? 'characters' : p.secure || p.numeric ? 'none' : 'sentences'} autoCorrect={false} multiline={p.multiline}
         style={[textStyle, { flex: 1, padding: 0, margin: 0, minHeight: 23 }, p.multiline && { minHeight: 46, textAlignVertical: 'top' }, noOutline]} />;
   return <View style={[{ marginBottom: 13 }, p.style]}>
     {p.label && <Label text={p.label} req={p.req} mr={p.mr} />}
-    {p.onPress ? <Pressable accessibilityRole="button" accessibilityLabel={p.label} onPress={p.onPress} style={box}>{p.pre}{inner}{tailWrap}</Pressable> : <View style={box}>{p.pre}{inner}{tailWrap}</View>}
+    {p.onPress ? <Pressable accessibilityRole="button" accessibilityLabel={p.label ? `${p.label}: ${p.value || p.ph || ''}` : undefined} accessibilityHint={p.select ? 'Opens a list of choices' : undefined} onPress={p.onPress} style={(st: PState) => [box, fx(st, T.zinc)]}>{p.pre}{inner}{tailWrap}</Pressable> : <View style={box}>{p.pre}{inner}{tailWrap}</View>}
     {hint}
   </View>;
 }
 export function OtpBoxes({ value, onChange, count = 6, autoFocus }: { value: string; onChange: (v: string) => void; count?: number; autoFocus?: boolean }) {
-  const ref = useRef<TextInput>(null);
-  return <Pressable accessibilityLabel="Enter the 6-digit code" onPress={() => ref.current?.focus()} style={{ flexDirection: 'row', gap: 7 }}>
-    {Array.from({ length: count }, (_, i) => <View key={i} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 13, minHeight: 50, backgroundColor: T.white, borderWidth: 1.5, borderColor: value[i] ? T.ink3 : T.zinc3, borderRadius: 9 }}>
+  const ref = useRef<TextInput>(null); const [focus, setFocus] = useState(false);
+  const at = Math.min(value.length, count - 1);
+  return <Pressable accessibilityLabel={`Enter the ${count}-digit code`} onPress={() => ref.current?.focus()} style={{ flexDirection: 'row', gap: 7 }}>
+    {Array.from({ length: count }, (_, i) => <View key={i} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 13, minHeight: 50, backgroundColor: T.white, borderWidth: 1.5, borderColor: focus && i === at ? T.steel : value[i] ? T.ink3 : T.line, borderRadius: 9 }}>
       <X s={16} f={value[i] ? 'm' : 'b'} w={value[i] ? 5 : 4} c={value[i] ? T.ink : '#93A0AF'}>{value[i] || '·'}</X></View>)}
-    <TextInput ref={ref} value={value} autoFocus={autoFocus} onChangeText={t => onChange(t.replace(/\D/g, '').slice(0, count))} keyboardType="number-pad" maxLength={count} textContentType="oneTimeCode" autoComplete="sms-otp" caretHidden
+    <TextInput ref={ref} value={value} autoFocus={autoFocus} onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} accessibilityLabel={`${count}-digit code`} onChangeText={t => onChange(t.replace(/\D/g, '').slice(0, count))} keyboardType="number-pad" maxLength={count} textContentType="oneTimeCode" autoComplete="sms-otp" caretHidden
       style={[{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, opacity: 0.011, color: 'transparent' }, noOutline]} />
   </Pressable>;
 }
 export function ChipRow({ options, value, onChange }: { options: string[]; value: string; onChange: (v: string) => void }) {
   return <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: -5, marginBottom: 14 }}>{options.map(o => {
     const on = o === value;
-    return <Pressable key={o} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => onChange(o)} style={{ backgroundColor: on ? T.ink : T.white, borderWidth: 1.5, borderColor: on ? T.ink : T.zinc3, borderRadius: 22, paddingVertical: 9, paddingHorizontal: 15 }}>
+    return <Pressable key={o} accessibilityRole="radio" accessibilityState={{ checked: on }} onPress={() => onChange(o)} style={(st: PState) => [{ backgroundColor: on ? T.ink : T.white, borderWidth: 1.5, borderColor: on ? T.ink : T.line, borderRadius: 22, paddingVertical: 9, paddingHorizontal: 15, justifyContent: 'center' }, !WEB && { minHeight: 44 }, fx(st, on ? undefined : T.zinc)]}>
       <X s={13.5} w={6} c={on ? T.white : T.ink}>{o}</X></Pressable>;
   })}</View>;
 }
 export const CheckBox = ({ on }: { on: boolean }) =>
-  <View style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 2, borderColor: on ? T.live : T.zinc3, backgroundColor: on ? T.live : T.white, alignItems: 'center', justifyContent: 'center' }}>{on && <Ic n="check" size={17} color={T.white} />}</View>;
+  <View style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 2, borderColor: on ? T.live : T.line, backgroundColor: on ? T.live : T.white, alignItems: 'center', justifyContent: 'center' }}>{on && <Ic n="check" size={17} color={T.white} />}</View>;
 
 /* ---------- feedback ---------- */
 const BANNER = { warn: [T.voltSoft, '#7A5406', '#EBD49C'], bad: [T.terminalSoft, '#8C2612', '#F0C7BC'], ok: [T.liveSoft, '#0F5537', '#B8DFCB'], info: [T.steelSoft, '#1E3F7E', '#C3D8F6'] } as const;
@@ -209,9 +230,10 @@ export function Banner({ tone, icon, children, style }: { tone: keyof typeof BAN
 }
 export function Steps({ labels, now }: { labels: string[]; now: number }) {
   return <View style={{ flexDirection: 'row', gap: 6, paddingVertical: 11, paddingHorizontal: 15, backgroundColor: T.white, borderBottomWidth: 1, borderBottomColor: T.zinc2 }}>
-    {labels.map((l, i) => <View key={l} style={{ flex: 1, gap: 5 }}>
-      <View style={{ height: 5, borderRadius: 3, backgroundColor: i < now - 1 ? T.live : i === now - 1 ? T.volt : T.zinc2 }} />
-      <X s={11.5} w={6} c={i === now - 1 ? T.ink : T.slate}>{l}</X></View>)}
+    {labels.map((l, i) => { const done = i < now - 1, cur = i === now - 1;
+      return <View key={l} style={{ flex: 1, gap: 5 }} accessible accessibilityLabel={`${l}, ${done ? 'done' : cur ? 'current step' : 'to do'}`}>
+      <View style={{ height: 5, borderRadius: 3, backgroundColor: done ? T.live : cur ? T.volt : T.zinc2 }} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>{done && <Ic n="check" size={12} color={T.live} sw={2.4} />}<X s={11.5} w={6} c={cur ? T.ink : T.slate} style={{ flexShrink: 1 }}>{l}</X></View></View>; })}
   </View>;
 }
 export function KV({ pairs, cols = 2 }: { pairs: [string, React.ReactNode, ('mono' | '')?][]; cols?: number }) {
@@ -231,7 +253,7 @@ export function Meter({ used, labels }: { used: number; labels: [string, string,
 export const BigOk = ({ n = 'check', bg = T.live }: { n?: IconName; bg?: string }) =>
   <View style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: bg, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginTop: 26, marginBottom: 16 }}><Ic n={n} size={46} color={T.white} /></View>;
 export function BigTile({ icon, title, sub, desc, hot, onPress }: { icon: IconName; title: string; sub: string; desc: string; hot?: boolean; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={title} onPress={onPress} style={({ pressed }) => [{ flexDirection: 'row', gap: 14, alignItems: 'center', backgroundColor: hot ? T.voltSoft : T.white, borderWidth: 1.5, borderColor: hot ? T.volt : T.zinc2, borderRadius: 13, paddingVertical: 19, paddingHorizontal: 16, marginBottom: 12 }, pressed && { opacity: 0.85 }]}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={`${title}. ${desc}`} onPress={onPress} style={({ pressed, hovered }: PState) => [{ flexDirection: 'row', gap: 14, alignItems: 'center', backgroundColor: hot ? T.voltSoft : T.white, borderWidth: 1.5, borderColor: hot ? T.volt : T.zinc2, borderRadius: 13, paddingVertical: 19, paddingHorizontal: 16, marginBottom: 12 }, pressed && { opacity: 0.85 }, WEB && hovered && !pressed && { borderColor: hot ? '#C98A12' : T.zinc3 }]}>
     <View style={{ width: 58, height: 58, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: hot ? T.volt : T.steelSoft }}><Ic n={icon} size={29} color={hot ? '#2A1F02' : T.steel} /></View>
     <View style={{ flex: 1, minWidth: 0 }}><X s={23} w={7} f="c" lh={1.08}>{title}</X><X s={15} w={6} c={hot ? '#8A6008' : T.steel} style={{ marginTop: 1 }}>{sub}</X><X s={13} lh={1.3} c={T.slate} style={{ marginTop: 5 }}>{desc}</X></View>
     <Ic n="chev" size={22} color={T.zinc3} /></Pressable>;

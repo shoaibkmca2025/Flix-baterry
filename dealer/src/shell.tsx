@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { View, ScrollView, Pressable, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { View, ScrollView, Pressable, StyleSheet, StyleProp, ViewStyle, Animated, PanResponder } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Entry } from '@felix/shared/domain';
 import type { Session } from '@felix/shared/api/session';
@@ -38,7 +38,7 @@ export function AppBar({ title, back, backP, right, dark, left, titleSize = 19 }
   return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingTop: 8, paddingHorizontal: 15, paddingBottom: 13, backgroundColor: dark ? T.ink : T.zinc, borderBottomWidth: 1, borderBottomColor: dark ? '#000' : T.zinc2 }}>
     {back && <IconBtn n="back" label="Back" dark={dark} onPress={() => d.back(back, backP)} />}
     {left}
-    {title != null && <X s={titleSize} w={7} f="c" c={dark ? T.white : T.ink} numberOfLines={1} style={{ flex: 1 }}>{title}</X>}
+    {title != null && <X s={titleSize} w={7} f="c" c={dark ? T.white : T.ink} numberOfLines={1} style={{ flex: 1 }} accessibilityRole="header">{title}</X>}
     {right}
   </View>;
 }
@@ -71,13 +71,29 @@ export function Screen({ top, children, tab, footer, overlay, bg, center, conten
 /** Bottom sheet that stays inside the phone screen. */
 export function Sheet({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: React.ReactNode }) {
   const inset = useSafeAreaInsets(), d = useD();
+  // Drag the grabber/header down to dismiss, as people expect of a sheet (the close button stays).
+  const dy = useRef(new Animated.Value(0)).current;
+  const close = useRef(onClose); close.current = onClose;
+  const pan = useRef(PanResponder.create({
+    onMoveShouldSetPanResponder: (_, g) => g.dy > 6 && Math.abs(g.dy) > Math.abs(g.dx),
+    onPanResponderMove: (_, g) => dy.setValue(Math.max(0, g.dy)),
+    onPanResponderRelease: (_, g) => {
+      if (g.dy > 90 || g.vy > 0.9) { close.current(); dy.setValue(0); }
+      else Animated.spring(dy, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start();
+    },
+    // another gesture took the touch mid-drag: settle back instead of staying half pulled down
+    onPanResponderTerminate: () => Animated.spring(dy, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start(),
+  })).current;
   if (!open) return null;
   return <View style={[StyleSheet.absoluteFill, { zIndex: 60 }]}>
     <Pressable accessibilityLabel="Close" onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(20,26,35,0.55)' }]} />
-    <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, maxHeight: '88%', backgroundColor: T.zinc, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingBottom: d.framed ? 0 : inset.bottom, overflow: 'hidden' }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingTop: 13, paddingHorizontal: 15, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: T.zinc2 }}>
-        <X s={19} w={7} f="c" style={{ flex: 1 }}>{title}</X><IconBtn n="x" label="Close" onPress={onClose} /></View>
+    <Animated.View accessibilityViewIsModal style={{ position: 'absolute', left: 0, right: 0, bottom: 0, maxHeight: '88%', backgroundColor: T.zinc, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingBottom: d.framed ? 0 : inset.bottom, overflow: 'hidden', transform: [{ translateY: dy }] }}>
+      <View {...pan.panHandlers}>
+        <View style={{ alignSelf: 'center', width: 38, height: 5, borderRadius: 3, backgroundColor: T.zinc3, marginTop: 7 }} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingTop: 8, paddingHorizontal: 15, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: T.zinc2 }}>
+          <X s={19} w={7} f="c" style={{ flex: 1 }} accessibilityRole="header">{title}</X><IconBtn n="x" label="Close" onPress={onClose} /></View>
+      </View>
       <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 15, paddingBottom: 22 }}>{children}</ScrollView>
-    </View>
+    </Animated.View>
   </View>;
 }

@@ -21,8 +21,14 @@ export async function signAccessToken(claims: AccessTokenClaims): Promise<string
     .sign(secret);
 }
 
+// jose docs: pin the algorithm and the claims a token must carry. Only HS256 is ever signed here,
+// and every access token has sub + exp — so a "verified" token (same secret, no sub) or any
+// token with another alg is refused instead of being read as a session.
+const ACCESS_VERIFY = { algorithms: ['HS256'], requiredClaims: ['sub', 'exp'] };
+
 export async function verifyAccessToken(token: string): Promise<AccessTokenClaims> {
-  const { payload } = await jwtVerify(token, secret);
+  const { payload } = await jwtVerify(token, secret, ACCESS_VERIFY);
+  if (payload.typ === 'verified' || (payload.scope !== 'dealer' && payload.scope !== 'admin')) throw new Error('not_an_access_token');
   return {
     sub: payload.sub as string,
     scope: payload.scope as 'dealer' | 'admin',
@@ -54,7 +60,7 @@ export async function signVerifiedToken(claims: VerifiedTokenClaims): Promise<st
 }
 
 export async function verifyVerifiedToken(token: string, expectedPurpose: VerifiedTokenClaims['purpose']): Promise<VerifiedTokenClaims> {
-  const { payload } = await jwtVerify(token, secret);
+  const { payload } = await jwtVerify(token, secret, { algorithms: ['HS256'], requiredClaims: ['exp'] });
   if (payload.typ !== 'verified' || payload.purpose !== expectedPurpose) {
     throw new Error('verified_token_invalid');
   }

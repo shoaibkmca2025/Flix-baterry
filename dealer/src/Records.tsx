@@ -79,7 +79,7 @@ export function D19({ p }: { p?: string }) {
     {['Submitted', 'Under Review'].includes(e.status) && <Banner tone="info" icon="clock" style={{ marginBottom: 12 }}><B>With head office.</B> {rep ? 'The claim is decided once the old battery is back and checked.' : 'Head office confirms it shortly.'}</Banner>}
     {e.correction?.status === 'Pending' && <Banner tone="warn" icon="eye" style={{ marginBottom: 12 }}><B>Correction asked for.</B> “{e.correction.value}” — waiting for head office.</Banner>}
     <Card><CardH mono title={e.id} right={<StatusChip status={e.status} />} />
-      <KV pairs={[['Type', e.type], ['Date', dLong(e.date)], ['Place', e.place], ['Customer', e.customer || '—'], ['Total batteries', String(e.items.length)], ['Sent', e.status === 'Draft' ? 'Not yet' : `${dShort(e.createdAt)}, ${tShort(e.createdAt)}`]]} /></Card>
+      <KV pairs={[['Type', e.type], ['Date', dLong(e.date)], ['Place', e.place], ['Dealer / customer', e.customer || '—'], ['Total batteries', String(e.items.length)], ['Sent', e.status === 'Draft' ? 'Not yet' : `${dShort(e.createdAt)}, ${tShort(e.createdAt)}`]]} /></Card>
     <SecT title="Batteries in this entry" />
     {e.items.map((it, i) => <Card key={it.id} style={[{ flexDirection: 'row', gap: 11, alignItems: 'center' }, i ? { marginTop: 11 } : null]} label={`Open battery ${it.code}`} onPress={() => it.code ? d.go('d24', it.code) : undefined}>
       <Avatar n="batt" tone={avatarTone(e.status) as AvTone} />

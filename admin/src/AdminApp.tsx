@@ -109,14 +109,14 @@ function Sidebar() {
         <View><X s={14.5} w={7} c={T.white} lh={1.1}>Felix Batteries</X><X s={11} c="#8C9BAE">Head office console</X></View></View>
       <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
         {NAV.map(([group, items]) => <View key={group}>
-          <X s={10.5} w={6} c="#6D7D91" style={{ marginTop: 13, marginBottom: 5, marginHorizontal: 9, letterSpacing: 1.4 }}>{group.toUpperCase()}</X>
+          <X s={11} w={6} c="#8C9BAE" accessibilityRole="header" style={{ marginTop: 13, marginBottom: 5, marginHorizontal: 9, letterSpacing: 1.4 }}>{group.toUpperCase()}</X>
           {items.filter(i => i[0] !== 'team' || role === 'Main Admin').map(([r, label, icon, badge]) => {
             const on = route.r === r || (r === 'entries' && route.r === 'entry') || (r === 'dealers' && route.r === 'dealer') || (r === 'search' && route.r === 'battery');
             const n = badge?.(state) || 0;
-            return <Pressable key={r} accessibilityRole="button" accessibilityLabel={label} onPress={() => a.root(r)} style={({ hovered }: any) => ({ flexDirection: 'row', gap: 9, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 9, borderRadius: 7, backgroundColor: on ? T.steel : hovered ? 'rgba(255,255,255,0.07)' : 'transparent' })}>
+            return <Pressable key={r} accessibilityRole="button" accessibilityLabel={n > 0 ? `${label}, ${n} waiting` : label} accessibilityState={{ selected: on }} onPress={() => a.root(r)} style={({ hovered }: any) => ({ flexDirection: 'row', gap: 9, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 9, borderRadius: 7, backgroundColor: on ? T.steel : hovered ? 'rgba(255,255,255,0.07)' : 'transparent' })}>
               <Ic n={icon} size={17} color={on ? T.white : '#AEBCCC'} />
               <X s={13.5} w={on ? 6 : 5} c={on ? T.white : '#AEBCCC'} style={{ flex: 1 }} numberOfLines={1}>{lang && MR[label] ? MR[label] : label}</X>
-              {n > 0 && <View style={{ backgroundColor: T.terminal, borderRadius: 20, paddingHorizontal: 6, paddingVertical: 1 }}><X s={10.5} w={7} c={T.white}>{n}</X></View>}
+              {n > 0 && <View style={{ backgroundColor: T.terminal, borderRadius: 20, paddingHorizontal: 6, paddingVertical: 1 }}><X s={11} w={7} c={T.white}>{n}</X></View>}
             </Pressable>;
           })}
         </View>)}

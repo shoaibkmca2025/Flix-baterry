@@ -12,6 +12,9 @@ export const T = {
   terminal: '#C43A22', terminalSoft: '#FBE9E5',
   violet: '#6B4FA8', violetSoft: '#EFEAF8',
   white: '#FFFFFF',
+  // Control boundary (unfilled fields, checkboxes, choice chips): 3.2:1 on white, the WCAG minimum
+  // for an interactive element's outline. zinc3 (1.6:1) stays for dividers and read-only fields.
+  line: '#8591A1',
 };
 
 const FACES = {
