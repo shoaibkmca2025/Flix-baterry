@@ -70,7 +70,7 @@ export function AdminApp({ session, onSignedIn, onSignOut }: { session: Session 
 
   const user = { name: session?.user.name || '', role };
   const ctx: AdminCtx = { route, go, root: (r: string) => { setHistory([]); setRoute({ r }); }, back, canBack: history.length > 0, toast, wide, openMenu: () => go('more'), openSwitcher: () => setAccount(true), signOut: () => { setAccount(false); onSignOut(); }, user };
-  if (!fontsLoaded && !fontError) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: T.ink }}><ActivityIndicator color={T.volt} /></View>;
+  if (!fontsLoaded && !fontError) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: T.deep }}><ActivityIndicator color={T.volt} /></View>;
   // No login, no console: until a head-office session exists only the sign-in screen renders.
   if (!session) return <ACtx.Provider value={ctx}><SignIn onDone={onSignedIn} /></ACtx.Provider>;
 
@@ -103,19 +103,19 @@ export function AdminApp({ session, onSignedIn, onSignOut }: { session: Session 
 function Sidebar() {
     const a = useA(); const { state, role } = useStore(); const route = a.route;
     const lang = state.language === 'मराठी';
-    return <View style={{ width: 236, backgroundColor: T.ink, paddingTop: 14, paddingHorizontal: 10 }}>
+    return <View style={{ width: 236, backgroundColor: T.deep, paddingTop: 14, paddingHorizontal: 10 }}>
       <View style={{ flexDirection: 'row', gap: 9, alignItems: 'center', paddingHorizontal: 8, paddingTop: 5, paddingBottom: 15 }}>
-        <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: T.volt, alignItems: 'center', justifyContent: 'center' }}><X s={15} w={7} f="c" c="#2A1F02">FB</X></View>
-        <View><X s={14.5} w={7} c={T.white} lh={1.1}>Felix Batteries</X><X s={11} c="#8C9BAE">Head office console</X></View></View>
+        <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: T.volt, alignItems: 'center', justifyContent: 'center' }}><X s={15} w={7} f="c" c={T.white}>FB</X></View>
+        <View><X s={14.5} w={7} c={T.white} lh={1.1}>Felix Batteries</X><X s={11} c={T.deepText}>Head office console</X></View></View>
       <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
         {NAV.map(([group, items]) => <View key={group}>
-          <X s={11} w={6} c="#8C9BAE" accessibilityRole="header" style={{ marginTop: 13, marginBottom: 5, marginHorizontal: 9, letterSpacing: 1.4 }}>{group.toUpperCase()}</X>
+          <X s={11} w={6} c={T.deepText} accessibilityRole="header" style={{ marginTop: 13, marginBottom: 5, marginHorizontal: 9, letterSpacing: 1.4 }}>{group.toUpperCase()}</X>
           {items.filter(i => i[0] !== 'team' || role === 'Main Admin').map(([r, label, icon, badge]) => {
             const on = route.r === r || (r === 'entries' && route.r === 'entry') || (r === 'dealers' && route.r === 'dealer') || (r === 'search' && route.r === 'battery');
             const n = badge?.(state) || 0;
-            return <Pressable key={r} accessibilityRole="button" accessibilityLabel={n > 0 ? `${label}, ${n} waiting` : label} accessibilityState={{ selected: on }} onPress={() => a.root(r)} style={({ hovered }: any) => ({ flexDirection: 'row', gap: 9, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 9, borderRadius: 7, backgroundColor: on ? T.steel : hovered ? 'rgba(255,255,255,0.07)' : 'transparent' })}>
-              <Ic n={icon} size={17} color={on ? T.white : '#AEBCCC'} />
-              <X s={13.5} w={on ? 6 : 5} c={on ? T.white : '#AEBCCC'} style={{ flex: 1 }} numberOfLines={1}>{lang && MR[label] ? MR[label] : label}</X>
+            return <Pressable key={r} accessibilityRole="button" accessibilityLabel={n > 0 ? `${label}, ${n} waiting` : label} accessibilityState={{ selected: on }} onPress={() => a.root(r)} style={({ hovered }: any) => ({ flexDirection: 'row', gap: 9, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 9, borderRadius: 7, backgroundColor: on ? T.volt : hovered ? 'rgba(255,255,255,0.08)' : 'transparent' })}>
+              <Ic n={icon} size={17} color={on ? T.white : T.deepNav} />
+              <X s={13.5} w={on ? 6 : 5} c={on ? T.white : T.deepNav} style={{ flex: 1 }} numberOfLines={1}>{lang && MR[label] ? MR[label] : label}</X>
               {n > 0 && <View style={{ backgroundColor: T.terminal, borderRadius: 20, paddingHorizontal: 6, paddingVertical: 1 }}><X s={11} w={7} c={T.white}>{n}</X></View>}
             </Pressable>;
           })}
@@ -123,9 +123,9 @@ function Sidebar() {
         <View style={{ height: 12 }} />
       </ScrollView>
       <Pressable accessibilityRole="button" accessibilityLabel="Your account" onPress={a.openSwitcher} style={{ marginTop: 'auto', paddingVertical: 12, paddingHorizontal: 9, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)', flexDirection: 'row', gap: 9, alignItems: 'center' }}>
-        <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: T.volt, alignItems: 'center', justifyContent: 'center' }}><Ic n="user" size={18} color="#2A1F02" /></View>
-        <View style={{ flex: 1 }}><X s={12} w={7} c={T.white} lh={1.3} numberOfLines={1}>{a.user.name}</X><X s={12} c="#AEBCCC" lh={1.3}>{role} · {state.offline ? 'offline' : 'online'}</X></View>
-        <Ic n="logout" size={16} color="#AEBCCC" />
+        <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: T.volt, alignItems: 'center', justifyContent: 'center' }}><Ic n="user" size={18} color={T.white} /></View>
+        <View style={{ flex: 1 }}><X s={12} w={7} c={T.white} lh={1.3} numberOfLines={1}>{a.user.name}</X><X s={12} c={T.deepNav} lh={1.3}>{role} · {state.offline ? 'offline' : 'online'}</X></View>
+        <Ic n="logout" size={16} color={T.deepNav} />
       </Pressable>
     </View>;
   }

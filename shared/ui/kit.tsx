@@ -73,7 +73,7 @@ const noOutline = WEB ? ({ outlineStyle: 'none' } as any) : null;
 // Text boxes draw their own focus border instead (see Field), since they sit inside a bordered box.
 if (WEB && typeof document !== 'undefined' && !document.getElementById('felix-focus')) {
   const css = document.createElement('style'); css.id = 'felix-focus';
-  css.textContent = '[tabindex]:not([tabindex="-1"]):focus-visible{outline:2px solid #2E5AAC!important;outline-offset:2px}';
+  css.textContent = '[tabindex]:not([tabindex="-1"]):focus-visible{outline:2px solid #0B6E26!important;outline-offset:2px;box-shadow:0 0 0 2px #FFFFFF}';
   document.head.appendChild(css);
 }
 type PState = { pressed: boolean; hovered?: boolean };
@@ -83,7 +83,7 @@ const fx = ({ pressed, hovered }: PState, hoverBg?: string): ViewStyle | null =>
 
 /* ---------- chips ---------- */
 export type Tone = 'live' | 'warn' | 'bad' | 'info' | 'mute' | 'vio';
-const CHIP: Record<Tone, [string, string]> = { live: [T.liveSoft, '#12603C'], warn: [T.voltSoft, '#8A6008'], bad: [T.terminalSoft, '#992A15'], info: [T.steelSoft, '#22468A'], mute: [T.zinc, T.slate], vio: [T.violetSoft, '#4F3785'] };
+const CHIP: Record<Tone, [string, string]> = { live: [T.liveSoft, '#12603C'], warn: [T.voltSoft, '#8A6008'], bad: [T.terminalSoft, '#992A15'], info: [T.infoSoft, T.info], mute: [T.zinc, T.slate], vio: [T.violetSoft, '#4F3785'] };
 export function Chip({ tone = 'mute', icon, label, mono, style }: { tone?: Tone; icon?: IconName; label: string; mono?: boolean; style?: StyleProp<ViewStyle> }) {
   const [bg, fg] = CHIP[tone];
   return <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 3, paddingLeft: icon ? 7 : 9, paddingRight: 9, borderRadius: 6, backgroundColor: bg, alignSelf: 'flex-start' }, style]}>
@@ -103,8 +103,8 @@ export const StatusChip = ({ status, label }: { status: string; label?: string }
 /* ---------- buttons ---------- */
 export type BtnKind = 'dark' | 'primary' | 'blue' | 'ghost' | 'danger';
 export function Btn({ label, icon, iconAfter, kind = 'dark', sm, onPress, disabled, style, big, color, borderColor }: { label: string; icon?: IconName; iconAfter?: IconName; kind?: BtnKind; sm?: boolean; onPress?: () => void; disabled?: boolean; style?: StyleProp<ViewStyle>; big?: boolean; color?: string; borderColor?: string }) {
-  const bg = { dark: T.ink, primary: T.volt, blue: T.steel, ghost: T.white, danger: T.terminal }[kind];
-  const fg = color || { dark: T.white, primary: '#2A1F02', blue: T.white, ghost: T.ink, danger: T.white }[kind];
+  const bg = { dark: T.deep, primary: T.volt, blue: T.steel, ghost: T.white, danger: T.terminal }[kind];
+  const fg = color || { dark: T.white, primary: T.white, blue: T.white, ghost: T.ink, danger: T.white }[kind];
   const pv = sm ? 10 : big ? 18 : 15;
   const inset = kind === 'primary' || kind === 'blue';
   const size = sm ? 14 : big ? 17 : 16;
@@ -124,7 +124,7 @@ export function IconBtn({ n, onPress, dark, label }: { n: IconName; onPress?: ()
     <Ic n={n} size={20} color={dark ? T.white : T.ink} /></Pressable>;
 }
 export function CapBtn({ n, tone = 'dark', onPress, label }: { n: IconName; tone?: 'dark' | 'alt' | 'done'; onPress?: () => void; label: string }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} hitSlop={1} style={({ pressed }) => [{ width: 42, height: 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: tone === 'alt' ? T.steel : tone === 'done' ? T.live : T.ink }, pressed && { opacity: 0.85 }]}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} hitSlop={1} style={({ pressed }) => [{ width: 42, height: 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: tone === 'alt' ? T.steel : tone === 'done' ? T.live : T.deep }, pressed && { opacity: 0.85 }]}>
     <Ic n={n} size={21} color={T.white} /></Pressable>;
 }
 
@@ -153,7 +153,7 @@ export function Kpis({ items, cols = 2 }: { items: { v: string; l: string; tone?
 }
 
 export type AvTone = 'blue' | 'amber' | 'red' | 'green' | 'mute' | 'vio';
-const AV: Record<AvTone, [string, string]> = { blue: [T.steelSoft, T.steel], amber: [T.voltSoft, '#8A6008'], red: [T.terminalSoft, '#992A15'], green: [T.liveSoft, '#12603C'], mute: [T.zinc, T.slate], vio: [T.violetSoft, T.violet] };
+const AV: Record<AvTone, [string, string]> = { blue: [T.infoSoft, T.info], amber: [T.voltSoft, '#8A6008'], red: [T.terminalSoft, '#992A15'], green: [T.liveSoft, '#12603C'], mute: [T.zinc, T.slate], vio: [T.violetSoft, T.violet] };
 export const Avatar = ({ n, tone = 'blue', size = 40 }: { n: IconName; tone?: AvTone; size?: number }) =>
   <View style={{ width: size, height: size, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: AV[tone][0] }}><Ic n={n} size={21} color={AV[tone][1]} /></View>;
 
@@ -214,7 +214,7 @@ export function OtpBoxes({ value, onChange, count = 6, autoFocus }: { value: str
 export function ChipRow({ options, value, onChange }: { options: string[]; value: string; onChange: (v: string) => void }) {
   return <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: -5, marginBottom: 14 }}>{options.map(o => {
     const on = o === value;
-    return <Pressable key={o} accessibilityRole="radio" accessibilityState={{ checked: on }} onPress={() => onChange(o)} style={(st: PState) => [{ backgroundColor: on ? T.ink : T.white, borderWidth: 1.5, borderColor: on ? T.ink : T.line, borderRadius: 22, paddingVertical: 9, paddingHorizontal: 15, justifyContent: 'center' }, !WEB && { minHeight: 44 }, fx(st, on ? undefined : T.zinc)]}>
+    return <Pressable key={o} accessibilityRole="radio" accessibilityState={{ checked: on }} onPress={() => onChange(o)} style={(st: PState) => [{ backgroundColor: on ? T.steel : T.white, borderWidth: 1.5, borderColor: on ? T.steel : T.line, borderRadius: 22, paddingVertical: 9, paddingHorizontal: 15, justifyContent: 'center' }, !WEB && { minHeight: 44 }, fx(st, on ? undefined : T.zinc)]}>
       <X s={13.5} w={6} c={on ? T.white : T.ink}>{o}</X></Pressable>;
   })}</View>;
 }
@@ -222,7 +222,7 @@ export const CheckBox = ({ on }: { on: boolean }) =>
   <View style={{ width: 28, height: 28, borderRadius: 8, borderWidth: 2, borderColor: on ? T.live : T.line, backgroundColor: on ? T.live : T.white, alignItems: 'center', justifyContent: 'center' }}>{on && <Ic n="check" size={17} color={T.white} />}</View>;
 
 /* ---------- feedback ---------- */
-const BANNER = { warn: [T.voltSoft, '#7A5406', '#EBD49C'], bad: [T.terminalSoft, '#8C2612', '#F0C7BC'], ok: [T.liveSoft, '#0F5537', '#B8DFCB'], info: [T.steelSoft, '#1E3F7E', '#C3D8F6'] } as const;
+const BANNER = { warn: [T.voltSoft, '#7A5406', '#EBD49C'], bad: [T.terminalSoft, '#8C2612', '#F0C7BC'], ok: [T.liveSoft, '#0F5537', '#B8DFCB'], info: [T.infoSoft, '#1E3F7E', '#C3D8F6'] } as const;
 export function Banner({ tone, icon, children, style }: { tone: keyof typeof BANNER; icon: IconName; children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
   const [bg, fg, bd] = BANNER[tone];
   return <View style={[{ borderRadius: 10, paddingVertical: 12, paddingHorizontal: 13, flexDirection: 'row', gap: 10, backgroundColor: bg, borderWidth: 1, borderColor: bd }, style]}>
@@ -241,8 +241,8 @@ export function KV({ pairs, cols = 2 }: { pairs: [string, React.ReactNode, ('mon
   return <View style={{ gap: 11 }}>{rows.map((r, i) => <View key={i} style={{ flexDirection: 'row', gap: 14 }}>{r.map(([k, v, m]) => <View key={k} style={{ flex: 1, minWidth: 0 }}>
     <X s={11.5} w={6} c={T.slate}>{k}</X><X s={14.5} w={6} f={m === 'mono' ? 'm' : 'b'} style={{ marginTop: 1 }}>{v}</X></View>)}{Array.from({ length: cols - r.length }, (_, j) => <View key={`pad${j}`} style={{ flex: 1 }} />)}</View>)}</View>;
 }
-export const Plate = ({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) => <View style={[{ backgroundColor: T.ink, borderRadius: 9, paddingVertical: 13, paddingHorizontal: 14 }, style]}>{children}</View>;
-export const PlateLab = ({ children, center }: { children: React.ReactNode; center?: boolean }) => <X s={11} w={6} c="#8C9BAE" style={{ marginBottom: 3, textAlign: center ? 'center' : 'left' }}>{children}</X>;
+export const Plate = ({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) => <View style={[{ backgroundColor: T.deep, borderRadius: 9, paddingVertical: 13, paddingHorizontal: 14 }, style]}>{children}</View>;
+export const PlateLab = ({ children, center }: { children: React.ReactNode; center?: boolean }) => <X s={11} w={6} c={T.deepText} style={{ marginBottom: 3, textAlign: center ? 'center' : 'left' }}>{children}</X>;
 export const PlateVal = ({ children, size = 20, color = '#EDF0F4', center }: { children: React.ReactNode; size?: number; color?: string; center?: boolean }) => <X s={size} w={6} f="m" c={color} style={{ textAlign: center ? 'center' : 'left' }}>{children}</X>;
 export function Meter({ used, labels }: { used: number; labels: [string, string, string] }) {
   const u = Math.max(0, Math.min(1, used));
@@ -253,8 +253,17 @@ export function Meter({ used, labels }: { used: number; labels: [string, string,
 export const BigOk = ({ n = 'check', bg = T.live }: { n?: IconName; bg?: string }) =>
   <View style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: bg, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginTop: 26, marginBottom: 16 }}><Ic n={n} size={46} color={T.white} /></View>;
 export function BigTile({ icon, title, sub, desc, hot, onPress }: { icon: IconName; title: string; sub: string; desc: string; hot?: boolean; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={`${title}. ${desc}`} onPress={onPress} style={({ pressed, hovered }: PState) => [{ flexDirection: 'row', gap: 14, alignItems: 'center', backgroundColor: hot ? T.voltSoft : T.white, borderWidth: 1.5, borderColor: hot ? T.volt : T.zinc2, borderRadius: 13, paddingVertical: 19, paddingHorizontal: 16, marginBottom: 12 }, pressed && { opacity: 0.85 }, WEB && hovered && !pressed && { borderColor: hot ? '#C98A12' : T.zinc3 }]}>
-    <View style={{ width: 58, height: 58, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: hot ? T.volt : T.steelSoft }}><Ic n={icon} size={29} color={hot ? '#2A1F02' : T.steel} /></View>
-    <View style={{ flex: 1, minWidth: 0 }}><X s={23} w={7} f="c" lh={1.08}>{title}</X><X s={15} w={6} c={hot ? '#8A6008' : T.steel} style={{ marginTop: 1 }}>{sub}</X><X s={13} lh={1.3} c={T.slate} style={{ marginTop: 5 }}>{desc}</X></View>
+  return <Pressable accessibilityRole="button" accessibilityLabel={`${title}. ${desc}`} onPress={onPress} style={({ pressed, hovered }: PState) => [{ flexDirection: 'row', gap: 14, alignItems: 'center', backgroundColor: hot ? T.steelSoft : T.white, borderWidth: 1.5, borderColor: hot ? T.volt : T.zinc2, borderRadius: 13, paddingVertical: 19, paddingHorizontal: 16, marginBottom: 12 }, pressed && { opacity: 0.85 }, WEB && hovered && !pressed && { borderColor: hot ? T.steel : T.zinc3 }]}>
+    <View style={{ width: 58, height: 58, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: hot ? T.volt : T.steelSoft }}><Ic n={icon} size={29} color={hot ? T.white : T.steel} /></View>
+    <View style={{ flex: 1, minWidth: 0 }}><X s={23} w={7} f="c" lh={1.08}>{title}</X><X s={15} w={6} c={T.steel} style={{ marginTop: 1 }}>{sub}</X><X s={13} lh={1.3} c={T.slate} style={{ marginTop: 5 }}>{desc}</X></View>
     <Ic n="chev" size={22} color={T.zinc3} /></Pressable>;
+}
+
+/** TEMPORARY until SMS is connected: the one-time code shown on screen, with a button that fills it in. */
+export function TestCode({ code, onUse, style }: { code: string; onUse: () => void; style?: StyleProp<ViewStyle> }) {
+  return <View accessible accessibilityLabel={`Your code is ${code.split('').join(' ')}`} style={[{ backgroundColor: T.steelSoft, borderWidth: 1.5, borderColor: T.steel, borderStyle: 'dashed', borderRadius: 12, padding: 14, alignItems: 'center', gap: 6 }, style]}>
+    <X s={12} w={6} c={T.steel}>Your code · SMS not connected yet</X>
+    <X s={32} w={6} f="m" style={{ letterSpacing: 6 }} selectable>{code}</X>
+    <Btn kind="blue" sm icon="check" label="Use this code" onPress={onUse} style={{ alignSelf: 'stretch' }} />
+  </View>;
 }

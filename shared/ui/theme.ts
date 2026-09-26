@@ -1,13 +1,19 @@
 import { Platform } from 'react-native';
 import { useFonts } from 'expo-font';
 
-/* Colour tokens — copied from the approved dealer prototype (Felix-Dealer-App-Only.html :root). */
+/* Colour tokens — Felix brand theme, green and white, sampled from the client's battery (Sep 2026):
+ * the lid/handle green #008800 and the logo red #E00000. Layout and type still follow the approved
+ * prototype; only the palette changed. Every text pair is checked against WCAG 4.5:1. */
 export const T = {
-  ink: '#141A23', ink2: '#1F2833', ink3: '#2B3746',
-  zinc: '#EDF0F4', zinc2: '#DDE3EA', zinc3: '#C4CDD8',
-  slate: '#5B6878',
-  steel: '#2E5AAC', steelSoft: '#E8EFFB',
-  volt: '#E8A72C', voltSoft: '#FDF3DE',
+  ink: '#141A23', ink2: '#1F2833', ink3: '#2B3746',   // text
+  zinc: '#F3F7F3', zinc2: '#DCE7DE', zinc3: '#C2D1C5', // page background, dividers — near-white with a green cast
+  slate: '#5B6878',                                    // secondary text (5.25:1 on the page)
+  steel: '#0B6E26', steelSoft: '#E6F4E8',              // action green: links, selection, secondary buttons (white 6.4:1)
+  volt: '#008800', voltSoft: '#FDF3DE',                // BRAND green (primary buttons, white 4.6:1); voltSoft stays the amber warning tint
+  amber: '#E8A72C',                                    // waiting / pending (was the old accent)
+  deep: '#0E3B1C', deepText: '#A9CDB2', deepNav: '#C9DECE', // deep green surfaces (header, plates, sidebar) and their text
+  info: '#22468A', infoSoft: '#E8EFFB',                // information chips and banners stay blue
+  brandRed: '#E00000',                                 // the Felix logo red — for the logo mark only
   live: '#1B7A4F', liveSoft: '#E1F3EA',
   terminal: '#C43A22', terminalSoft: '#FBE9E5',
   violet: '#6B4FA8', violetSoft: '#EFEAF8',

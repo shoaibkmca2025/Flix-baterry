@@ -2,8 +2,11 @@ import { apiPost } from './client';
 
 export type OtpPurpose = 'login' | 'register' | 'reset' | 'verify_mobile';
 
+/** `devCode` is only present while the backend's temporary OTP_SHOW_IN_APP switch is on. */
+export type OtpChallenge = { challengeId: string; resendAfter: number; devCode?: string };
+
 export function requestOtp(target: string, purpose: OtpPurpose) {
-  return apiPost<{ challengeId: string; resendAfter: number }>('/auth/otp/request', { target, purpose });
+  return apiPost<OtpChallenge>('/auth/otp/request', { target, purpose });
 }
 
 export type VerifyOtpLoginResult = {
@@ -32,11 +35,11 @@ export function verifyOtp(challengeId: string, code: string): Promise<VerifyOtpL
 }
 
 export function adminLogin(email: string, password: string) {
-  return apiPost<{ challengeId: string; resendAfter: number }>('/auth/login', { email, password });
+  return apiPost<OtpChallenge>('/auth/login', { email, password });
 }
 
 export function passwordForgot(email: string) {
-  return apiPost<{ challengeId: string; resendAfter: number }>('/auth/password/forgot', { email });
+  return apiPost<OtpChallenge>('/auth/password/forgot', { email });
 }
 
 export function passwordReset(verifiedToken: string, newPassword: string) {

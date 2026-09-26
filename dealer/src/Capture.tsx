@@ -325,10 +325,10 @@ export function D11() {
       readonly={!oldChosen} ph={oldChosen ? '8 digits on the label' : 'Choose the plates and model first'} error={errs.oldSerial}
       hint={looking ? 'Checking warranty…' : undefined}
       tail={<><CapBtn n="scan" tone="alt" label="Scan old battery" onPress={() => setScan(true)} /><CapBtn n="cam" tone={oldPhoto ? 'done' : 'dark'} label="Photograph old battery label" onPress={async () => { const u = await takePhoto(d.toast); if (u) { upd(withPhoto(e, tagFor('Old battery', i), u)); d.toast('Photo saved. Check the number above matches it.'); } }} /></>} />
-    {oldChosen && it.oldSerial.length === 8 && <Card style={{ marginBottom: 14, backgroundColor: T.ink, borderColor: T.ink }}>
-      <X s={11.5} w={6} c="#A8B6C7">Full battery number · पूर्ण नंबर</X>
+    {oldChosen && it.oldSerial.length === 8 && <Card style={{ marginBottom: 14, backgroundColor: T.deep, borderColor: T.deep }}>
+      <X s={11.5} w={6} c={T.deepText}>Full battery number · पूर्ण नंबर</X>
       <X s={22} w={7} f="m" c={T.white} style={{ marginTop: 4 }}>{printedNumber(oldChosen, it.oldSerial)}</X>
-      <X s={12} c="#A8B6C7" style={{ marginTop: 4 }}>{oldChosen.plateCount ? `${oldChosen.plateCount} plates` : `${oldChosen.plate ?? ''} series`} · model {oldChosen.modelNo ?? oldChosen.id} · serial {it.oldSerial.slice(-4)}</X>
+      <X s={12} c={T.deepText} style={{ marginTop: 4 }}>{oldChosen.plateCount ? `${oldChosen.plateCount} plates` : `${oldChosen.plate ?? ''} series`} · model {oldChosen.modelNo ?? oldChosen.id} · serial {it.oldSerial.slice(-4)}</X>
     </Card>}
     <OldBatteryInfo code={it.oldSerial} lookup={lookup} looking={looking} token={token} fallbackModel={it.oldModel} />
     <View style={{ marginBottom: 13 }}><Label text="What is the problem?" req mr="काय बिघडले" /></View>
@@ -415,8 +415,8 @@ export function D12() {
       d.setFlow(x => x && { ...x, cur: items.length - 1, entry: { ...x.entry, items } }); d.go(rep ? 'd11' : 'd13');
     }}>
       <Avatar n="plus" tone="amber" /><View style={{ flex: 1 }}><X s={14.5} w={6}>Add another battery</X><X s={12.5} c={T.slate} style={{ marginTop: 2 }}>Same entry, one more line — the total updates by itself</X></View></Card>
-    <Card style={{ backgroundColor: T.ink, borderColor: '#000', marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-      <View><X s={11.5} w={6} c="#8C9BAE">Total quantity</X><X s={28} w={7} f="c" c={T.white}>{e.items.length}</X></View>
+    <Card style={{ backgroundColor: T.deep, borderColor: '#082A13', marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+      <View><X s={11.5} w={6} c={T.deepText}>Total quantity</X><X s={28} w={7} f="c" c={T.white}>{e.items.length}</X></View>
       <X s={12.5} c="#9BA9BB" style={{ textAlign: 'right' }}>{'Calculated from the items.\nYou never type this.'}</X></Card>
     <Btn kind="primary" iconAfter="chev" label="Next: check and send" style={{ marginTop: 13 }} onPress={() => { saveDraft(); d.go('d16'); }} />
   </Screen>;
@@ -583,7 +583,7 @@ export function D16() {
     <Card><CardH title="Entry" right={<Chip tone="mute" mono label={e.id} />} />
       <KV pairs={[['Type', e.type], ['Date', dLong(today())], ['Shop', dealer.name], ['City / place', `${dealer.city} · ${e.place}`], ['Dealer / customer', e.customer || '—'], ['Items', `${e.items.length} ${e.items.length === 1 ? 'battery' : 'batteries'}`]]} /></Card>
     {e.items.map((it, i) => <ReviewItem key={it.id} it={it} i={i} e={e} rep={rep} token={token} />)}
-    <Card style={{ backgroundColor: T.ink, borderColor: '#000', marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+    <Card style={{ backgroundColor: T.deep, borderColor: '#082A13', marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
       <X s={13} c="#9BA9BB">Total batteries</X><X s={19} w={7} c={T.white}>{e.items.length}</X></Card>
     <Btn kind="primary" big icon="check" label={busy ? 'Sending…' : state.offline ? 'Save and send later' : 'Send entry'} style={{ marginTop: 13 }} onPress={send} disabled={busy} />
     <Hint icon="lock" center style={{ marginTop: 9 }}>{rep ? 'The customer takes the battery today. Head office confirms the claim afterwards.' : 'Head office confirms the return afterwards.'}</Hint>
@@ -603,7 +603,7 @@ export function D17({ p }: { p?: string }) {
   // One way out, within thumb reach: Done → Home. The request and its decision stay in My requests.
   const done = () => { d.setFlow(null); d.tab('d07'); };
   return <Screen footer={<Btn kind="primary" big icon="check" label="Done" onPress={done} />}>
-    <BigOk n={queued ? 'cloud' : 'check'} bg={queued ? T.volt : T.live} />
+    <BigOk n={queued ? 'cloud' : 'check'} bg={queued ? T.amber : T.live} />
     <X s={22} w={7} f="c" accessibilityRole="header" style={{ textAlign: 'center', marginBottom: 5 }}>{queued ? 'Saved on this phone' : 'Recorded and sent'}</X>
     <X s={15} c={T.slate} style={{ textAlign: 'center', marginBottom: 16 }}>{rep ? (queued ? 'It sends by itself when signal returns. Give the new battery to the customer now.' : 'Give the new battery to the customer now. Head office confirms the claim afterwards — the customer does not wait.') : (queued ? 'It sends by itself when signal returns.' : 'Head office confirms the return afterwards.')}</X>
     <Plate><PlateLab center>REQUEST NUMBER</PlateLab><PlateVal size={22} center>{e.id}</PlateVal></Plate>

@@ -35,7 +35,7 @@ function MockStatus() {
 }
 export function AppBar({ title, back, backP, right, dark, left, titleSize = 19 }: { title?: string; back?: string; backP?: string; right?: React.ReactNode; dark?: boolean; left?: React.ReactNode; titleSize?: number }) {
   const d = useD();
-  return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingTop: 8, paddingHorizontal: 15, paddingBottom: 13, backgroundColor: dark ? T.ink : T.zinc, borderBottomWidth: 1, borderBottomColor: dark ? '#000' : T.zinc2 }}>
+  return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingTop: 8, paddingHorizontal: 15, paddingBottom: 13, backgroundColor: dark ? T.deep : T.zinc, borderBottomWidth: 1, borderBottomColor: dark ? '#082A13' : T.zinc2 }}>
     {back && <IconBtn n="back" label="Back" dark={dark} onPress={() => d.back(back, backP)} />}
     {left}
     {title != null && <X s={titleSize} w={7} f="c" c={dark ? T.white : T.ink} numberOfLines={1} style={{ flex: 1 }} accessibilityRole="header">{title}</X>}

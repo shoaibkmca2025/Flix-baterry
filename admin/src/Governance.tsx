@@ -12,7 +12,7 @@ import { useSync } from '@felix/shared/api/sync';
 import { Role, Staff, uid, validateEntry } from '@felix/shared/domain';
 import { printHtml, escapeHtml } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
-import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Line, Avatar, OtpBoxes } from '@felix/shared/ui/kit';
+import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Line, Avatar, OtpBoxes, TestCode } from '@felix/shared/ui/kit';
 import { dShort, personOf } from '@felix/shared/data';
 import { Page, Box, Cols, Stack, Table, SearchBox, FilterPick, Dialog, ReasonDialog, Select, ToggleRow, Diff, Empty, fmtAt, useA } from './ui';
 
@@ -218,6 +218,7 @@ export function SignIn({ onDone }: { onDone: (session: Session) => void }) {
   const inset = useSafeAreaInsets();
   const [mode, setMode] = useState<'in' | 'reset'>('in'), [email, setEmail] = useState(''), [pw, setPw] = useState(''), [code, setCode] = useState(''), [err, setErr] = useState(''), [done, setDone] = useState('');
   const [challenge, setChallenge] = useState<string | null>(null), [busy, setBusy] = useState(false);
+  const [devCode, setDevCode] = useState(''); // TEMPORARY: OTP shown on screen until SMS is connected
   const fail = (e: unknown, fallback: string) => setErr(e instanceof ApiError ? e.message : fallback);
   const reset = (m: 'in' | 'reset') => { setMode(m); setChallenge(null); setCode(''); setPw(''); setErr(''); };
   const validEmail = () => { if (/^\S+@\S+\.\S+$/.test(email.trim())) return true; setErr('Enter your work email.'); return false; };
@@ -229,7 +230,7 @@ export function SignIn({ onDone }: { onDone: (session: Session) => void }) {
       if (!validEmail()) return;
       if (pw.length < 8) { setErr('The password has at least 8 characters.'); return; }
       setBusy(true);
-      try { setChallenge((await adminLogin(email.trim(), pw)).challengeId); setDone(''); setErr(''); }
+      try { const r = await adminLogin(email.trim(), pw); setChallenge(r.challengeId); setDevCode(r.devCode ?? ''); setDone(''); setErr(''); }
       catch (e) { fail(e, 'Could not reach the server. Try again.'); }
       finally { setBusy(false); }
       return;
@@ -266,20 +267,21 @@ export function SignIn({ onDone }: { onDone: (session: Session) => void }) {
     finally { setBusy(false); }
   };
 
-  return <ScrollView style={{ flex: 1, backgroundColor: T.ink }} contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 20, paddingTop: 20 + inset.top }} keyboardShouldPersistTaps="handled">
+  return <ScrollView style={{ flex: 1, backgroundColor: T.deep }} contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 20, paddingTop: 20 + inset.top }} keyboardShouldPersistTaps="handled">
     <View style={{ width: '100%', maxWidth: 400 }}>
       <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
-        <View style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: T.volt, alignItems: 'center', justifyContent: 'center' }}><X s={18} w={7} f="c" c="#2A1F02">FB</X></View>
-        <View><X s={17} w={7} c={T.white}>Felix Batteries</X><X s={12} c="#8C9BAE">Head office console</X></View></View>
+        <View style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: T.volt, alignItems: 'center', justifyContent: 'center' }}><X s={18} w={7} f="c" c={T.white}>FB</X></View>
+        <View><X s={17} w={7} c={T.white}>Felix Batteries</X><X s={12} c={T.deepText}>Head office console</X></View></View>
       <View style={{ backgroundColor: T.white, borderRadius: 12, padding: 24 }}>
         {mode === 'in' ? <>
           <X s={19} w={7} f="c" style={{ marginBottom: 12 }}>Sign in</X>
           {!challenge ? <>
             <Field label="Work email" req value={email} onChange={v => { setEmail(v); setErr(''); }} ph="admin@example.com" />
             <Field label="Password" req secure value={pw} onChange={v => { setPw(v); setErr(''); }} ph="••••••••••" />
-          </> : <Card style={{ backgroundColor: T.steelSoft, borderColor: '#C3D8F6' }}>
+          </> : <Card style={{ backgroundColor: T.steelSoft, borderColor: '#6FAF7F' }}>
             <CardH title="Two-step code" size={14} />
             <X s={13} c={T.slate} style={{ marginBottom: 10 }}>We sent a 6-digit code for {email.trim()}.</X>
+            {!!devCode && <TestCode code={devCode} onUse={() => { setCode(devCode); setErr(''); }} style={{ marginBottom: 12 }} />}
             <OtpBoxes value={code} onChange={v => { setCode(v); setErr(''); }} />
           </Card>}
           {err ? <Hint tone="err">{err}</Hint> : null}

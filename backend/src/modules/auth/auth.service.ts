@@ -72,7 +72,9 @@ export async function requestOtp(ctx: Ctx, input: RequestOtpInput) {
 
   sendOtp(input.target, input.purpose, code);
 
-  return { challengeId: challenge.id, resendAfter: 30 };
+  // TEMPORARY (OTP_SHOW_IN_APP): hand the code to the app to show on screen until SMS is wired.
+  const showInApp = env.NODE_ENV !== 'production' && env.OTP_SHOW_IN_APP === 'true';
+  return { challengeId: challenge.id, resendAfter: 30, ...(showInApp ? { devCode: code } : {}) };
 }
 
 async function loadChallengeForVerify(challengeId: string, code: string, ctx: Ctx) {

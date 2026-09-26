@@ -3,7 +3,7 @@ import { View, Pressable, Platform } from 'react-native';
 import { useStore } from '@felix/shared/store';
 import { Dealer } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
-import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, OtpBoxes, Gap } from '@felix/shared/ui/kit';
+import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, OtpBoxes, Gap, TestCode } from '@felix/shared/ui/kit';
 import { Screen, AppBar, Sheet, useD } from './shell';
 import { PickList } from '@felix/shared/ui/pick';
 import { Photo, pickDocument, takePhoto } from '@felix/shared/ui/media';
@@ -36,10 +36,10 @@ export function D01() {
     if (prompt) { prompt.prompt(); (globalThis as any).__felixInstallPrompt = null; }
     d.go('d02');
   };
-  return <Screen bg={T.ink} center>
-    <View style={{ width: 86, height: 86, borderRadius: 22, backgroundColor: T.volt, alignItems: 'center', justifyContent: 'center' }}><Ic n="batt" color="#2A1F02" /></View>
+  return <Screen bg={T.deep} center>
+    <View style={{ width: 86, height: 86, borderRadius: 22, backgroundColor: T.volt, alignItems: 'center', justifyContent: 'center' }}><Ic n="batt" color={T.white} /></View>
     <X s={31} w={7} f="c" c={T.white} lh={1.05} style={{ textAlign: 'center' }}>{'Felix Batteries\nDealer App'}</X>
-    <X s={14} c="#93A2B4" style={{ textAlign: 'center', maxWidth: 250 }}>Record a replacement in under a minute. Works without signal.</X>
+    <X s={14} c={T.deepText} style={{ textAlign: 'center', maxWidth: 250 }}>Record a replacement in under a minute.</X>
     <View style={{ height: 14 }} />
     {web ? <>
       <Btn kind="primary" icon="down" label="Install app" style={{ width: 250 }} onPress={install} />
@@ -64,12 +64,14 @@ export function D02() {
   const [challengeId, setChallengeId] = useState(''), [busy, setBusy] = useState(false);
   const [left, setLeft] = useCountdown();
   const inflight = useRef(false); // `busy` lands a render late — a quick double tap would verify the same code twice
+  const [devCode, setDevCode] = useState(''); // TEMPORARY: the OTP shown in a popup until SMS is connected
   const send = async () => {
     if (mobile.length !== 10) { setError({ mobile: 'Enter the 10-digit mobile number.' }); return; }
     setError({}); setBusy(true);
     try {
-      const { challengeId: id } = await requestOtp(mobile, 'login');
-      setChallengeId(id); setCode(''); setSent(true); setLeft(30); d.toast('Code sent to your phone.');
+      const { challengeId: id, devCode: shown } = await requestOtp(mobile, 'login');
+      setChallengeId(id); setCode(''); setSent(true); setLeft(30);
+      if (shown) setDevCode(shown); else d.toast('Code sent to your phone.');
     } catch (e) {
       setError({ mobile: e instanceof ApiError ? e.message : 'Could not reach the server. Try again.' });
     } finally { setBusy(false); }
@@ -106,8 +108,8 @@ export function D02() {
         // spent, expired or locked: this code can never work again — send a fresh one straight away
         setChallengeId(''); setCode('');
         try {
-          const { challengeId: id } = await requestOtp(mobile, 'login');
-          setChallengeId(id); setSent(true); setLeft(30);
+          const { challengeId: id, devCode: shown } = await requestOtp(mobile, 'login');
+          setChallengeId(id); setSent(true); setLeft(30); if (shown) setDevCode(shown);
           setError({ code: 'That code had expired, so a new one has been sent. Enter the new code.' });
         } catch (e2) {
           setLeft(0); setError({ code: e2 instanceof ApiError ? e2.message : 'Could not send a new code. Tap Resend code.' });
@@ -117,7 +119,10 @@ export function D02() {
       }
     } finally { inflight.current = false; setBusy(false); }
   };
-  return <Screen top={<AppBar title="Sign in" />}>
+  return <Screen top={<AppBar title="Sign in" />} overlay={<Sheet open={!!devCode} title="Your sign-in code" onClose={() => setDevCode('')}>
+      <TestCode code={devCode} onUse={() => { setCode(devCode); setError({}); setDevCode(''); }} />
+      <Hint icon="lock" center style={{ marginTop: 10 }}>Shown here only while SMS is not set up. Head office will switch this off.</Hint>
+    </Sheet>}>
     <Banner tone="info" icon="phone" style={{ marginBottom: 14 }}>Use the mobile number you registered with. We will send a 6-digit code.</Banner>
     <Field label="Mobile number" req mr="मोबाइल नंबर" value={grouped(mobile)} onChange={v => setMobile(digits(v, 10))} phone mono pre={phonePre} ph="98765 43210" error={error.mobile} maxLength={11} />
     <Card style={{ marginBottom: 13 }}>
@@ -177,13 +182,14 @@ export function D04() {
   const cities = useCities();
   const [f, setF] = useState({ name: '', contact: '', mobile: '', email: '', city: '', state: 'Maharashtra', pin: '', place: '', address: '', password: '' });
   const [gst, setGst] = useState(''), [shopPhoto, setShopPhoto] = useState(''), [verified, setVerified] = useState(false), [otpOpen, setOtpOpen] = useState(false), [otp, setOtp] = useState(''), [cityOpen, setCityOpen] = useState(false), [err, setErr] = useState<Record<string, string>>({});
+  const [regCode, setRegCode] = useState(''); // TEMPORARY: OTP shown on screen until SMS is connected
   const [challengeId, setChallengeId] = useState(''), [verifiedToken, setVerifiedToken] = useState(''), [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (v: string) => { setF(x => ({ ...x, [k]: v })); setErr(e => ({ ...e, [k]: '' })); };
   const openVerify = async () => {
     setOtp(''); setBusy(true);
     try {
-      const { challengeId: id } = await requestOtp(f.mobile, 'register');
-      setChallengeId(id); setOtpOpen(true);
+      const { challengeId: id, devCode: shown } = await requestOtp(f.mobile, 'register');
+      setChallengeId(id); setRegCode(shown ?? ''); setOtpOpen(true);
     } catch (e) {
       d.toast(e instanceof ApiError ? e.message : 'Could not send the code. Try again.');
     } finally { setBusy(false); }
@@ -229,6 +235,7 @@ export function D04() {
     <Sheet open={cityOpen} title="Choose city" onClose={() => setCityOpen(false)}><PickList options={cities.map(c => ({ v: c.name }))} value={f.city} onPick={v => { set('city')(v); setCityOpen(false); }} /></Sheet>
     <Sheet open={otpOpen} title="Verify mobile number" onClose={() => setOtpOpen(false)}>
       <X s={14} c={T.slate} style={{ marginBottom: 12 }}>Enter the 6-digit code sent to +91 {grouped(f.mobile)}.</X>
+      {!!regCode && <TestCode code={regCode} onUse={() => setOtp(regCode)} style={{ marginBottom: 12 }} />}
       <OtpBoxes value={otp} onChange={setOtp} autoFocus />
       <Hint icon="lock">Check your SMS for the code.</Hint>
       <Btn kind="primary" icon="check" label="Confirm code" style={{ marginTop: 14 }} onPress={confirmCode} disabled={busy} />
@@ -265,7 +272,7 @@ export function D05({ p }: { p?: string }) {
   const sent = state.audits.find(a => a.ref === p && a.action === 'Dealer registered')?.at;
   const approved = dealer?.status === 'Active';
   return <Screen top={<AppBar title="Registration sent" />}>
-    <BigOk n={approved ? 'check' : 'clock'} bg={approved ? T.live : T.volt} />
+    <BigOk n={approved ? 'check' : 'clock'} bg={approved ? T.live : T.amber} />
     <X s={21} w={7} f="c" style={{ textAlign: 'center', marginBottom: 6 }}>{approved ? 'Your shop is approved' : 'Waiting for approval'}</X>
     <X s={15} c={T.slate} style={{ textAlign: 'center', marginBottom: 18 }}>{approved ? 'You can sign in and record entries now.' : 'Felix Batteries will review your shop details. You cannot record entries until then.'}</X>
     {dealer && <Card><KV pairs={[['Shop', dealer.name], ['City', dealer.city], ['Mobile', `+91 ${grouped(digits(dealer.mobile, 10))}`, 'mono'], ['Submitted', sent ? `${dLong(sent)}, ${tShort(sent)}` : '—']]} /></Card>}

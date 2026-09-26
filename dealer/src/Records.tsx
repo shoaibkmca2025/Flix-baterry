@@ -28,8 +28,8 @@ export function D18({ p }: { p?: string }) {
   const rows = all.filter(test[f]).filter(e => !code || e.items.some(i => normalize(i.code) === code || normalize(i.oldSerial) === code));
   const pills: [string, string][] = [['all', `All ${all.length}`], ['rep', 'Replacement'], ['month', 'This month'], ['fix', `Needs fixing ${fix.length}`], ['notsent', `Not sent ${notSent.length}`]];
   const Pill = ({ on, label, onPress, x }: { on: boolean; label: string; onPress: () => void; x?: boolean }) =>
-    <Pressable accessibilityRole="button" accessibilityState={{ selected: on }} onPress={onPress} style={{ flexDirection: 'row', gap: 7, alignItems: 'center', backgroundColor: on ? T.steelSoft : T.white, borderWidth: 1, borderColor: on ? '#A9C4EE' : T.zinc3, borderRadius: 7, paddingVertical: 5, paddingHorizontal: 10 }}>
-      <X s={12.5} c={on ? '#22468A' : T.ink} numberOfLines={1}>{label}</X>{x && <Ic n="x" size={13} color={T.slate} />}</Pressable>;
+    <Pressable accessibilityRole="button" accessibilityState={{ selected: on }} onPress={onPress} style={{ flexDirection: 'row', gap: 7, alignItems: 'center', backgroundColor: on ? T.steelSoft : T.white, borderWidth: 1, borderColor: on ? '#6FAF7F' : T.zinc3, borderRadius: 7, paddingVertical: 5, paddingHorizontal: 10 }}>
+      <X s={12.5} c={on ? T.steel : T.ink} numberOfLines={1}>{label}</X>{x && <Ic n="x" size={13} color={T.slate} />}</Pressable>;
   return <Screen tab="list" top={<AppBar title="My entries" back="d07" right={<IconBtn n="filter" label="Filter entries" onPress={() => setSheet(true)} />} />}
     overlay={<Sheet open={sheet} title="Show entries" onClose={() => setSheet(false)}><PickList options={pills.map(([k, l]) => ({ v: l, sub: k === 'fix' ? 'Serial exceptions and refused requests' : k === 'notsent' ? 'Unfinished or saved on this phone' : undefined }))} value={pills.find(x => x[0] === f)![1]} onPick={v => { setF(pills.find(x => x[1] === v)![0]); setSheet(false); }} /></Sheet>}>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12, flexGrow: 0 }} contentContainerStyle={{ gap: 7, paddingBottom: 3 }}>
@@ -129,7 +129,7 @@ export function D23({ p }: { p?: string }) {
       {res.list.map((code, i) => {
         const b = findBattery(state, code), cover = coverOf(b, state), [cl, ct] = coverChip(cover?.status || '');
         const repEntry = entries.find(e => e.type === 'Replacement' && e.items.some(it => it.code === code));
-        return <Card key={code} style={[{ borderColor: '#A9C4EE' }, i ? { marginTop: 11 } : null]} label={`Open ${code}`} onPress={() => d.go('d24', code)}>
+        return <Card key={code} style={[{ borderColor: '#6FAF7F' }, i ? { marginTop: 11 } : null]} label={`Open ${code}`} onPress={() => d.go('d24', code)}>
           <CardH mono title={code} right={b ? <Chip tone={ct} icon={cover?.status === 'Active' ? 'shield' : 'clock'} label={cl} /> : <Chip tone="info" icon="clock" label="On a request" />} />
           <KV pairs={[['Model', b?.model || repEntry?.items.find(it => it.code === code)?.model || '—'], ['Serial', b?.serial || code.slice(-4), 'mono'], ['Dealer', state.dealers.find(x => x.id === dealerId)?.name || '—'], ['Replaced', repEntry ? dShort(repEntry.date) : '—'], ['Was', b?.oldSerial || repEntry?.items.find(it => it.code === code)?.oldSerial || '—', 'mono'], ['Cover ends', cover ? dLong(cover.expiry) : '—']]} />
           <View style={{ marginTop: 10, flexDirection: 'row', alignItems: 'center', gap: 6 }}><Ic n="chev" color={T.steel} /><X s={13} w={6} c={T.steel}>Open full history</X></View>

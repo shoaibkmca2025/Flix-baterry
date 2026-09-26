@@ -19,6 +19,8 @@ export default defineConfig({
         // Fixed demo code for this test deployment, independent of the local .env (where it may be
         // commented out so the local backend prints real random codes). Remove once SMS is wired.
         OTP_DEMO_CODE: process.env.OTP_DEMO_CODE ?? "123456",
+        // TEMPORARY: the app shows the OTP in a popup until SMS is wired — remove this line then.
+        OTP_SHOW_IN_APP: "true",
         ACCESS_TOKEN_TTL_MIN: process.env.ACCESS_TOKEN_TTL_MIN!,
         REFRESH_TOKEN_TTL_DAYS: process.env.REFRESH_TOKEN_TTL_DAYS!,
       },

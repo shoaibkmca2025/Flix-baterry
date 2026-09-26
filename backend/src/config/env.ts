@@ -19,9 +19,15 @@ const schema = z.object({
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   // demo code only — validated below to never be usable in production.
   OTP_DEMO_CODE: z.string().optional(),
+  // TEMPORARY, until an SMS provider is wired: return each OTP in the API response so the app can
+  // show it on screen. Refused in production, like OTP_DEMO_CODE.
+  OTP_SHOW_IN_APP: z.enum(['true', 'false']).optional(),
 }).refine((v) => v.NODE_ENV !== 'production' || !v.OTP_DEMO_CODE, {
   message: 'OTP_DEMO_CODE must not be set in production',
   path: ['OTP_DEMO_CODE'],
+}).refine((v) => v.NODE_ENV !== 'production' || v.OTP_SHOW_IN_APP !== 'true', {
+  message: 'OTP_SHOW_IN_APP must not be on in production',
+  path: ['OTP_SHOW_IN_APP'],
 });
 
 const parsed = schema.safeParse(process.env);

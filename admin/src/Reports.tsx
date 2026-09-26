@@ -40,10 +40,10 @@ export function Reports() {
         <View style={{ padding: 14 }}><Banner tone="ok" icon="check"><B>Every filter applies at once.</B> {rows.length} entries · {lines} battery lines match.</Banner></View>
       </Box>
       <Box title="2 · Which columns, in which order" right={<Pressable accessibilityRole="button" onPress={() => setSelected(columns)}><X s={12.5} w={6} c={T.steel}>Reset to register order</X></Pressable>} pad>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>{selected.map((c, i) => <View key={c} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: T.steelSoft, borderWidth: 1, borderColor: '#A9C4EE', borderRadius: 7, paddingLeft: 4, paddingRight: 8, paddingVertical: 3 }}>
-          {i > 0 ? <Pressable accessibilityRole="button" accessibilityLabel={`Move ${c} left`} onPress={() => { const x = [...selected]; [x[i - 1], x[i]] = [x[i], x[i - 1]]; setSelected(x); }} style={{ padding: 3 }}><Ic n="back" size={13} color="#22468A" /></Pressable> : <View style={{ width: 19 }} />}
-          <X s={12.5} w={6} c="#22468A">{c}</X>
-          <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${c}`} onPress={() => setSelected(selected.filter(x => x !== c))} style={{ padding: 3 }}><Ic n="x" size={13} color="#22468A" /></Pressable></View>)}</View>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>{selected.map((c, i) => <View key={c} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: T.steelSoft, borderWidth: 1, borderColor: '#6FAF7F', borderRadius: 7, paddingLeft: 4, paddingRight: 8, paddingVertical: 3 }}>
+          {i > 0 ? <Pressable accessibilityRole="button" accessibilityLabel={`Move ${c} left`} onPress={() => { const x = [...selected]; [x[i - 1], x[i]] = [x[i], x[i - 1]]; setSelected(x); }} style={{ padding: 3 }}><Ic n="back" size={13} color={T.steel} /></Pressable> : <View style={{ width: 19 }} />}
+          <X s={12.5} w={6} c={T.steel}>{c}</X>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${c}`} onPress={() => setSelected(selected.filter(x => x !== c))} style={{ padding: 3 }}><Ic n="x" size={13} color={T.steel} /></Pressable></View>)}</View>
         {columns.some(c => !selected.includes(c)) && <><X s={12.5} w={6} c={T.slate} style={{ marginTop: 12, marginBottom: 6 }}>Add back</X>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>{columns.filter(c => !selected.includes(c)).map(c => <Pressable key={c} accessibilityRole="button" onPress={() => setSelected([...selected, c])} style={{ flexDirection: 'row', gap: 5, alignItems: 'center', borderWidth: 1, borderStyle: 'dashed', borderColor: T.zinc3, borderRadius: 7, paddingHorizontal: 9, paddingVertical: 4 }}><Ic n="plus" size={13} color={T.slate} /><X s={12.5} c={T.slate}>{c}</X></Pressable>)}</View></>}
       </Box>

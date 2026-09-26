@@ -98,14 +98,14 @@ export function Tabs({ items, value, onChange }: { items: [string, string][]; va
   </ScrollView></View>;
 }
 export function Pills({ items, value, onChange }: { items: [string, string][]; value: string; onChange: (k: string) => void }) {
-  return <>{items.map(([k, l]) => { const on = k === value; return <Pressable key={k} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => onChange(k)} style={{ backgroundColor: on ? T.steelSoft : T.white, borderWidth: 1, borderColor: on ? '#A9C4EE' : T.zinc3, borderRadius: 7, paddingVertical: 5, paddingHorizontal: 10 }}><X s={12.5} w={on ? 6 : 4} c={on ? '#22468A' : T.ink}>{l}</X></Pressable>; })}</>;
+  return <>{items.map(([k, l]) => { const on = k === value; return <Pressable key={k} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={() => onChange(k)} style={{ backgroundColor: on ? T.steelSoft : T.white, borderWidth: 1, borderColor: on ? '#6FAF7F' : T.zinc3, borderRadius: 7, paddingVertical: 5, paddingHorizontal: 10 }}><X s={12.5} w={on ? 6 : 4} c={on ? T.steel : T.ink}>{l}</X></Pressable>; })}</>;
 }
 /** Compact filter pill — "Type: Replacement ▾" — that opens a picker. */
 export function FilterPick({ label, value, options, onChange, all = 'All' }: { label: string; value: string; options: string[]; onChange: (v: string) => void; all?: string }) {
   const [open, setOpen] = useState(false); const on = value !== all;
   return <>
-    <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${value}`} onPress={() => setOpen(true)} style={{ flexDirection: 'row', gap: 6, alignItems: 'center', backgroundColor: on ? T.steelSoft : T.white, borderWidth: 1, borderColor: on ? '#A9C4EE' : T.zinc3, borderRadius: 7, paddingVertical: 5, paddingLeft: 10, paddingRight: on ? 6 : 8 }}>
-      <X s={12.5} c={on ? '#22468A' : T.ink}>{label}: <X s={12.5} w={6} c={on ? '#22468A' : T.ink}>{value}</X></X>
+    <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${value}`} onPress={() => setOpen(true)} style={{ flexDirection: 'row', gap: 6, alignItems: 'center', backgroundColor: on ? T.steelSoft : T.white, borderWidth: 1, borderColor: on ? '#6FAF7F' : T.zinc3, borderRadius: 7, paddingVertical: 5, paddingLeft: 10, paddingRight: on ? 6 : 8 }}>
+      <X s={12.5} c={on ? T.steel : T.ink}>{label}: <X s={12.5} w={6} c={on ? T.steel : T.ink}>{value}</X></X>
       {on ? <Pressable accessibilityLabel={`Clear ${label}`} onPress={() => onChange(all)} hitSlop={8}><Ic n="x" size={13} color={T.slate} /></Pressable> : <Ic n="chev" size={13} color={T.slate} style={{ transform: [{ rotate: '90deg' }] }} />}
     </Pressable>
     <Dialog open={open} title={label} onClose={() => setOpen(false)} width={460}><PickList options={[all, ...options].map(v => ({ v }))} value={value} onPick={v => { onChange(v); setOpen(false); }} /></Dialog>
@@ -114,8 +114,8 @@ export function FilterPick({ label, value, options, onChange, all = 'All' }: { l
 export function DatePick({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false), [draft, setDraft] = useState(value), [err, setErr] = useState('');
   return <>
-    <Pressable accessibilityRole="button" accessibilityLabel={`${label} date`} onPress={() => { setDraft(value); setErr(''); setOpen(true); }} style={{ flexDirection: 'row', gap: 6, alignItems: 'center', backgroundColor: value ? T.steelSoft : T.white, borderWidth: 1, borderColor: value ? '#A9C4EE' : T.zinc3, borderRadius: 7, paddingVertical: 5, paddingHorizontal: 10 }}>
-      <Ic n="clock" size={13} color={value ? '#22468A' : T.slate} /><X s={12.5} c={value ? '#22468A' : T.ink}>{label}: <X s={12.5} w={6} c={value ? '#22468A' : T.ink}>{value ? dShort(value) : 'any'}</X></X></Pressable>
+    <Pressable accessibilityRole="button" accessibilityLabel={`${label} date`} onPress={() => { setDraft(value); setErr(''); setOpen(true); }} style={{ flexDirection: 'row', gap: 6, alignItems: 'center', backgroundColor: value ? T.steelSoft : T.white, borderWidth: 1, borderColor: value ? '#6FAF7F' : T.zinc3, borderRadius: 7, paddingVertical: 5, paddingHorizontal: 10 }}>
+      <Ic n="clock" size={13} color={value ? T.steel : T.slate} /><X s={12.5} c={value ? T.steel : T.ink}>{label}: <X s={12.5} w={6} c={value ? T.steel : T.ink}>{value ? dShort(value) : 'any'}</X></X></Pressable>
     <Dialog open={open} title={`${label} date`} onClose={() => setOpen(false)} width={420}>
       <Field label="Date" mono value={draft} onChange={v => { setDraft(v); setErr(''); }} ph="YYYY-MM-DD" error={err} maxLength={10} />
       <View style={{ flexDirection: 'row', gap: 9 }}>

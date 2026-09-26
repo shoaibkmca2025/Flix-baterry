@@ -48,9 +48,14 @@ describe('requestOtp', () => {
     vi.mocked(repo.findUserByMobile).mockResolvedValue(undefined);
     vi.mocked(repo.insertOtpChallenge).mockResolvedValue({ id: 'chal-1' } as never);
 
-    const result = await requestOtp(ctx, { target: '9876543210', purpose: 'login' });
+    const unknown = await requestOtp(ctx, { target: '9876543210', purpose: 'login' });
+    vi.mocked(repo.findUserByMobile).mockResolvedValue({ id: 'user-1', status: 'active' } as never);
+    const known = await requestOtp(ctx, { target: '9876543210', purpose: 'login' });
 
-    expect(result).toEqual({ challengeId: 'chal-1', resendAfter: 30 });
+    expect(unknown).toMatchObject({ challengeId: 'chal-1', resendAfter: 30 });
+    // no account enumeration: a registered and an unknown number get the same response shape
+    // (with the temporary OTP_SHOW_IN_APP switch on, both carry a devCode)
+    expect(Object.keys(known).sort()).toEqual(Object.keys(unknown).sort());
   });
 
   it('rejects once the rate limit is hit', async () => {

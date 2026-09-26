@@ -75,7 +75,7 @@ export function D07() {
   if (drafts.length) alerts.push({ av: ['pen', 'mute'], title: `${drafts.length} ${drafts.length === 1 ? 'entry' : 'entries'} not finished`, sub: 'Continue where you left off', go: () => d.go('d18', 'notsent') });
   if (back.length) alerts.push({ av: ['truck', 'amber'], title: `${back.length} old ${back.length === 1 ? 'battery' : 'batteries'} to send back`, sub: `Oldest has been in your shop ${ageDays(back[back.length - 1].date)} days`, go: () => d.tab('d33') });
   alerts.push({ av: ['check', 'green'], title: `${rupees(cn.monthTotal)} credited this month`, sub: `${cn.monthCount} ${cn.monthCount === 1 ? 'claim' : 'claims'} approved · ${cn.checking.length} still being checked`, go: () => d.go('d37') });
-  return <Screen tab="home" top={<AppBar dark left={<View style={{ flex: 1 }}><X s={12} c="#8C9BAE">Welcome back</X><X s={20} w={7} f="c" c={T.white} numberOfLines={1}>{dealer.name}</X></View>} />}>
+  return <Screen tab="home" top={<AppBar dark left={<View style={{ flex: 1 }}><X s={12} c={T.deepText}>Welcome back</X><X s={20} w={7} f="c" c={T.white} numberOfLines={1}>{dealer.name}</X></View>} />}>
     <Kpis items={[
       { v: String(sent.reduce((t, e) => t + e.items.length, 0)), l: 'Batteries recorded' },
       { v: String(sent.filter(e => e.type === 'Replacement').reduce((t, e) => t + e.items.length, 0)), l: 'Replacements' },
