@@ -38,6 +38,20 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-26 · warranty settled: chains keep their own numbers, and overrides actually exist (Claude Code)
+**Worked on:** closing the warranty work in the backend — the two things still loose after the catalogue landed.
+**Done:**
+- **Overrides (D-17).** The dealer app has always told people "Request an admin override before submitting" when cover has ended, and there was nothing behind it — no table, no endpoint, no flow. A dealer holding a battery that failed a fortnight after cover ended was simply stuck, and the message was a lie. Now: `warranty_overrides` + `POST /warranty/overrides` (the dealer asks for N extra days with a reason, bounded by `settings warranty.override_max_days`, default 90), `…/approve`, `…/reject` (`warranty.override.decide`), `GET /warranty/overrides` (dealers see only their own). Approving is the single path that moves a chain's expiry after a sale, and it records what the expiry was before. One request in flight per chain, decisions are final, every step audited.
+- **Chains keep their own numbers (D-16).** `warranty_chains` stored term+grace merged, and the lookup re-derived the term by subtracting whatever the grace setting said *today* — so the day the client changes the grace from 2 to 3, every existing chain would have started reporting a wrong term (dates fine, explanation wrong). Term and grace are now separate columns, plus `expiry_before_override`. Migration `0011` split the existing rows arithmetically; **no cover date changed**.
+- **Two seed bugs of the same family, found by using the thing.** The roles seed was insert-only, so adding `warranty.override.request` to the dealer roles never reached the database and the live test came back `permission_denied`. Roles now upsert their permission set. (Same class as the battery_models fix yesterday — worth remembering that "add it to the seed" is only half the job for any table seeded with ON CONFLICT DO NOTHING.)
+- **Tests: 207 backend** (+12 for overrides), 8 shared. **Verified live on Neon, the whole journey**: an I400 made Jan 2025 (18+2 months → cover ended 31 Aug 2026) is refused with `warranty_expired`; 400 days is refused as `override_too_long`; the dealer asks for 60 days; a second request is refused; the dealer cannot decide their own; head office approves → chain moves 2026-08-31 → 2026-10-30 with the old date kept and `extendedByOverride` true; deciding twice is refused; **the same replacement entry then approves**.
+**Decisions:** the override extends the chain rather than special-casing the entry check, so every reader of cover — lookup, entries, the dealer's card — sees the same dates with no extra branch. Bounded by a setting rather than hard-coded, since the client will have a view on the limit.
+**Note on the colleague's change:** `entries.approve` now requires the old battery to have physically arrived (`old_battery_not_arrived`) before a replacement is decided — so the order is submit → dispatch → receive → approve, and an expired chain is discovered only at that last step. Worth raising with the team: catching it at submission would save the battery a trip.
+**Blockers / decisions needed:** unchanged — D-15 (batch month), the DIN sizes, D-08 (real credit rates).
+**Next:** the admin console's "Record an entry" still uses a single model dropdown; the override screens in the console are still local-only.
+
+---
+
 ### 2026-09-26 · client settled the 400 range and the date format; seed became the source of truth (Claude Code)
 **Worked on:** applying the client's answers of 25 Sep, and pulling the colleague's entries/stock work.
 **Done:**

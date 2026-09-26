@@ -207,7 +207,7 @@ async function putOldBatteryOnRecord(
     } as never);
     await postMovementInTx(tx, ctx, { battery: null, batteryId: battery.id, toState: 'sold', toCustodian: 'customer', toDealerId: entry.dealerId, entryId: entry.id, reasonCode: 'entry_approved', reasonText: 'Put on record at replacement (not sold through the app)' });
   }
-  const chain = await batteriesRepo.insertChain(tx, { rootBatteryId: battery.id, warrantyStart: cover.startDate, warrantyExpiry: cover.expiryDate, termMonths: cover.termMonths + cover.graceMonths });
+  const chain = await batteriesRepo.insertChain(tx, { rootBatteryId: battery.id, warrantyStart: cover.startDate, warrantyExpiry: cover.expiryDate, termMonths: cover.termMonths, graceMonths: cover.graceMonths });
   return batteriesRepo.updateBatteryChainId(tx, battery.id, chain.id);
 }
 
@@ -234,7 +234,8 @@ async function approveRegularSaleItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
     rootBatteryId: battery.id,
     warrantyStart: cover.startDate,
     warrantyExpiry: cover.expiryDate,
-    termMonths: cover.termMonths + cover.graceMonths,
+    termMonths: cover.termMonths,
+    graceMonths: cover.graceMonths,
   });
   const updated = await batteriesRepo.updateBatteryChainId(tx, battery.id, chain.id);
   await postMovementInTx(tx, ctx, { battery: null, batteryId: battery.id, toState: 'sold', toCustodian: 'customer', toDealerId: entry.dealerId, entryId: entry.id, reasonCode: 'entry_approved' });

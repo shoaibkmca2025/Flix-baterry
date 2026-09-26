@@ -24,7 +24,7 @@ const ROLES = [
     scope: 'dealer' as const,
     templatePermissions: [
       'entries.read', 'entries.create', 'entries.submit', 'corrections.request',
-      'batteries.read', 'warranty.read', 'claims.read', 'credits.read', 'returns.dispatch', 'stock.read',
+      'batteries.read', 'warranty.read', 'warranty.override.request', 'claims.read', 'credits.read', 'returns.dispatch', 'stock.read',
       'customers.read', 'customers.write', 'evidence.upload', 'evidence.read',
       'reports.run', 'reports.export', 'notifications.read',
     ],
@@ -36,7 +36,7 @@ const ROLES = [
     scope: 'dealer' as const,
     templatePermissions: [
       'entries.read', 'entries.create', 'entries.submit', 'corrections.request',
-      'batteries.read', 'warranty.read', 'claims.read', 'credits.read', 'returns.dispatch', 'stock.read',
+      'batteries.read', 'warranty.read', 'warranty.override.request', 'claims.read', 'credits.read', 'returns.dispatch', 'stock.read',
       'customers.read', 'customers.write', 'evidence.upload', 'evidence.read',
       'reports.run', 'reports.export', 'notifications.read', 'dealers.staff.manage',
     ],
@@ -142,8 +142,13 @@ export async function seedMasters() {
   for (const city of CITIES) {
     await db.insert(cities).values(city).onConflictDoNothing({ target: cities.name });
   }
+  // System roles are defined here, not by hand in the database, so a permission added to one
+  // has to reach the existing row — insert-only left the old permission set in place.
   for (const role of ROLES) {
-    await db.insert(roles).values(role).onConflictDoNothing({ target: roles.key });
+    await db
+      .insert(roles)
+      .values(role)
+      .onConflictDoUpdate({ target: roles.key, set: { label: role.label, scope: role.scope, templatePermissions: role.templatePermissions } });
   }
   for (const plate of PLATE_TYPES) {
     await db
@@ -170,5 +175,6 @@ export async function seedMasters() {
       });
   }
   await db.insert(settings).values({ key: 'warranty.grace_months', value: 2 }).onConflictDoNothing({ target: settings.key });
+  await db.insert(settings).values({ key: 'warranty.override_max_days', value: 90 }).onConflictDoNothing({ target: settings.key });
   console.log(`Seeded ${CITIES.length} cities, ${ROLES.length} roles, ${PLATE_TYPES.length} plate/series codes, ${LEGACY_MODELS.length + CATALOGUE_MODELS.length} battery models.`);
 }

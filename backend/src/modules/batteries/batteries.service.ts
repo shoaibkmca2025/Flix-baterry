@@ -13,9 +13,26 @@ function todayIso(ctx: Ctx): string {
   return ctx.now().toISOString().slice(0, 10);
 }
 
-function coverFromChain(chain: { warrantyStart: string; warrantyExpiry: string; termMonths: number }, mfgMonth: string | null, today: string, grace: number) {
+// A chain carries the term and grace it was opened with, so it still explains itself correctly
+// years later even if the catalogue term or the grace setting has changed since (D-16).
+function coverFromChain(
+  chain: { warrantyStart: string; warrantyExpiry: string; termMonths: number; graceMonths: number; expiryBeforeOverride: string | null },
+  mfgMonth: string | null,
+  today: string,
+) {
   const daysRemaining = Math.ceil((Date.parse(chain.warrantyExpiry) - Date.parse(today)) / 86_400_000);
-  return { mfgMonth, startDate: chain.warrantyStart, expiryDate: chain.warrantyExpiry, inWarranty: daysRemaining >= 0, daysRemaining, warrantyStart: chain.warrantyStart, termMonths: Math.max(0, chain.termMonths - grace), graceMonths: grace };
+  return {
+    mfgMonth,
+    startDate: chain.warrantyStart,
+    expiryDate: chain.warrantyExpiry,
+    inWarranty: daysRemaining >= 0,
+    daysRemaining,
+    warrantyStart: chain.warrantyStart,
+    termMonths: chain.termMonths,
+    graceMonths: chain.graceMonths,
+    extendedByOverride: chain.expiryBeforeOverride !== null,
+    expiryBeforeOverride: chain.expiryBeforeOverride,
+  };
 }
 
 // architecture.md §9.9 batteries.lookup — capture-time lookup. Never reveals which OTHER
@@ -74,7 +91,7 @@ export async function lookup(ctx: Ctx, code: string, modelIdHint?: string) {
     battery.chainId ? repo.findChainById(db, battery.chainId) : undefined,
     battery.replacedFromId ? repo.findReplacementLinkByNewBatteryId(db, battery.id) : undefined,
   ]);
-  const cover = chain ? coverFromChain(chain, mfgMonth, todayIso(ctx), grace) : checkWarranty(mfgMonth!, todayIso(ctx), model?.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS, grace);
+  const cover = chain ? coverFromChain(chain, mfgMonth, todayIso(ctx)) : checkWarranty(mfgMonth!, todayIso(ctx), model?.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS, grace);
 
   // custody never names which OTHER dealer holds it — 'other' is as specific as a dealer
   // caller gets. An admin caller additionally gets the real dealerId via `battery.dealerId`

@@ -169,7 +169,7 @@ describe('approve — regular_sales (first sale, opens a new chain)', () => {
     const result = await approve(adminCtx, 'entry-1', 'Looks good');
 
     // code 26041212 → made April 2026; M5 is 24 months + 2 grace → 2026-04-01 … 2028-05-31, whatever the sale date
-    expect(batteriesRepo.insertChain).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ rootBatteryId: 'batt-1', warrantyStart: '2026-04-01', warrantyExpiry: '2028-05-31', termMonths: 26 }));
+    expect(batteriesRepo.insertChain).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ rootBatteryId: 'batt-1', warrantyStart: '2026-04-01', warrantyExpiry: '2028-05-31', termMonths: 24, graceMonths: 2 }));
     expect(result.entry.status).toBe('approved');
   });
 
@@ -198,7 +198,7 @@ describe('approve — replacement (inherits the old chain, raises a claim)', () 
 
     await expect(approve(adminCtx, 'entry-1', 'ok')).rejects.toMatchObject({ code: 'warranty_expired' });
     expect(batteriesRepo.insertBattery).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ batteryCode: 'M220021030047', modelId: 'M2200', notOnRecord: true, state: 'sold', custodian: 'customer', dealerId: 'dealer-1' }));
-    expect(batteriesRepo.insertChain).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ rootBatteryId: 'old-new', warrantyStart: '2021-03-01', warrantyExpiry: '2023-10-31', termMonths: 32 }));
+    expect(batteriesRepo.insertChain).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ rootBatteryId: 'old-new', warrantyStart: '2021-03-01', warrantyExpiry: '2023-10-31', termMonths: 30, graceMonths: 2 }));
   });
 
   it('a not-on-record old battery still in cover goes through: chain created, replacement linked, claim raised', async () => {
