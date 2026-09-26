@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiBaseUrl } from './config';
+import { refreshAccessToken } from './session';
 
 // architecture.md §6.1 — the error envelope every backend route returns.
 export class ApiError extends Error {
@@ -46,12 +47,20 @@ export function setUnauthorizedHandler(handler: (() => void) | null) {
   unauthorizedHandler = handler;
 }
 
-export async function apiPost<T>(path: string, body: unknown, options: ApiOptions = {}): Promise<T> {
+/** One request; on a 401 the access token is refreshed once and the request retried with it. */
+async function send<T>(method: 'GET' | 'POST' | 'PATCH', path: string, body: unknown, options: ApiOptions): Promise<T> {
   const deviceId = await getDeviceId();
-  const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Device-Id': deviceId };
-  if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
-
-  const res = await fetch(`${await getApiBaseUrl()}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
+  const go = async (token?: string) => {
+    const headers: Record<string, string> = { 'X-Device-Id': deviceId };
+    if (method !== 'GET') headers['Content-Type'] = 'application/json';
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return fetch(`${await getApiBaseUrl()}${path}`, { method, headers, body: method === 'GET' ? undefined : JSON.stringify(body) });
+  };
+  let res = await go(options.accessToken);
+  if (res.status === 401 && options.accessToken) {
+    const fresh = await refreshAccessToken();
+    if (fresh) res = await go(fresh);
+  }
   const json = await res.json().catch(() => ({}));
   if (res.status === 401 && options.accessToken) unauthorizedHandler?.();
   if (!res.ok) {
@@ -60,35 +69,18 @@ export async function apiPost<T>(path: string, body: unknown, options: ApiOption
   return json as T;
 }
 
-export async function apiGet<T>(path: string, options: ApiOptions = {}): Promise<T> {
-  const deviceId = await getDeviceId();
-  const headers: Record<string, string> = { 'X-Device-Id': deviceId };
-  if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
-
-  const res = await fetch(`${await getApiBaseUrl()}${path}`, { method: 'GET', headers });
-  const json = await res.json().catch(() => ({}));
-  if (res.status === 401 && options.accessToken) unauthorizedHandler?.();
-  if (!res.ok) {
-    throw new ApiError(res.status, json.error ?? { code: 'unknown_error', message: 'Something went wrong. Try again.' });
-  }
-  return json as T;
+export function apiPost<T>(path: string, body: unknown, options: ApiOptions = {}): Promise<T> {
+  return send<T>('POST', path, body, options);
 }
 
-export async function apiPatch<T>(path: string, body: unknown, options: ApiOptions = {}): Promise<T> {
-  const deviceId = await getDeviceId();
-  const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Device-Id': deviceId };
-  if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`;
-
-  const res = await fetch(`${await getApiBaseUrl()}${path}`, { method: 'PATCH', headers, body: JSON.stringify(body) });
-  const json = await res.json().catch(() => ({}));
-  if (res.status === 401 && options.accessToken) unauthorizedHandler?.();
-  if (!res.ok) {
-    throw new ApiError(res.status, json.error ?? { code: 'unknown_error', message: 'Something went wrong. Try again.' });
-  }
-  return json as T;
+export function apiGet<T>(path: string, options: ApiOptions = {}): Promise<T> {
+  return send<T>('GET', path, undefined, options);
 }
 
-/** The message to show a person for a failed call — the server's own wording when it gave one. */
+export function apiPatch<T>(path: string, body: unknown, options: ApiOptions = {}): Promise<T> {
+  return send<T>('PATCH', path, body, options);
+}
+
 export function errorMessage(e: unknown, fallback = 'Could not reach the server. Try again.'): string {
   return e instanceof ApiError ? e.message : fallback;
 }

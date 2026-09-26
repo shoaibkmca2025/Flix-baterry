@@ -23,10 +23,13 @@ vi.mock('./auth.repository', () => ({
   revokeAllSessionsForUser: vi.fn(),
   insertLoginAttempt: vi.fn(),
   countRecentBadLogins: vi.fn(),
+  findSessionByRefreshHash: vi.fn(),
+  revokeSession: vi.fn(),
+  revokeSessionFamily: vi.fn(),
 }));
 
 import * as repo from './auth.repository';
-import { loginWithPassword, requestOtp, verifyOtp } from './auth.service';
+import { loginWithPassword, refresh, requestOtp, verifyOtp } from './auth.service';
 import { hashOtp, hashPassword } from '../../utils/crypto';
 import { AppError } from '../../utils/errors';
 import type { Ctx } from '../../utils/context';
@@ -181,5 +184,46 @@ describe('loginWithPassword', () => {
     const result = await verifyOtp(ctx, { challengeId: 'chal-2fa', code: '123456' });
 
     expect(result).toHaveProperty('accessToken');
+  });
+});
+
+describe('refresh (rotating refresh tokens)', () => {
+  const rctx = { user: null, request: { id: 'req-9', ip: '127.0.0.1' }, now: () => new Date('2026-09-26T12:00:00Z') } as unknown as Ctx;
+  const live = { id: 'sess-1', userId: 'user-1', familyId: 'fam-1', deviceId: 'dev-1', revokedAt: null, expiresAt: new Date('2026-10-20T00:00:00Z') };
+
+  it('swaps a live refresh token for a new pair and revokes the old one as rotated', async () => {
+    vi.mocked(repo.findSessionByRefreshHash).mockResolvedValue(live as never);
+    vi.mocked(repo.findUserById).mockResolvedValue({ id: 'user-1', status: 'active', scope: 'admin', role: 'main_admin', dealerId: null } as never);
+    vi.mocked(repo.insertSession).mockResolvedValue({ id: 'sess-2' } as never);
+
+    const r = await refresh(rctx, { refreshToken: 'x'.repeat(40) });
+
+    expect(r.accessToken).toBeTruthy();
+    expect(r.refreshToken).toBeTruthy();
+    expect(repo.insertSession).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ userId: 'user-1', familyId: 'fam-1' }));
+    expect(repo.revokeSession).toHaveBeenCalledWith(expect.anything(), 'sess-1', 'rotated', 'sess-2');
+  });
+
+  it('a reused (already rotated) token revokes the whole family and is refused', async () => {
+    vi.mocked(repo.findSessionByRefreshHash).mockResolvedValue({ ...live, revokedAt: new Date() } as never);
+    await expect(refresh(rctx, { refreshToken: 'x'.repeat(40) })).rejects.toMatchObject({ code: 'session_invalid', status: 401 });
+    expect(repo.revokeSessionFamily).toHaveBeenCalledWith(expect.anything(), 'fam-1', 'refresh_token_reused');
+    expect(repo.insertSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unknown or expired refresh token', async () => {
+    vi.mocked(repo.findSessionByRefreshHash).mockResolvedValue(undefined as never);
+    await expect(refresh(rctx, { refreshToken: 'x'.repeat(40) })).rejects.toMatchObject({ code: 'session_invalid' });
+    vi.mocked(repo.findSessionByRefreshHash).mockResolvedValue({ ...live, expiresAt: new Date('2026-09-01T00:00:00Z') } as never);
+    await expect(refresh(rctx, { refreshToken: 'x'.repeat(40) })).rejects.toMatchObject({ code: 'session_expired' });
+  });
+
+  it('refuses a blocked user and a suspended dealer', async () => {
+    vi.mocked(repo.findSessionByRefreshHash).mockResolvedValue(live as never);
+    vi.mocked(repo.findUserById).mockResolvedValue({ id: 'user-1', status: 'temporarily_blocked' } as never);
+    await expect(refresh(rctx, { refreshToken: 'x'.repeat(40) })).rejects.toMatchObject({ code: 'user_blocked' });
+    vi.mocked(repo.findUserById).mockResolvedValue({ id: 'user-1', status: 'active', scope: 'dealer', role: 'dealer_manager', dealerId: 'd-1' } as never);
+    vi.mocked(repo.findDealerById).mockResolvedValue({ id: 'd-1', status: 'suspended' } as never);
+    await expect(refresh(rctx, { refreshToken: 'x'.repeat(40) })).rejects.toMatchObject({ code: 'dealer_not_active' });
   });
 });

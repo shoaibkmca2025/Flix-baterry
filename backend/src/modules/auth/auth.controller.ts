@@ -1,7 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { buildCtx } from '../../middleware/context';
 import * as service from './auth.service';
-import type { AdminLoginBody, OtpRequestBody, OtpVerifyBody, PasswordForgotBody, PasswordResetBody } from './auth.validation';
+import type { AdminLoginBody, OtpRequestBody, OtpVerifyBody, PasswordForgotBody, PasswordResetBody, RefreshBody } from './auth.validation';
 
 export async function otpRequest(request: FastifyRequest<{ Body: OtpRequestBody }>, reply: FastifyReply) {
   const result = await service.requestOtp(buildCtx(request), request.body);
@@ -26,4 +26,8 @@ export async function passwordForgot(request: FastifyRequest<{ Body: PasswordFor
 export async function passwordReset(request: FastifyRequest<{ Body: PasswordResetBody }>, reply: FastifyReply) {
   const result = await service.resetPassword(buildCtx(request), request.body);
   reply.status(200).send(result);
+}
+
+export async function refresh(request: FastifyRequest<{ Body: RefreshBody }>, reply: FastifyReply) {
+  reply.status(200).send(await service.refresh(buildCtx(request), request.body));
 }

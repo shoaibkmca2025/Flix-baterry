@@ -20,7 +20,9 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
   let claims;
   try {
     claims = await verifyAccessToken(header.slice(7));
-  } catch {
+  } catch (err) {
+    // jose raises JWTExpired with the stable code ERR_JWT_EXPIRED: the app refreshes and retries on it
+    if ((err as { code?: string }).code === 'ERR_JWT_EXPIRED') throw new AppError('token_expired', 401, 'Your session needs refreshing.');
     throw new AppError('unauthenticated', 401, 'Sign in required.');
   }
   // INV-status-every-request (rules.md): a blocked user or a suspended dealer's staff is

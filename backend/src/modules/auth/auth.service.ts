@@ -1,12 +1,12 @@
 import { db, withTransaction, type Tx } from '../../database/client';
 import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
-import { hashOtp, hashPassword, otpCode, verifyPassword } from '../../utils/crypto';
+import { hashOtp, hashPassword, otpCode, sha256, verifyPassword } from '../../utils/crypto';
 import { AppError } from '../../utils/errors';
 import { env } from '../../config/env';
 import * as repo from './auth.repository';
 import { newFamilyId, newRefreshToken, signAccessToken, signVerifiedToken, verifyVerifiedToken } from './auth.tokens';
-import type { AdminLoginBody, OtpVerifyBody, PasswordResetBody } from './auth.validation';
+import type { AdminLoginBody, OtpVerifyBody, PasswordResetBody, RefreshBody } from './auth.validation';
 
 // requestOtp is also called internally for 'admin_2fa', which a client never requests
 // directly (auth.validation.OtpRequestBody deliberately excludes it from the public schema).
@@ -102,7 +102,7 @@ async function issueTokens(
 ) {
   const accessToken = await signAccessToken({ sub: user.id, scope: user.scope, role: user.role, dealerId: user.dealerId ?? undefined });
   const { token: refreshToken, hash } = newRefreshToken();
-  await repo.insertSession(tx, {
+  const session = await repo.insertSession(tx, {
     userId: user.id,
     refreshHash: hash,
     familyId: familyId ?? newFamilyId(),
@@ -111,7 +111,7 @@ async function issueTokens(
     ip: ctx.request.ip,
     expiresAt: new Date(ctx.now().getTime() + env.REFRESH_TOKEN_TTL_DAYS * 86_400_000),
   });
-  return { accessToken, refreshToken };
+  return { accessToken, refreshToken, sessionId: session.id };
 }
 
 export async function verifyOtp(ctx: Ctx, input: OtpVerifyBody) {
@@ -148,7 +148,7 @@ export async function verifyOtp(ctx: Ctx, input: OtpVerifyBody) {
       return t;
     });
 
-    return { ...tokens, user: { id: user.id, name: user.name, scope: user.scope, role: user.role }, dealer };
+    return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, user: { id: user.id, name: user.name, scope: user.scope, role: user.role }, dealer };
   }
 
   // register / verify_mobile / reset — prove the OTP was checked, hand back a short-lived
@@ -204,4 +204,36 @@ export async function resetPassword(ctx: Ctx, input: PasswordResetBody) {
   });
 
   return { ok: true as const };
+}
+
+/**
+ * Rotating refresh (architecture.md §7): the access token lives 15 minutes, the refresh token
+ * 30 days but only ONE use — each call revokes it and issues a new pair in the same family.
+ * Presenting a refresh token that was already rotated means two parties hold it (a stolen
+ * copy), so the whole family is revoked and both must sign in again.
+ */
+export async function refresh(ctx: Ctx, input: RefreshBody) {
+  const session = await repo.findSessionByRefreshHash(db, sha256(input.refreshToken));
+  if (!session) throw new AppError('session_invalid', 401, 'Please sign in again.');
+  if (session.revokedAt) {
+    await withTransaction(async (tx) => {
+      await repo.revokeSessionFamily(tx, session.familyId, 'refresh_token_reused');
+      await audit(tx, { ctx, action: 'auth.refresh_reused', entityType: 'user', entityId: session.userId, outcome: 'denied' });
+    });
+    throw new AppError('session_invalid', 401, 'Please sign in again.');
+  }
+  if (session.expiresAt < ctx.now()) throw new AppError('session_expired', 401, 'Your sign-in has expired. Please sign in again.');
+
+  const user = await repo.findUserById(db, session.userId);
+  if (!user || user.status !== 'active') throw new AppError('user_blocked', 403, 'This account is not active.');
+  if (user.dealerId) {
+    const dealer = await repo.findDealerById(db, user.dealerId);
+    if (!dealer || dealer.status !== 'active') throw new AppError('dealer_not_active', 403, 'This shop is not active. Contact Felix Batteries head office.');
+  }
+
+  return withTransaction(async (tx) => {
+    const t = await issueTokens(tx, { id: user.id, scope: user.scope, role: user.role, dealerId: user.dealerId }, input.deviceId ?? session.deviceId ?? undefined, ctx, session.familyId);
+    await repo.revokeSession(tx, session.id, 'rotated', t.sessionId);
+    return { accessToken: t.accessToken, refreshToken: t.refreshToken };
+  });
 }

@@ -31,3 +31,10 @@ export const PasswordResetBody = z.object({
   newPassword: z.string().min(8, 'At least 8 characters.'),
 });
 export type PasswordResetBody = z.infer<typeof PasswordResetBody>;
+
+// A refresh token is single-use: POST /auth/refresh swaps it for a new access + refresh pair.
+export const RefreshBody = z.object({
+  refreshToken: z.string().min(20),
+  deviceId: z.string().optional(),
+});
+export type RefreshBody = z.infer<typeof RefreshBody>;
