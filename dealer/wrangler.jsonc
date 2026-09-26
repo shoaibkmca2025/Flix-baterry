@@ -1,0 +1,11 @@
+// Cloudflare Workers static-assets site. Build first (npm run build:web in this folder),
+// then `npx wrangler deploy`. In the dashboard (Workers Builds) the Worker must be named "felix-dealer".
+{
+  "name": "felix-dealer",
+  "compatibility_date": "2026-09-26",
+  "assets": {
+    "directory": "./dist",
+    // an SPA: any path that is not a file gets index.html with 200
+    "not_found_handling": "single-page-application"
+  }
+}

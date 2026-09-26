@@ -45,6 +45,15 @@
         "projectId": "78f98d01-b9b9-4095-8a8e-d3924cda0174"
       }
     },
-    "owner": "shoaib97"
+    "owner": "shoaib97",
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "name": "Felix Dealer",
+      "shortName": "Felix Dealer",
+      "themeColor": "#141A23",
+      "backgroundColor": "#141A23",
+      "lang": "en-IN"
+    }
   }
 }

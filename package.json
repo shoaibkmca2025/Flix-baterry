@@ -14,9 +14,14 @@
     "build:dealer": "npm run build --workspace dealer",
     "backend": "npm run dev --prefix backend",
     "typecheck": "npm run typecheck --workspace dealer && npm run typecheck --workspace admin",
-    "test": "tsx --test shared/tests/*.test.ts"
+    "test": "tsx --test shared/tests/*.test.ts",
+    "build:web:dealer": "npm run build:web --workspace dealer",
+    "build:web:admin": "npm run build:web --workspace admin",
+    "deploy:dealer": "npm run build:web:dealer && cd dealer && npx wrangler deploy",
+    "deploy:admin": "npm run build:web:admin && cd admin && npx wrangler deploy"
   },
   "devDependencies": {
+    "@neon/config": "^1.8.2",
     "@types/node": "^26.5.1",
     "@types/react": "~19.2.2",
     "tsx": "^4.20.6",
