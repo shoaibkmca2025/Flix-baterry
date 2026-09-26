@@ -31,7 +31,6 @@ export function useSyncNow() {
     d.toast(bad ? `${sent} sent. ${bad} need a fix — see My requests.` : `${sent} ${sent === 1 ? 'entry' : 'entries'} sent to head office.`);
   };
   return async () => {
-    if (state.offline) { d.toast('Still offline. Your entries stay saved on this phone.'); return; }
     const rows = state.entries.filter(e => e.dealerId === dealerId && e.status === 'Pending sync');
     const token = await getAccessToken();
     if (token) {
@@ -76,9 +75,7 @@ export function D07() {
   if (drafts.length) alerts.push({ av: ['pen', 'mute'], title: `${drafts.length} ${drafts.length === 1 ? 'entry' : 'entries'} not finished`, sub: 'Continue where you left off', go: () => d.go('d18', 'notsent') });
   if (back.length) alerts.push({ av: ['truck', 'amber'], title: `${back.length} old ${back.length === 1 ? 'battery' : 'batteries'} to send back`, sub: `Oldest has been in your shop ${ageDays(back[back.length - 1].date)} days`, go: () => d.tab('d33') });
   alerts.push({ av: ['check', 'green'], title: `${rupees(cn.monthTotal)} credited this month`, sub: `${cn.monthCount} ${cn.monthCount === 1 ? 'claim' : 'claims'} approved · ${cn.checking.length} still being checked`, go: () => d.go('d37') });
-  return <Screen tab="home" top={<AppBar dark left={<View style={{ flex: 1 }}><X s={12} c="#8C9BAE">Welcome back</X><X s={20} w={7} f="c" c={T.white} numberOfLines={1}>{dealer.name}</X></View>}
-    right={<Pressable accessibilityRole="button" accessibilityLabel={state.offline ? 'Offline — tap to go online' : 'Online — tap to try offline mode'} onPress={() => { setState(s => ({ ...s, offline: !s.offline })); d.toast(state.offline ? 'Back online. Saved entries can be sent now.' : 'Offline mode: new entries are saved on this phone until you go online.'); }}>
-      {state.offline ? <Chip tone="warn" icon="cloud" label="Offline" /> : <Chip tone="live" icon="wifi" label="Online" />}</Pressable>} />}>
+  return <Screen tab="home" top={<AppBar dark left={<View style={{ flex: 1 }}><X s={12} c="#8C9BAE">Welcome back</X><X s={20} w={7} f="c" c={T.white} numberOfLines={1}>{dealer.name}</X></View>} />}>
     <Kpis items={[
       { v: String(sent.reduce((t, e) => t + e.items.length, 0)), l: 'Batteries recorded' },
       { v: String(sent.filter(e => e.type === 'Replacement').reduce((t, e) => t + e.items.length, 0)), l: 'Replacements' },
@@ -100,7 +97,6 @@ export function D07() {
 export function D09() {
   const d = useD(); const { state, setState, dealerId } = useStore();
   const dealer = state.dealers.find(x => x.id === dealerId)!;
-  const queued = state.entries.filter(e => e.dealerId === dealerId && e.status === 'Pending sync').length;
   return <Screen tab="user" top={<AppBar title="Profile & settings" />}>
     <Card style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
       <View style={{ width: 52, height: 52, borderRadius: 9, backgroundColor: T.steelSoft, alignItems: 'center', justifyContent: 'center' }}><Avatar n="shop" /></View>
@@ -112,8 +108,7 @@ export function D09() {
     <SecT title="App" />
     <Card>
       <Line onPress={() => setState(s => ({ ...s, language: s.language === 'English' ? 'मराठी' : 'English' }))} av={<Avatar n="doc" tone="mute" />} title="Language" sub="English · मराठी" right={<Chip tone="info" label={state.language} />} />
-      <Line onPress={() => setState(s => ({ ...s, smsAlerts: !(s.smsAlerts ?? true) }))} av={<Avatar n="bell" tone="mute" />} title="Alerts by SMS" sub="Status changes and warranty reminders" right={state.smsAlerts ?? true ? <Chip tone="live" label="On" /> : <Chip tone="mute" label="Off" />} />
-      <Line last av={<Avatar n="cloud" tone="mute" />} title="Keep working offline" sub={queued ? `Saves your work on this phone until signal returns · ${queued} waiting` : 'Saves your work on this phone until signal returns'} right={<Chip tone="live" label="On" />} />
+      <Line last onPress={() => setState(s => ({ ...s, smsAlerts: !(s.smsAlerts ?? true) }))} av={<Avatar n="bell" tone="mute" />} title="Alerts by SMS" sub="Status changes and warranty reminders" right={state.smsAlerts ?? true ? <Chip tone="live" label="On" /> : <Chip tone="mute" label="Off" />} />
     </Card>
     <Btn kind="ghost" label="Sign out" color={T.terminal} borderColor="#F0C7BC" style={{ marginTop: 13 }} onPress={d.signOut} />
     <X s={12} c={T.slate} style={{ textAlign: 'center', marginTop: 14 }}>Felix Dealer App v1.0 · built by 4AM Global Media</X>

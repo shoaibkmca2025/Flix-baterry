@@ -66,7 +66,6 @@ export function D33() {
     if (!picked.length) { d.toast('Tick at least one battery to hand over.'); return; }
     const token = await getAccessToken();
     // A challan has to reach head office to mean anything — never make one that lives only on this phone.
-    if (token && state.offline) { d.toast('You are in offline mode. Go online (tap “Offline” on Home), then dispatch — head office must receive the challan.'); return; }
     if (token) {
       const entryIds = picked.map(e => e.apiId).filter((x): x is string => !!x);
       const unsent = picked.filter(e => !e.apiId).map(e => e.id);
