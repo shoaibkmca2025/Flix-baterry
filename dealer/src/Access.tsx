@@ -65,6 +65,7 @@ export function D02() {
   const [left, setLeft] = useCountdown();
   const inflight = useRef(false); // `busy` lands a render late — a quick double tap would verify the same code twice
   const [devCode, setDevCode] = useState(''); // TEMPORARY: the OTP shown in a popup until SMS is connected
+  const [unregistered, setUnregistered] = useState(false); // the code was right but this number has no shop yet
   const send = async () => {
     if (mobile.length !== 10) { setError({ mobile: 'Enter the 10-digit mobile number.' }); return; }
     setError({}); setBusy(true);
@@ -100,7 +101,10 @@ export function D02() {
       await saveSession({ accessToken: result.accessToken, refreshToken: result.refreshToken }, session);
       d.signIn(session);
     } catch (e) {
-      if (e instanceof ApiError && e.code === 'dealer_not_active') {
+      if (e instanceof ApiError && e.code === 'not_registered') {
+        setChallengeId(''); setCode(''); setUnregistered(true);
+        setError({ mobile: e.message });
+      } else if (e instanceof ApiError && e.code === 'dealer_not_active') {
         const details = e.details as { status?: string; dealerId?: string } | undefined;
         if (details?.status === 'pending_approval' && details.dealerId) { d.go('d05', details.dealerId); return; }
         setError({ mobile: e.message });
@@ -124,7 +128,9 @@ export function D02() {
       <Hint icon="lock" center style={{ marginTop: 10 }}>Shown here only while SMS is not set up. Head office will switch this off.</Hint>
     </Sheet>}>
     <Banner tone="info" icon="phone" style={{ marginBottom: 14 }}>Use the mobile number you registered with. We will send a 6-digit code.</Banner>
-    <Field label="Mobile number" req mr="मोबाइल नंबर" value={grouped(mobile)} onChange={v => setMobile(digits(v, 10))} phone mono pre={phonePre} ph="98765 43210" error={error.mobile} maxLength={11} />
+    <Field label="Mobile number" req mr="मोबाइल नंबर" value={grouped(mobile)} onChange={v => { setMobile(digits(v, 10)); setUnregistered(false); }} phone mono pre={phonePre} ph="98765 43210" error={error.mobile} maxLength={11} />
+    {unregistered && <Banner tone="info" icon="shop" style={{ marginTop: -4, marginBottom: 13 }}><B>No shop uses +91 {grouped(mobile)} yet.</B> Check the number for a typo, or register this number as a new shop.</Banner>}
+    {unregistered && <Btn kind="blue" icon="plus" label="Register this number" style={{ marginBottom: 13 }} onPress={() => d.go('d04', mobile)} />}
     <Card style={{ marginBottom: 13 }}>
       <CardH title="SMS code (OTP)" right={!sent ? <Pressable accessibilityRole="button" onPress={send}><Chip tone="info" icon="phone" label="Send code" /></Pressable>
         : left > 0 ? <Chip tone="mute" icon="clock" label={`Resend in ${left}s`} /> : <Pressable accessibilityRole="button" onPress={send}><Chip tone="info" icon="sync" label="Resend code" /></Pressable>} />
@@ -177,10 +183,10 @@ export function D03() {
 }
 
 /* d04 · self-registration */
-export function D04() {
+export function D04({ p }: { p?: string } = {}) {
   const d = useD(); const { setState } = useStore();
   const cities = useCities();
-  const [f, setF] = useState({ name: '', contact: '', mobile: '', email: '', city: '', state: 'Maharashtra', pin: '', place: '', address: '', password: '' });
+  const [f, setF] = useState({ name: '', contact: '', mobile: /^\d{10}$/.test(p ?? '') ? p! : '', email: '', city: '', state: 'Maharashtra', pin: '', place: '', address: '', password: '' });
   const [gst, setGst] = useState(''), [shopPhoto, setShopPhoto] = useState(''), [verified, setVerified] = useState(false), [otpOpen, setOtpOpen] = useState(false), [otp, setOtp] = useState(''), [cityOpen, setCityOpen] = useState(false), [err, setErr] = useState<Record<string, string>>({});
   const [regCode, setRegCode] = useState(''); // TEMPORARY: OTP shown on screen until SMS is connected
   const [challengeId, setChallengeId] = useState(''), [verifiedToken, setVerifiedToken] = useState(''), [busy, setBusy] = useState(false);

@@ -84,6 +84,16 @@ describe('verifyOtp', () => {
     expect(repo.incrementOtpAttempts).toHaveBeenCalledWith(expect.anything(), 'chal-1', 1);
   });
 
+  it('an unregistered number with the RIGHT code is told it is not registered (404 not_registered)', async () => {
+    vi.mocked(repo.findOtpChallenge).mockResolvedValue({ ...baseChallenge, userId: null } as never);
+    await expect(verifyOtp(ctx, { challengeId: 'chal-1', code: '654321' })).rejects.toMatchObject({ code: 'not_registered', status: 404, nextAction: 'register' });
+  });
+
+  it('an unregistered number with a WRONG code gets the same "not right" as anyone (no probing)', async () => {
+    vi.mocked(repo.findOtpChallenge).mockResolvedValue({ ...baseChallenge, userId: null } as never);
+    await expect(verifyOtp(ctx, { challengeId: 'chal-1', code: '000000' })).rejects.toMatchObject({ code: 'invalid_otp' });
+  });
+
   it('rejects an expired challenge', async () => {
     vi.mocked(repo.findOtpChallenge).mockResolvedValue({ ...baseChallenge, expiresAt: new Date('2020-01-01') } as never);
     await expect(verifyOtp(ctx, { challengeId: 'chal-1', code: '654321' })).rejects.toThrow('expired');

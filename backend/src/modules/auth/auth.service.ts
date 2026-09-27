@@ -121,6 +121,12 @@ export async function verifyOtp(ctx: Ctx, input: OtpVerifyBody) {
 
   if (challenge.purpose === 'login' || challenge.purpose === 'admin_2fa') {
     if (!challenge.userId) {
+      // The code was right (checked above), so whoever holds this phone is asking — telling them the
+      // number has no account reveals nothing to an outsider, who never gets past the code. A wrong
+      // code still gets the same "not right" as everyone else, so numbers can't be probed.
+      if (challenge.purpose === 'login') {
+        throw new AppError('not_registered', 404, 'This mobile number is not registered yet. Check the number, or tap “New dealer? Register” to register your shop.', { field: 'mobile', nextAction: 'register' });
+      }
       throw new AppError('invalid_otp', 422, 'That code is not right. Check the SMS and try again.', { field: 'code' });
     }
     const user = await repo.findUserById(db, challenge.userId);
