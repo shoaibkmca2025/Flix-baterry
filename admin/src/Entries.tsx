@@ -51,7 +51,7 @@ export function useDecisions() {
    * battery has arrived and been checked — that decision is what issues the credit note.
    * This one button does whichever step is next, and says what still has to happen.
    */
-  const approveLive = async (e: Entry, reason: string) => {
+  const approveLive = async (e: Entry, reason: string, amount?: number) => {
     const token = await getAccessToken(); if (!token) return notInV1();
     try {
       if (e.status === 'Submitted') {
@@ -59,7 +59,7 @@ export function useDecisions() {
         a.toast(e.type === 'Replacement' ? 'Entry approved — stock and warranty history updated, claim raised. The credit is decided once the old battery arrives and is checked.' : 'Approved. Stock and battery history are updated.');
       } else if (e.claimId && (e.claimStatus === 'checked' || e.claimStatus === 'received')) {
         if (e.claimStatus === 'received') await checkClaim(e.claimId, { findingCode: 'approved_at_decision', conditionNote: reason, disposition: 'hold' }, token);
-        const r = await decideClaim(e.claimId, 'approved', reason, token);
+        const r = await decideClaim(e.claimId, 'approved', reason, token, amount);
         a.toast(r.creditNote ? `Claim approved. Credit note ${r.creditNote.no} for ${rupees(r.creditNote.amount)} issued to the dealer.` : 'Claim approved.');
       } else if (e.claimId) {
         a.toast(e.claimStatus === 'raised' ? 'The old battery is still at the dealer. It must reach the company (Stock → Old battery returns) before the claim can be approved.' : 'The old battery is on its way. Confirm it arrived (Stock → Old battery returns), then approve.');
@@ -69,10 +69,10 @@ export function useDecisions() {
     finally { sync(true); }
   };
   /** Replacements: one call approves (entry + claim + credit note) or refuses, once the old battery is in. */
-  const settleLive = async (e: Entry, decision: 'approved' | 'refused', reason: string) => {
+  const settleLive = async (e: Entry, decision: 'approved' | 'refused', reason: string, amount?: number) => {
     const token = await getAccessToken(); if (!token) return notInV1();
     try {
-      const r = await settleEntry(e.apiId!, decision, reason, token);
+      const r = await settleEntry(e.apiId!, decision, reason, token, amount);
       const cn = r.creditNotes[0];
       a.toast(decision === 'refused' ? 'Refused. The dealer sees the reason in their app.' : cn ? `Approved. Credit note ${cn.no} for ${rupees(r.creditNotes.reduce((t, c) => t + c.amount, 0))} issued to the dealer.` : 'Approved.');
     } catch (err) { a.toast(errorMessage(err)); return false; }
@@ -93,13 +93,13 @@ export function useDecisions() {
 
   return {
     guard,
-    approve: (e: Entry, reason: string) => {
+    approve: (e: Entry, reason: string, amount?: number) => {
       if (!guard()) return false;
       if (live(e) && e.type === 'Replacement') {
         if (awaitingOldBattery(e)) { a.toast(`${whereIsOld(e)}. Approve it from Old battery returns once it reaches the factory.`); return false; }
         settleLive(e, 'approved', reason); return;
       }
-      if (live(e)) { approveLive(e, reason); return; }
+      if (live(e)) { approveLive(e, reason, amount); return; }
       const errs = validateEntry(e, state);
       if (Object.keys(errs).length) { a.toast(`Cannot approve yet — ${Object.values(errs)[0]}`); return false; }
       setState(s => { const n = approveEntry(s, e); return audit({ ...n, notices: [notice(e.dealerId, `${e.id} approved`, reason), ...n.notices] }, 'Entry approved', e.id, reason, e.status, 'Approved'); });
@@ -172,7 +172,7 @@ export function Approvals({ id }: { id?: string }) {
         ]}
         mobile={{ title: e => dealer(e.dealerId)?.name, sub: e => <><Mono>{e.id}</Mono> · {e.type} · {dShort(e.createdAt)}</>, right: e => <StatusChip status={e.status} /> }} />
     </Box>
-    <ReasonDialog open={act?.kind === 'approve'} title={`Approve ${act?.e.id || ''}`} confirm="Approve claim" kind="blue" suggestions={APPROVE_REASONS} onClose={() => setAct(null)} onConfirm={r => act ? dec.approve(act.e, r) : false}
+    <ReasonDialog open={act?.kind === 'approve'} title={`Approve ${act?.e.id || ''}`} confirm="Approve claim" kind="blue" suggestions={APPROVE_REASONS} amount={{ label: 'Credit to the dealer (₹)', hint: 'Shown to the dealer as what is coming. Your accounts team pays it separately.' }} onClose={() => setAct(null)} onConfirm={(r, amt) => act ? dec.approve(act.e, r, amt) : false}
       intro={act ? <>{state.dealers.find(d => d.id === act.e.dealerId)?.name} · {act.e.items.length} {act.e.items.length === 1 ? 'battery' : 'batteries'}{creditOf(act.e) ? ` · ${rupees(creditOf(act.e))} credit to the dealer` : ''}. Cover dates carry over from the first sale — nothing restarts.</> : undefined} />
     <ReasonDialog open={act?.kind === 'reject'} title={`Refuse ${act?.e.id || ''}`} confirm="Refuse claim" kind="danger" suggestions={REJECT_REASONS} onClose={() => setAct(null)} onConfirm={r => act ? dec.reject(act.e, r) : false}
       intro="The dealer sees this reason in their app. The customer keeps the battery already given; head office settles it with the dealer." />
@@ -336,7 +336,7 @@ export function EntryDetail({ id }: { id?: string }) {
         </Card>}
       </Stack>
     </Cols>
-    <ReasonDialog open={act === 'approve'} title={`Approve ${e.id}`} confirm="Approve" suggestions={APPROVE_REASONS} onClose={() => setAct('')} onConfirm={r => dec.approve(e, r)} intro={creditOf(e) ? `The dealer is credited ${rupees(creditOf(e))}. Cover dates carry over from the first sale.` : 'Stock and battery history are updated.'} />
+    <ReasonDialog open={act === 'approve'} title={`Approve ${e.id}`} confirm="Approve" suggestions={APPROVE_REASONS} amount={e.type === 'Replacement' ? { label: 'Credit to the dealer (₹)', hint: 'Shown to the dealer as what is coming. Your accounts team pays it separately.' } : undefined} onClose={() => setAct('')} onConfirm={(r, amt) => dec.approve(e, r, amt)} intro={creditOf(e) ? `The dealer is credited ${rupees(creditOf(e))}. Cover dates carry over from the first sale.` : 'Stock and battery history are updated.'} />
     <ReasonDialog open={act === 'review'} title="Start a review" confirm="Mark under review" suggestions={['Waiting for the old battery to arrive', 'Checking the label photo', 'Calling the dealer']} onClose={() => setAct('')} onConfirm={r => dec.review(e, r)} />
     <ReasonDialog open={act === 'reject'} title={`Refuse ${e.id}`} confirm="Refuse" kind="danger" suggestions={REJECT_REASONS} onClose={() => setAct('')} onConfirm={r => dec.reject(e, r)} intro="The dealer sees this reason in their app." />
     <ReasonDialog open={act === 'void'} title="Void / archive this entry" confirm="Void entry" kind="danger" onClose={() => setAct('')} onConfirm={r => dec.voidEntry(e, r)} intro="It leaves live totals and reports, but stays fully readable in search, history and the audit log." />

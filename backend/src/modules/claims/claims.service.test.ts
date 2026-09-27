@@ -111,7 +111,7 @@ describe('check — engineer inspection', () => {
 describe('decide — second person, only after checked', () => {
   it('rejects deciding a claim that has not been checked yet', async () => {
     vi.mocked(repo.findClaimById).mockResolvedValue({ id: 'claim-1', status: 'received' } as never);
-    await expect(decide(adminCtx, 'claim-1', { outcome: 'approved', reason: 'Confirmed manufacturing fault' })).rejects.toMatchObject({ code: 'invalid_transition' });
+    await expect(decide(adminCtx, 'claim-1', { outcome: 'approved', reason: 'Confirmed manufacturing fault', amount: 4250 })).rejects.toMatchObject({ code: 'invalid_transition' });
   });
 
   it('refusing does not issue a credit note', async () => {
@@ -130,9 +130,9 @@ describe('decide — second person, only after checked', () => {
     vi.mocked(issueCreditNoteInTx).mockResolvedValue({ id: 'cn-1', no: 'CN-26-09-0001', amount: 4250 } as never);
     vi.mocked(repo.updateClaimDecision).mockResolvedValue({ id: 'claim-1', status: 'approved', creditNoteId: 'cn-1' } as never);
 
-    const result = await decide(adminCtx, 'claim-1', { outcome: 'approved', reason: 'Confirmed manufacturing fault' });
+    const result = await decide(adminCtx, 'claim-1', { outcome: 'approved', reason: 'Confirmed manufacturing fault', amount: 4250 });
 
-    expect(issueCreditNoteInTx).toHaveBeenCalledWith(expect.anything(), adminCtx, { claim });
+    expect(issueCreditNoteInTx).toHaveBeenCalledWith(expect.anything(), adminCtx, { claim, amount: 4250 });
     expect(repo.updateClaimDecision).toHaveBeenCalledWith(expect.anything(), 'claim-1', expect.objectContaining({ status: 'approved', creditNoteId: 'cn-1' }));
     expect(result.creditNote).toMatchObject({ amount: 4250 });
   });

@@ -38,6 +38,7 @@ export function checkClaim(id: string, input: { findingCode: string; conditionNo
   return apiPost<ApiClaim>(`/claims/${id}/check`, input, { accessToken });
 }
 /** Second person's decision; 'approved' issues the credit note. */
-export function decideClaim(id: string, outcome: 'approved' | 'refused', reason: string, accessToken: string) {
-  return apiPost<{ claim: ApiClaim; creditNote: { id: string; no: string; amount: number } | null }>(`/claims/${id}/decide`, { outcome, reason }, { accessToken });
+/** `amount` is the credit head office is telling the dealer to expect; required when approving (D-08). */
+export function decideClaim(id: string, outcome: 'approved' | 'refused', reason: string, accessToken: string, amount?: number) {
+  return apiPost<{ claim: ApiClaim; creditNote: { id: string; no: string; amount: number } | null }>(`/claims/${id}/decide`, { outcome, reason, amount }, { accessToken });
 }

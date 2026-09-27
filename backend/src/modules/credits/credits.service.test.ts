@@ -7,10 +7,6 @@ vi.mock('../../database/client', () => ({
 
 vi.mock('../../utils/audit', () => ({ audit: vi.fn() }));
 
-vi.mock('../batteries/batteries.repository', () => ({
-  findBatteryById: vi.fn(),
-}));
-
 vi.mock('../claims/claims.repository', () => ({
   countClaimsByStatus: vi.fn(),
 }));
@@ -31,7 +27,6 @@ vi.mock('./credits.repository', () => ({
 }));
 
 import { audit } from '../../utils/audit';
-import { findBatteryById } from '../batteries/batteries.repository';
 import { countClaimsByStatus } from '../claims/claims.repository';
 import * as repo from './credits.repository';
 import { getByNo, issueInTx, list, reverse, settle, startOfBusinessMonth, summary } from './credits.service';
@@ -51,26 +46,25 @@ const claim = { id: 'claim-1', ref: 'CLM-26-09-0001', dealerId: 'dealer-1', newB
 beforeEach(() => vi.clearAllMocks());
 
 describe('issueInTx — called by claims.decide', () => {
-  it('prices the note from the new battery model (demo D-08 rates) and numbers it CN-YY-MM-NNNN', async () => {
-    vi.mocked(findBatteryById).mockResolvedValue({ id: 'batt-new', modelId: 'M5' } as never);
+  it('uses the amount head office typed, and numbers the note CN-YY-MM-NNNN', async () => {
     vi.mocked(repo.insertCreditNote).mockImplementation(async (_tx, input) => ({ id: 'cn-1', status: 'issued', ...input }) as never);
 
-    const note = await issueInTx({} as never, adminCtx, { claim });
+    const note = await issueInTx({} as never, adminCtx, { claim, amount: 4250 });
 
     expect(note).toMatchObject({ no: 'CN-26-09-0001', dealerId: 'dealer-1', claimId: 'claim-1', amount: 4250, issuedBy: 'admin-1' });
     expect(audit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'credit_note.issued', entityRef: 'CN-26-09-0001' }));
   });
 
-  it('falls back to the default rate for a model with no demo rate', async () => {
-    vi.mocked(findBatteryById).mockResolvedValue({ id: 'batt-new', modelId: 'ZZ9' } as never);
+  it('never invents a figure — the accounts team decides it, so nothing is derived from the model (D-08)', async () => {
     vi.mocked(repo.insertCreditNote).mockImplementation(async (_tx, input) => ({ id: 'cn-1', ...input }) as never);
 
-    const note = await issueInTx({} as never, adminCtx, { claim });
-    expect(note.amount).toBe(3000);
+    expect((await issueInTx({} as never, adminCtx, { claim, amount: 7 })).amount).toBe(7);
+    // approved with nothing to credit is a real outcome, not an error
+    expect((await issueInTx({} as never, adminCtx, { claim, amount: 0 })).amount).toBe(0);
   });
 
   it('refuses to issue without a signed-in actor', async () => {
-    await expect(issueInTx({} as never, anonCtx, { claim })).rejects.toMatchObject({ code: 'unauthenticated' });
+    await expect(issueInTx({} as never, anonCtx, { claim, amount: 4250 })).rejects.toMatchObject({ code: 'unauthenticated' });
     expect(repo.insertCreditNote).not.toHaveBeenCalled();
   });
 });

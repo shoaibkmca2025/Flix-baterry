@@ -4,18 +4,16 @@ import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
 import { monthKey, nextFormattedRef } from '../../utils/ids';
 import type { warrantyClaims } from '../../models/claims.model';
-import { findBatteryById } from '../batteries/batteries.repository';
 import { countClaimsByStatus } from '../claims/claims.repository';
 import * as repo from './credits.repository';
 import type { CreditNoteListQuery, CreditNoteReverseBody, CreditNoteSettleBody, CreditNoteSummaryQuery } from './credits.validation';
 
 // M-18 credits — modules.md. Owns credit_notes: claims.decide issues through issueInTx (same
 // transaction), dealers read their own notes (d37 / d32 card), admins settle or reverse.
-
-// memory.md D-08 — still open (client hasn't supplied real rates). These match the demo
-// values already in the app; swap for a real credit_rates table lookup once D-08 closes.
-const DEMO_CREDIT_RATES: Record<string, number> = { M3: 3800, M5: 4250, M7: 4900, B5: 3600, S5: 1400, I700: 5200 };
-const DEFAULT_CREDIT_RATE = 3000;
+//
+// The amount is NOT worked out here. Felix's accounts team decides and pays it outside this
+// system; the credit note exists to tell the dealer what is coming, so head office types the
+// figure when it decides the claim (memory.md D-08, closed 26 Sep 2026).
 
 const BUSINESS_TZ_OFFSET_MS = 5.5 * 60 * 60 * 1000; // Asia/Kolkata, no DST (memory.md §12)
 
@@ -35,10 +33,9 @@ type Claim = typeof warrantyClaims.$inferSelect;
 // Called by claims.decide inside its own transaction — the caller stores the returned note's
 // id on the claim row. The audit row for the claim's approval belongs to claims; the one for
 // the note's issue belongs here.
-export async function issueInTx(tx: Tx, ctx: Ctx, input: { claim: Pick<Claim, 'id' | 'ref' | 'dealerId' | 'newBatteryId'> }) {
+export async function issueInTx(tx: Tx, ctx: Ctx, input: { claim: Pick<Claim, 'id' | 'ref' | 'dealerId' | 'newBatteryId'>; amount: number }) {
   const user = requireUser(ctx);
-  const newBattery = await findBatteryById(tx, input.claim.newBatteryId);
-  const amount = (newBattery && DEMO_CREDIT_RATES[newBattery.modelId]) ?? DEFAULT_CREDIT_RATE;
+  const amount = input.amount;
   const issuedAt = ctx.now();
   const no = await nextFormattedRef(tx, 'CN', 'credit_note', monthKey(issuedAt));
   const note = await repo.insertCreditNote(tx, { no, dealerId: input.claim.dealerId, claimId: input.claim.id, amount, issuedBy: user.id, issuedAt });

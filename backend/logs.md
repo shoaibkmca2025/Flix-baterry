@@ -38,6 +38,20 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-27 · the credit amount is head office's to type, not the system's to invent (Claude Code)
+**Worked on:** three answers from the team, one of which changes behaviour.
+**Done:**
+- **D-08 closed — and the demo rate table is gone.** The client's accounts team decides what each claim is worth and pays the dealer themselves, outside this system; the credit note exists only to tell the dealer what is coming. So the amount is now **typed by head office at the moment of approval** (`amount` on `POST /entries/{id}/settle` and `POST /claims/{id}/decide`): whole rupees, required when approving, `0` allowed and meaning "approved, nothing to credit". `credits.issueInTx` takes the figure rather than deriving it, and the `DEMO_CREDIT_RATES` map (M5 = 4250 …) is deleted. That map was the one place the system made up a number that turns into money — better gone than carried to go-live and quietly used.
+- **Console asks for it.** `ReasonDialog` grew an optional amount field, so approving a replacement now prompts "Credit to the dealer (₹)" alongside the reason, with the note that accounts pays it separately. Both approve paths (the claim decision and the one-step settle) pass it through.
+- **D-15 closed as a team assumption**: a battery made after the 25th carries the next month's stamp (28 Sep → `2610`), so each stamp period holds one serial cycle and the D-13 identity can never collide. No code change — cover is already anchored at the 1st of the stamped month. Reversible if the client contradicts it.
+- **DIN settled for now**: use the 25 Sep warranty grid only (I Din 75, I Din 50, K Din 60, M Din 66); the older sheet and the e-catalogue PDF are disregarded. Already seeded that way, so nothing to change.
+- **Tests: 216 backend**, 8 shared, both apps typecheck. **Verified live on Neon**: approving with no amount is refused ("Enter the credit amount for this claim."), a negative amount is refused, head office types 3175 → credit note `CN-26-09-0005 = 3175` → the dealer's own list and month total show exactly that → the audit row carries the figure.
+**Decisions:** required-when-approving rather than defaulted, so nobody can approve a claim and leave the dealer with a number nobody chose. `0` is valid because "we replaced it but there is no credit" is a real outcome.
+**Blockers / decisions needed:** none outstanding for the backend V1 flow. The client may still revisit D-15 and the DIN sizes.
+**Next:** the admin override screen (the D-17 backend exists but has no UI), "Record an entry"'s single model dropdown, and d37's locally-computed credit figures — that last one now matters more, since the server holds the real amounts.
+
+---
+
 ### 2026-09-26 · warranty settled: chains keep their own numbers, and overrides actually exist (Claude Code)
 **Worked on:** closing the warranty work in the backend — the two things still loose after the catalogue landed.
 **Done:**
