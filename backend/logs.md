@@ -38,6 +38,22 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-27 · serial length is a setting now, not a constant; DIN revised (Claude Code)
+**Worked on:** the client's news that batteries are already in dealers' hands with **7-digit** codes, while the system demanded exactly 8 — so those batteries simply could not be entered.
+**Done:**
+- **One rule, variable length (D-18).** Both known forms are the same underneath: **YYMM then the serial** — `M1300 2608 0001` (8) and `S2000 2607 001` (7). So the rule stays single and only the length varies, and the accepted lengths are a **setting** (`serials.digit_lengths`, default `[7, 8]`), served to the apps in `GET /masters`. The other two plants (6 and 9 digits were mentioned) are **not enabled**, because their formats are not confirmed — but enabling one is a row to change, not a release, and the tests pin that.
+- **Stored codes are read length-agnostically** (`readStored`): a length added or removed from the setting must never make years of already-recorded batteries unreadable. The approve paths use it, and `digitsOfFull(code, modelId)` strips the product prefix exactly rather than assuming 8 digits from the end.
+- **Length only wins if what is left is a model we know.** `S20002607001` could be read as `S200` + 8 digits, but `02607001` is month 60, so the 7-digit reading wins. Where the label names a model the catalogue does not have, the parser now prefers a tail that looks like YYMM, so the error says "we don't know that model" instead of the misleading "that is not a valid number" — found by testing with a made-up id.
+- **Messages name what is accepted** ("Use a 7- or 8-digit number that starts with the YYMM it was made"), generated from the setting rather than written into each string.
+- **Apps follow**: the dealer's fields cap at the longest allowed length, label themselves ("7 or 8 digits"), and the live lookup fires as soon as the code is a length a plant uses. The scanner accepts 6–9 digits so a wrong-length label is read and then explained, rather than silently truncated.
+- **DIN revised** per the client: **Din 50, 60 and 66** only; Din 75 retired (still resolvable for anything already referencing it).
+- **Tests: 225 backend** (+7 on length), 8 shared, both apps typecheck. **Verified live on Neon**: a 7-digit `SS2000 2607457` reads, sells, is replaced by another 7-digit battery, travels on a challan and settles with a typed ₹2400 credit, the replacement inheriting the chain; an 8-digit `M1000` reads alongside it; 6 digits is refused with the sentence naming 7 and 8; the same 7 digits under a different product is correctly a different battery.
+**Decisions:** a setting rather than a `serial_rules` table — one list, one rule, and no schema to migrate when a plant's format finally arrives. Revisit if the other plants turn out NOT to be YYMM-first, which is the one thing that would break the shared rule.
+**Blockers / decisions needed:** the real formats for the other two plants (6 and 9 digits) before those are enabled.
+**Next:** the client also asked that a wrong entry go to draft/pending and not trap the dealer on the page — an app-side change to the capture flow, not yet done. Then the admin override screen and d37's locally-computed credit figures.
+
+---
+
 ### 2026-09-27 · the credit amount is head office's to type, not the system's to invent (Claude Code)
 **Worked on:** three answers from the team, one of which changes behaviour.
 **Done:**

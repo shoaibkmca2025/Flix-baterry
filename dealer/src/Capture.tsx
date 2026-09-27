@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useStore } from '@felix/shared/store';
-import { Entry, Item, State, deriveCode, digitsOf, expiryFrom, fullCode, newEntry, newItem, normalize, splitLabel, today, validateEntry } from '@felix/shared/domain';
+import { Entry, Item, State, DEFAULT_DIGIT_LENGTHS, deriveCode, digitsOf, expiryFrom, fullCode, isValidDigits, lengthsLabel, newEntry, newItem, normalize, splitLabel, today, validateEntry } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, BigTile, ChipRow, CapBtn, IconBtn, Plate, PlateLab, PlateVal, Meter, Gap } from '@felix/shared/ui/kit';
 import { Screen, AppBar, Sheet, useD } from './shell';
@@ -31,7 +31,7 @@ function withPhoto(e: Entry, tag: string, uri: string): Partial<Entry> {
   if (k >= 0) evidence[k] = uri; else { tags.push(tag); evidence.push(uri); }
   return { evidence, evidenceTags: tags };
 }
-const codeFrom = (data: string) => (data.match(/[A-Za-z]\d{3,4}-?\d{8}/)?.[0]) || (data.match(/\d{8}/)?.[0]) || data.replace(/\D/g, '').slice(0, 8);
+const codeFrom = (data: string) => (data.match(/[A-Za-z]\d{3,4}-?\d{6,9}/)?.[0]) || (data.match(/\d{6,9}/)?.[0]) || data.replace(/\D/g, '').slice(0, 9);
 
 /** Checks the dealer app adds on top of the shared validation. */
 function dealerErrors(e: Entry, state: State) {
@@ -52,11 +52,12 @@ const itemErrors = (errs: Record<string, string>, i: number, fields: string[]) =
 
 function dealerWarnings(e: Entry, state: State): { key: string; text: string }[] {
   const out: { key: string; text: string }[] = [];
+  const lengths = state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS;
   const month = today().slice(0, 7);
   const recent = state.entries.filter(x => x.id !== e.id && x.status !== 'Draft' && x.date.startsWith(month)).flatMap(x => x.items.map(y => y.code));
   e.items.forEach((it, i) => {
-    if (/^\d{8}$/.test(it.code)) { const near = recent.find(c => /^\d{8}$/.test(c) && Math.abs(Number(c) - Number(it.code)) === 1); if (near) out.push({ key: `items.${i}.code`, text: `Serial ${it.code} is close to ${near} already recorded this month.` }); }
-    if (e.type === 'Replacement' && /^\d{8}$/.test(it.oldSerial) && !findBattery(state, it.oldSerial)) out.push({ key: `items.${i}.oldSerial`, text: `Old battery ${it.oldSerial} is not on record — head office will check it.` });
+    if (isValidDigits(it.code, lengths)) { const near = recent.find(c => c.length === it.code.length && Math.abs(Number(c) - Number(it.code)) === 1); if (near) out.push({ key: `items.${i}.code`, text: `Serial ${it.code} is close to ${near} already recorded this month.` }); }
+    if (e.type === 'Replacement' && isValidDigits(it.oldSerial, lengths) && !findBattery(state, it.oldSerial)) out.push({ key: `items.${i}.oldSerial`, text: `Old battery ${it.oldSerial} is not on record — head office will check it.` });
     if (e.type === 'Replacement' && (!photoOf(e, tagFor('Old battery', i)) || !photoOf(e, tagFor('New label', i)))) out.push({ key: `photos.${i}`, text: `Item ${i + 1} is missing the old battery or new label photo.` });
   });
   if (!e.customer.trim()) out.push({ key: 'items.0.customer', text: 'No dealer or customer name is on this entry.' });
@@ -76,11 +77,11 @@ function useFlow() {
 /** Live warranty/custody check against the real backend (architecture.md §9.9), replacing
  * the local demo store's `findBattery`/`coverOf` wherever a dealer needs the truth about a
  * battery that might have been sold/replaced by anyone, not just recorded on this phone. */
-function useLiveLookup(code: string, token: string | null, modelId?: string) {
+function useLiveLookup(code: string, token: string | null, modelId?: string, lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS) {
   const [result, setResult] = useState<BatteryLookupResult | null>(null);
   const [loading, setLoading] = useState(false);
   useEffect(() => {
-    if (!token || !/^\d{8}$/.test(code)) { setResult(null); return; }
+    if (!token || !isValidDigits(code, lengths)) { setResult(null); return; }
     let alive = true;
     setLoading(true);
     lookupBattery(code, token, modelId || undefined)
@@ -88,7 +89,7 @@ function useLiveLookup(code: string, token: string | null, modelId?: string) {
       .catch(() => { if (alive) setResult(null); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [code, token, modelId]);
+  }, [code, token, modelId, lengths.join()]);
   return { lookup: result, looking: loading };
 }
 /** status label matching data.ts's warranty() shape, but from live backend cover fields. */
@@ -189,7 +190,7 @@ export function ScanSheet({ open, title, onClose, onCode }: { open: boolean; tit
     <ScanBox active={sc.active} onCode={sc.handle} />
     <Btn kind="blue" sm icon="scan" label={sc.active ? 'Stop camera' : 'Start camera'} style={{ alignSelf: 'stretch', marginTop: 12 }} onPress={sc.start} />
     <Gap h={14} />
-    <Field label="Or type the number on the label" mono numeric maxLength={8} value={manual} onChange={v => setManual(v.replace(/\D/g, ''))} ph="8 digits" />
+    <Field label="Or type the number on the label" mono numeric maxLength={9} value={manual} onChange={v => setManual(v.replace(/\D/g, ''))} ph="8 digits" />
     <Btn kind="primary" icon="check" label="Use this number" disabled={manual.length !== 8} onPress={() => { onCode(manual); onClose(); }} />
   </Sheet>;
 }
@@ -232,7 +233,7 @@ function WarrantyLeft({ start, expiry, from, months = DEFAULT_TERM, grace = DEFA
 }
 function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code: string; lookup: BatteryLookupResult | null; looking: boolean; token: string | null; fallbackModel?: string }) {
   const { state } = useStore();
-  if (code.length !== 8) return null;
+  if (!isValidDigits(code, state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS)) return null;
   const local = deriveCode(code);
   const mfg = (lookup?.mfgMonth) || local.mfg;
   // The rule (memory.md D-11): cover runs from the first day of the manufacture month for the
@@ -294,7 +295,9 @@ export function D11() {
   if (!f) return null;
   const e = f.entry, i = f.cur, it = e.items[i];
   const modelIds = state.models.map(m => m.id);
-  const { lookup, looking } = useLiveLookup(it.oldSerial, token, it.oldModel);
+  const lengths = state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS;
+  const maxLen = Math.max(...lengths);
+  const { lookup, looking } = useLiveLookup(it.oldSerial, token, it.oldModel, lengths);
   useEffect(() => {
     // a battery on record knows its own plate + model — show it, and start the NEW battery
     // as the same model (a replacement is like-for-like unless the dealer changes it)
@@ -302,7 +305,7 @@ export function D11() {
   }, [lookup]);
   const setOld = (v: string) => {
     const { code: digits, modelId } = splitLabel(v, modelIds);
-    const code = digits.replace(/\D/g, '').slice(0, 8);
+    const code = digits.replace(/\D/g, '').slice(0, maxLen);
     item({ oldSerial: code, ...(modelId ? { oldModel: modelId, ...(it.model === newItem().model ? { model: modelId } : {}) } : {}) });
     setErrs(x => ({ ...x, oldSerial: '' }));
   };
@@ -321,7 +324,7 @@ export function D11() {
     <Banner tone="info" icon="batt" style={{ marginBottom: 14 }}>Start with the battery the customer brought back: choose its plates, then its model, then type the 8 digits — or scan the label to fill all three.</Banner>
     <PlateModelPicker value={it.oldModel || ''} error={errs.oldModel} label="Old battery"
       onChange={v => { item({ oldModel: v, ...(it.model === newItem().model || it.model === it.oldModel ? { model: v } : {}) }); setErrs(x => ({ ...x, oldModel: '' })); }} />
-    <Field label="Old battery serial number (8 digits)" req mr="जुनी बॅटरी" mono numeric maxLength={8} value={it.oldSerial} onChange={setOld}
+    <Field label={`Old battery serial number (${lengthsLabel(lengths)})`} req mr="जुनी बॅटरी" mono numeric maxLength={maxLen} value={it.oldSerial} onChange={setOld}
       readonly={!oldChosen} ph={oldChosen ? '8 digits on the label' : 'Choose the plates and model first'} error={errs.oldSerial}
       hint={looking ? 'Checking warranty…' : undefined}
       tail={<><CapBtn n="scan" tone="alt" label="Scan old battery" onPress={() => setScan(true)} /><CapBtn n="cam" tone={oldPhoto ? 'done' : 'dark'} label="Photograph old battery label" onPress={async () => { const u = await takePhoto(d.toast); if (u) { upd(withPhoto(e, tagFor('Old battery', i), u)); d.toast('Photo saved. Check the number above matches it.'); } }} /></>} />
@@ -347,9 +350,11 @@ export function D13() {
   const token = useAccessToken();
   const [errs, setErrs] = useState<Record<string, string>>({});
   const modelIds = state.models.map(m => m.id);
+  const lengths = state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS;
+  const maxLen = Math.max(...lengths);
   const setCode = (v: string, scanned = false) => {
     const { code: digits, modelId } = splitLabel(v, modelIds);
-    const code = digits.replace(/\D/g, '').slice(0, 8);
+    const code = digits.replace(/\D/g, '').slice(0, maxLen);
     const { serial, mfg } = deriveCode(code);
     item({ code, serial, mfg, ...(modelId ? { model: modelId } : {}) }); // a prefixed label names the product too
     d.setFlow(x => x && { ...x, scanned: { ...x.scanned, [`new-${x.cur}`]: scanned } });
@@ -358,12 +363,12 @@ export function D13() {
   const sc = useScanner(c => { setCode(c, true); d.toast('Scanned. Check each line below.'); });
   if (!f) return null;
   const e = f.entry, i = f.cur, it = e.items[i], rep = e.type === 'Replacement';
-  const { lookup, looking } = useLiveLookup(it.code, token);
+  const { lookup, looking } = useLiveLookup(it.code, token, it.model, lengths);
   const labelTag = tagFor(rep ? 'New label' : 'Label', i);
   const check = () => { const mineErrs = itemErrors(dealerErrors(e, state), i, ['code', 'serial', 'model']); setErrs(mineErrs); return !Object.keys(mineErrs).length; };
   // A replacement's NEW battery must be a fresh code (the server rejects a duplicate); a sales
   // return's code is the opposite — it SHOULD already be this dealer's own battery coming back.
-  const serialHint = !token || it.code.length !== 8 || errs.code ? { t: 'Stored exactly as printed — leading zeros are kept.', ok: false, bad: false }
+  const serialHint = !token || !isValidDigits(it.code, lengths) || errs.code ? { t: 'Stored exactly as printed — leading zeros are kept.', ok: false, bad: false }
     : looking ? { t: 'Checking…', ok: false, bad: false }
     : rep
       ? (lookup?.found ? { t: 'This code is already registered — check it, or use a different one.', ok: false, bad: true } : { t: 'Not yet registered — this will be recorded as a new battery.', ok: true, bad: false })
@@ -382,7 +387,7 @@ export function D13() {
     {f.scanned[`new-${i}`] ? <Banner tone="ok" icon="check" style={{ marginVertical: 14 }}><B>Read from the label.</B> Check each line. You can change any of them, and typing it all by hand is always allowed.</Banner>
       : <Banner tone="info" icon="scan" style={{ marginVertical: 14 }}><B>Scan the code on the label.</B> Or type the serial below — typing it all by hand is always allowed.</Banner>}
     <PlateModelPicker value={it.model} onChange={v => { item({ model: v }); setErrs(x => ({ ...x, model: '' })); }} error={errs.model} />
-    <Field label="Serial number" req mr="सिरीयल" mono numeric maxLength={8} value={it.code} onChange={v => setCode(v)} ph="8 digits on the label" error={errs.code || errs.serial}
+    <Field label={`Serial number (${lengthsLabel(lengths)})`} req mr="सिरीयल" mono numeric maxLength={maxLen} value={it.code} onChange={v => setCode(v)} ph={`${lengthsLabel(lengths)} on the label`} error={errs.code || errs.serial}
       tail={<CapBtn n="cam" tone={photoOf(e, labelTag) ? 'done' : 'dark'} label="Photograph the serial" onPress={async () => { const u = await takePhoto(d.toast); if (u) { upd(withPhoto(e, labelTag, u)); d.toast('Photo of the serial saved.'); } }} />}
       hint={serialHint.t} hintTone={serialHint.ok ? 'ok' : serialHint.bad ? 'err' : undefined} hintIcon={serialHint.ok ? 'check' : serialHint.bad ? 'alert' : undefined} />
     <Field label="Made in" value={it.mfg ? monthLong(it.mfg) : ''} ph="Worked out from the serial" readonly hint="Worked out from the serial. Nothing to fill in." hintIcon="lock" />

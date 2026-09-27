@@ -1,3 +1,4 @@
+import { deriveCode, digitsOf } from '../domain';
 import type { Audit, Battery, Challan, Dealer, Entry, Item, Model, Movement, Staff, State } from '../domain';
 import { listAudit } from './audit';
 import { listBatteries, type ApiBattery } from './batteries';
@@ -65,7 +66,7 @@ function toItem(it: EntryWithItems['items'][number], e: EntryWithItems, batterie
     code: it.batteryCode,
     serial: it.batteryCode.slice(-4),
     oldSerial: it.oldBatteryCode ?? '',
-    mfg: b?.mfgMonth ?? (/^\d{8}$/.test(it.batteryCode) ? `20${it.batteryCode.slice(0, 2)}-${it.batteryCode.slice(2, 4)}` : ''),
+    mfg: b?.mfgMonth ?? deriveCode(digitsOf(it.batteryCode, it.modelId)).mfg,
     rpl: e.entryDate.slice(0, 7),
     rtn: '',
     wr: it.oldBatteryCode ?? '',
@@ -259,6 +260,7 @@ export async function fetchHydrated(session: Session, token: string): Promise<Hy
     cities: masters.cities.map((c) => c.name),
     plateTypes: plateTypes.map((p) => ({ code: p.code, label: p.label, plateCount: p.plateCount })),
     graceMonths: masters.warrantyGraceMonths,
+    serialDigitLengths: masters.serialDigitLengths,
     dealers,
     entries,
     challans,

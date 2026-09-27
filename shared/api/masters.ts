@@ -5,5 +5,5 @@ export type ApiModel = { id: string; family: string; plate: string | null; model
 export type ApiPlateType = { code: string; label: string; plateCount: number | null; sortOrder: number; active: boolean };
 
 export function getMastersBundle() {
-  return apiGet<{ cities: City[]; models: ApiModel[]; plateTypes: ApiPlateType[]; warrantyGraceMonths: number }>('/masters');
+  return apiGet<{ cities: City[]; models: ApiModel[]; plateTypes: ApiPlateType[]; warrantyGraceMonths: number; serialDigitLengths: number[] }>('/masters');
 }

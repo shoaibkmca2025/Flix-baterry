@@ -10,7 +10,7 @@ vi.mock('../../utils/ids', () => ({
   nextFormattedRef: vi.fn(async (_tx: unknown, prefix: string) => `${prefix}-26-09-0001`),
   monthKey: vi.fn(() => '26-09'),
 }));
-vi.mock('../../utils/settings', () => ({ readSetting: vi.fn(async (_db: unknown, _k: string, fallback: unknown) => fallback) }));
+vi.mock('../../utils/settings', () => ({ readSetting: vi.fn(async (_db: unknown, _k: string, fallback: unknown) => fallback), serialDigitLengths: vi.fn(async () => [7, 8]) }));
 
 vi.mock('../batteries/batteries.repository', () => ({
   listModels: vi.fn(async () => [{ id: 'M1000' }, { id: 'S1500' }]),

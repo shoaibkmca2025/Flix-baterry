@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../database/client', () => ({ db: {} }));
-vi.mock('../../utils/settings', () => ({ graceMonths: vi.fn(async () => 2) }));
+vi.mock('../../utils/settings', () => ({ graceMonths: vi.fn(async () => 2), serialDigitLengths: vi.fn(async () => [7, 8]) }));
 
 vi.mock('./batteries.repository', () => ({
   findBatteryByCode: vi.fn(),

@@ -6,6 +6,7 @@ vi.mock('../../database/client', () => ({
 }));
 
 vi.mock('../../utils/audit', () => ({ audit: vi.fn() }));
+vi.mock('../../utils/settings', () => ({ serialDigitLengths: vi.fn(async () => [7, 8]) }));
 
 vi.mock('../batteries/batteries.repository', () => ({
   findBatteryByCode: vi.fn(),

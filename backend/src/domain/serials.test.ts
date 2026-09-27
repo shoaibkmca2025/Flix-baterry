@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveCode, fullCode, normalise, splitLabel } from './serials';
+import { deriveCode, digitsOfFull, fullCode, lengthsSentence, normalise, readStored, splitLabel } from './serials';
 
 const IDS = ['M1000', 'GPM1000', 'S1000', 'M2200', 'N2200', 'SG2200', 'SS2500', 'K60L', 'IDIN75'];
 
@@ -78,5 +78,47 @@ describe('fullCode — the identity that is actually unique', () => {
 describe('normalise', () => {
   it('trims, uppercases, strips internal whitespace', () => {
     expect(normalise('  ab 12 ')).toBe('AB12');
+  });
+});
+
+describe('serial length varies by plant (memory.md D-18)', () => {
+  const IDS2 = ['M1300', 'S2000', 'S200'];
+
+  it("reads the client's two real forms: 8 digits and 7", () => {
+    expect(deriveCode('M 1300 2608 0001', IDS2)).toMatchObject({ modelId: 'M1300', normalised: '26080001', mfgMonth: '2026-08', serialNo: '0001', valid: true });
+    expect(deriveCode('S 2000 2607 001', IDS2)).toMatchObject({ modelId: 'S2000', normalised: '2607001', mfgMonth: '2026-07', serialNo: '001', valid: true });
+  });
+
+  it('picks the length that leaves a model we actually know, not the longest one', () => {
+    // 'S2000' + 7 digits could also be read as 'S200' + 8 — but '02607001' is month 60, so it loses
+    expect(splitLabel('S20002607001', IDS2)).toEqual({ modelId: 'S2000', code: '2607001' });
+  });
+
+  it('keeps leading zeros at either length (I-4)', () => {
+    expect(deriveCode('2607001').serialNo).toBe('001');
+    expect(deriveCode('26070001').serialNo).toBe('0001');
+  });
+
+  it('rejects a length the plants do not use, and says which are accepted', () => {
+    expect(deriveCode('260700').valid).toBe(false); // 6 digits — not enabled yet
+    expect(deriveCode('260700012').valid).toBe(false); // 9 digits — not enabled yet
+    expect(lengthsSentence([7, 8])).toBe('a 7- or 8-digit number');
+    expect(lengthsSentence([6, 7, 8, 9])).toBe('a 6, 7, 8- or 9-digit number');
+  });
+
+  it('a new plant is a settings change, not a release — 6 and 9 work the moment they are allowed', () => {
+    expect(deriveCode('260700', [], [6, 7, 8, 9])).toMatchObject({ mfgMonth: '2026-07', serialNo: '00', valid: true });
+    expect(deriveCode('260700012', [], [6, 7, 8, 9])).toMatchObject({ mfgMonth: '2026-07', serialNo: '00012', valid: true });
+  });
+
+  it('a code already on record stays readable whatever the setting says today', () => {
+    expect(readStored('260700012')).toEqual({ mfgMonth: '2026-07', serialNo: '00012' }); // 9 digits, not in [7,8]
+    expect(digitsOfFull('S20002607001', 'S2000')).toBe('2607001');
+    expect(digitsOfFull('M130026080001', 'M1300')).toBe('26080001');
+  });
+
+  it('identity still needs the product, at any length', () => {
+    expect(fullCode('S2000', '2607001')).toBe('S20002607001');
+    expect(fullCode('M1300', '2607001')).not.toBe(fullCode('S2000', '2607001'));
   });
 });

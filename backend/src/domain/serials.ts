@@ -10,14 +10,25 @@ export function normaliseLabel(input: string): string {
   return input.trim().toUpperCase().replace(/[\s\-._/]+/g, '');
 }
 
+/**
+ * How many digits the number after the model can have. Felix's plants do not agree: the main
+ * one prints 8 (`M1300 2608 0001`) and 7 (`S2000 2607 001`), and the other two are said to use
+ * different lengths again (memory.md D-18). Every known form is the same underneath —
+ * **YYMM then the serial** — so the rule is one rule and only the length varies, which is why
+ * this is a setting (`serials.digit_lengths`) rather than a constant: a new plant is a row to
+ * change, not a release.
+ */
+export const DEFAULT_DIGIT_LENGTHS = [7, 8] as const;
+const MONTH_DIGITS = 4;
+
 export type DerivedCode = {
   /** '2026-04' — manufacture year+month, or null if the code doesn't parse. */
   mfgMonth: string | null;
-  /** last 4 digits, kept as text — leading zeros matter (I-4). */
+  /** the serial after the YYMM, kept as text — leading zeros matter (I-4). */
   serialNo: string;
   /** the code as originally entered, before normalisation. */
   entered: string;
-  /** the 8 digits (YYMM + serial). NOT unique on its own — see fullCode(). */
+  /** the digits (YYMM + serial). NOT unique on its own — see fullCode(). */
   normalised: string;
   valid: boolean;
   /**
@@ -28,66 +39,111 @@ export type DerivedCode = {
   modelId: string | null;
 };
 
-// Default rule: 8 digits, first 2 = YY, next 2 = MM, last 4 = the serial. The serial restarts
-// at 1 on the 26th of every month AND counts separately per product (client, 25 Sep 2026), so
-// "M1000 26090001" and "S1000 26090001" are two different batteries — see fullCode().
-const DIGITS = /^\d{8}$/;
+const isDigits = (v: string) => /^\d+$/.test(v);
+
+/** YYMM at the front, and a month that exists. */
+function monthOf(digits: string): string | null {
+  if (digits.length <= MONTH_DIGITS || !isDigits(digits)) return null;
+  const month = Number(digits.slice(2, 4));
+  return month >= 1 && month <= 12 ? `20${digits.slice(0, 2)}-${digits.slice(2, 4)}` : null;
+}
+
+const sortedLengths = (lengths: readonly number[]) => [...new Set(lengths)].sort((a, b) => b - a);
 
 /**
- * Splits a scanned or typed label into the product it names and its 8 digits.
+ * Splits a scanned or typed label into the product it names and its digits.
  *
- * The printed forms all exist in the field (client's samples, 25 Sep 2026):
- *   "M 1000 2609 0676"      code then model
+ * The printed forms all exist in the field (client's samples, 25–27 Sep 2026):
+ *   "M 1300 2608 0001"      code, model, then 8 digits
+ *   "S 2000 2607 001"       the same with a 7-digit number
  *   "GP M 1000 2609 0075"   Gold Power brand in front
  *   "SS 2500 2609 0493"     two-character tubular series code
  *   "IT 2200 SG 1125 0058"  tubular, code AFTER the model, with the range prefix
- *   "I Din 75 …" / "K 60L" / "O H29"   model numbers that are not plain digits
+ *   "I Din 50 …" / "K 60L" / "O H29"   model numbers that are not plain digits
  *
  * A regex cannot separate "K60L" into K + 60L reliably, so this matches against the ids the
- * catalogue actually holds — longest first, so 'GPM1000' wins over 'M1000'.
+ * catalogue actually holds — longest first, so 'GPM1000' wins over 'M1000'. Lengths are tried
+ * longest first too, and a length only wins if what is left is a model we know, which is what
+ * keeps "S2000" + 7 digits from being read as "S200" + 8.
  */
-export function splitLabel(input: string, knownModelIds: readonly string[] = []): { modelId: string | null; code: string } {
+export function splitLabel(
+  input: string,
+  knownModelIds: readonly string[] = [],
+  lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS,
+): { modelId: string | null; code: string } {
   const whole = normaliseLabel(input);
-  if (DIGITS.test(whole)) return { modelId: null, code: whole }; // just the digits
+  const tryLengths = sortedLengths(lengths);
 
-  const tail = whole.slice(-8);
-  const head = whole.slice(0, -8);
-  if (!DIGITS.test(tail) || !head) return { modelId: null, code: whole };
+  // just the digits, no product named
+  if (isDigits(whole) && tryLengths.includes(whole.length)) return { modelId: null, code: whole };
 
   const ids = [...knownModelIds].sort((a, b) => b.length - a.length);
-  const direct = ids.find((id) => id === head);
-  if (direct) return { modelId: direct, code: tail };
+  for (const len of tryLengths) {
+    const tail = whole.slice(-len);
+    const head = whole.slice(0, -len);
+    if (!head || !isDigits(tail) || !monthOf(tail)) continue;
 
-  // "IT2200SG" / "FT2500SS" — range prefix, model, then the code. Rebuild it as code+model.
-  const swapped = /^(?:IT|FT)?(\d{3,4})([A-Z][A-Z0-9]?)$/.exec(head);
-  if (swapped) {
-    const rebuilt = `${swapped[2]}${swapped[1]}`;
-    if (ids.includes(rebuilt)) return { modelId: rebuilt, code: tail };
+    if (ids.includes(head)) return { modelId: head, code: tail };
+
+    // "IT2200SG" / "FT2500SS" — range prefix, model, then the code. Rebuild it as code+model.
+    const swapped = /^(?:IT|FT)?(\d{3,4})([A-Z][A-Z0-9]?)$/.exec(head);
+    if (swapped) {
+      const rebuilt = `${swapped[2]}${swapped[1]}`;
+      if (ids.includes(rebuilt)) return { modelId: rebuilt, code: tail };
+    }
+    const endsWith = ids.find((id) => head.endsWith(id)); // an unknown brand prefix in front
+    if (endsWith) return { modelId: endsWith, code: tail };
   }
-  // an unknown product still yields its digits; the caller decides whether that is an error
-  return { modelId: ids.find((id) => head.endsWith(id)) ?? null, code: tail };
+
+  // The label named something the catalogue does not have. Hand back the digits anyway —
+  // preferring a tail that actually looks like YYMM — so the caller can say "we don't know
+  // that model" rather than the misleading "that is not a valid number".
+  const fallback = tryLengths.find((len) => monthOf(whole.slice(-len))) ?? tryLengths.find((len) => isDigits(whole.slice(-len)));
+  return { modelId: null, code: fallback ? whole.slice(-fallback) : whole };
 }
 
-/** The battery's identity as printed on it: the product code and the 8 digits together. */
+/** The battery's identity as printed on it: the product code and the digits together. */
 export function fullCode(modelId: string, code: string): string {
   return `${normaliseLabel(modelId)}${normalise(code)}`;
 }
 
-export function deriveCode(entered: string, knownModelIds: readonly string[] = []): DerivedCode {
-  const { modelId, code: normalised } = splitLabel(entered, knownModelIds);
-  const formatOk = DIGITS.test(normalised);
+/** The digits half of a stored identity — exact, because the product prefix is known. */
+export function digitsOfFull(batteryCode: string, modelId: string): string {
+  const prefix = normaliseLabel(modelId);
+  return batteryCode.startsWith(prefix) ? batteryCode.slice(prefix.length) : batteryCode;
+}
 
-  const yy = normalised.slice(0, 2);
-  const mm = normalised.slice(2, 4);
-  const month = Number(mm);
-  const monthOk = formatOk && month >= 1 && month <= 12;
+/**
+ * Reads a code that is ALREADY on record, where the length was checked when it was written.
+ * Deliberately length-agnostic: a plant whose length is added to the setting later must not
+ * make years of stored batteries unreadable (memory.md D-18).
+ */
+export function readStored(digits: string): { mfgMonth: string | null; serialNo: string } {
+  return { mfgMonth: monthOf(digits), serialNo: digits.slice(MONTH_DIGITS) };
+}
+
+/** "a 7- or 8-digit number" — for error messages, so they name what is actually accepted. */
+export function lengthsSentence(lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS): string {
+  const sorted = [...new Set(lengths)].sort((a, b) => a - b);
+  if (sorted.length === 1) return `a ${sorted[0]}-digit number`;
+  return `a ${sorted.slice(0, -1).join(', ')}- or ${sorted[sorted.length - 1]}-digit number`;
+}
+
+export function deriveCode(
+  entered: string,
+  knownModelIds: readonly string[] = [],
+  lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS,
+): DerivedCode {
+  const { modelId, code: normalised } = splitLabel(entered, knownModelIds, lengths);
+  const lengthOk = sortedLengths(lengths).includes(normalised.length);
+  const mfgMonth = lengthOk ? monthOf(normalised) : null;
 
   return {
-    mfgMonth: monthOk ? `20${yy}-${mm}` : null,
-    serialNo: normalised.slice(4, 8),
+    mfgMonth,
+    serialNo: normalised.slice(MONTH_DIGITS),
     entered,
     normalised,
-    valid: formatOk && monthOk,
+    valid: mfgMonth !== null,
     modelId,
   };
 }

@@ -104,7 +104,8 @@ const CATALOGUE: [string, string, number, 'gold_power'?][] = [
   ['S', '1500', 12], ['S', '1500', 12, 'gold_power'], ['U', '1500', 18],
   ['U', '1800', 12], ['W', '1800', 18],
   ['O', 'H29', 18], ['K', '60L', 18],
-  ['I', 'DIN75', 18], ['I', 'DIN50', 18], ['K', 'DIN60', 18], ['M', 'DIN66', 18],
+  // revised by the client 27 Sep 2026: Din 50, 60 and 66 only — Din 75 withdrawn
+  ['I', 'DIN50', 18], ['K', 'DIN60', 18], ['M', 'DIN66', 18],
   // tubular / inverter — 30 months throughout
   ['SE', '1800', 30], ['S5', '1800', 30], ['SS', '1800', 30],
   ['ME', '2000', 30], ['SS', '2000', 30],
@@ -176,5 +177,6 @@ export async function seedMasters() {
   }
   await db.insert(settings).values({ key: 'warranty.grace_months', value: 2 }).onConflictDoNothing({ target: settings.key });
   await db.insert(settings).values({ key: 'warranty.override_max_days', value: 90 }).onConflictDoNothing({ target: settings.key });
+  await db.insert(settings).values({ key: 'serials.digit_lengths', value: [7, 8] }).onConflictDoNothing({ target: settings.key });
   console.log(`Seeded ${CITIES.length} cities, ${ROLES.length} roles, ${PLATE_TYPES.length} plate/series codes, ${LEGACY_MODELS.length + CATALOGUE_MODELS.length} battery models.`);
 }

@@ -1,10 +1,10 @@
 import { db, withTransaction } from '../../database/client';
-import { deriveCode, fullCode } from '../../domain/serials';
+import { deriveCode, fullCode, lengthsSentence } from '../../domain/serials';
 import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
 import { monthKey, nextFormattedRef } from '../../utils/ids';
-import { readSetting } from '../../utils/settings';
+import { readSetting, serialDigitLengths } from '../../utils/settings';
 import * as batteriesRepo from '../batteries/batteries.repository';
 import * as repo from './warranty.repository';
 import type { OverrideDecisionBody, OverrideListQuery, OverrideRequestBody } from './warranty.validation';
@@ -30,9 +30,9 @@ const addDays = (isoDate: string, days: number) => new Date(Date.parse(isoDate) 
 
 /** The battery the dealer scanned, found by its full printed identity (D-13). */
 async function findBattery(code: string, modelId?: string) {
-  const modelIds = (await batteriesRepo.listModels(db)).map((m) => m.id);
-  const derived = deriveCode(code, modelIds);
-  if (!derived.valid) throw new AppError('format_mismatch', 422, 'Use an 8-digit code with a valid YYMM prefix.', { field: 'batteryCode' });
+  const [modelRows, lengths] = await Promise.all([batteriesRepo.listModels(db), serialDigitLengths(db)]);
+  const derived = deriveCode(code, modelRows.map((m) => m.id), lengths);
+  if (!derived.valid) throw new AppError('format_mismatch', 422, `Use ${lengthsSentence(lengths)} that starts with the YYMM it was made.`, { field: 'batteryCode' });
   const productId = derived.modelId ?? modelId;
   if (!productId) throw new AppError('model_required', 422, 'Say which model this battery is — the serial alone does not identify it.', { field: 'modelId' });
   return batteriesRepo.findBatteryByCode(db, fullCode(productId, derived.normalised));

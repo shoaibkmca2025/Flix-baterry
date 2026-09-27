@@ -33,7 +33,7 @@ vi.mock('../claims/claims.service', () => ({ dispatch: vi.fn(), receive: vi.fn()
 // default: every old battery has arrived at the factory on a challan (tests override per case)
 vi.mock('../returns/returns.repository', () => ({ findLinesByEntryItemIds: vi.fn() }));
 
-vi.mock('../../utils/settings', () => ({ graceMonths: vi.fn(async () => 2) }));
+vi.mock('../../utils/settings', () => ({ graceMonths: vi.fn(async () => 2), serialDigitLengths: vi.fn(async () => [7, 8]) }));
 
 vi.mock('../dealers/dealers.repository', () => ({
   findDealerById: vi.fn(async (_db: unknown, id: string) => (id === 'dealer-1' ? { id, status: 'active' } : id === 'dealer-suspended' ? { id, status: 'suspended' } : undefined)),

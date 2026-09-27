@@ -1,6 +1,7 @@
 import { db, withTransaction, type Tx } from '../../database/client';
 import { canTransition, type BatteryState, type Custodian } from '../../domain/stock';
 import { deriveCode, fullCode } from '../../domain/serials';
+import { serialDigitLengths } from '../../utils/settings';
 import type { batteries } from '../../models/batteries.model';
 import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
@@ -36,8 +37,8 @@ export type MovementInput = {
  * ('M1000 26090676') or as digits plus an explicit modelId.
  */
 async function findBattery(code: string, modelId?: string) {
-  const modelIds = (await batteriesRepo.listModels(db)).map((m) => m.id);
-  const derived = deriveCode(code, modelIds);
+  const [modelRows, lengths] = await Promise.all([batteriesRepo.listModels(db), serialDigitLengths(db)]);
+  const derived = deriveCode(code, modelRows.map((m) => m.id), lengths);
   const productId = derived.modelId ?? modelId;
   if (!productId) return undefined;
   return batteriesRepo.findBatteryByCode(db, fullCode(productId, derived.normalised));

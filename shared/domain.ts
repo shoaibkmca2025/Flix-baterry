@@ -12,7 +12,7 @@ export type Policy = { id: string; months: number; effective: string; anchor: st
 export type Notice = { id: string; title: string; body: string; route: string; read: boolean; dealerId?: string };
 export type Challan = { no: string; dealerId: string; at: string; vehicle: string; driver: string; entryIds: string[]; rows: { serial: string; model: string; ref: string; fault: string; lineId?: string; stage?: string }[]; serverId?: string; receivedAt?: string };
 export type Staff = { id: string; name: string; email: string; role: string; roleKey?: string; status: string; dealerId?: string; permissions: string[] };
-export type State = { entries: Entry[]; batteries: Battery[]; dealers: Dealer[]; models: Model[]; movements: Movement[]; audits: Audit[]; customers: Customer[]; policies: Policy[]; notices: Notice[]; staff: Staff[]; reports: {id:string;name:string;type:string;model:string;status:string;schedule:string}[]; exports: {id:string;name:string;rows:number;date:string}[]; overrides: {id:string;code:string;days:number;reason:string;status:string}[]; cities: string[]; plateTypes?: { code: string; label: string; plateCount?: number | null }[]; graceMonths?: number; entryTypes: string[]; lastSync: string; offline: boolean; language: 'English'|'मराठी'; challans: Challan[]; smsAlerts?: boolean; };
+export type State = { entries: Entry[]; batteries: Battery[]; dealers: Dealer[]; models: Model[]; movements: Movement[]; audits: Audit[]; customers: Customer[]; policies: Policy[]; notices: Notice[]; staff: Staff[]; reports: {id:string;name:string;type:string;model:string;status:string;schedule:string}[]; exports: {id:string;name:string;rows:number;date:string}[]; overrides: {id:string;code:string;days:number;reason:string;status:string}[]; cities: string[]; plateTypes?: { code: string; label: string; plateCount?: number | null }[]; serialDigitLengths?: number[]; graceMonths?: number; entryTypes: string[]; lastSync: string; offline: boolean; language: 'English'|'मराठी'; challans: Challan[]; smsAlerts?: boolean; };
 export const uid = (prefix = 'ID') => `${prefix}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
 export const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 export const normalize = (s: string) => s.trim().toUpperCase().replace(/\s/g, '');
@@ -31,35 +31,65 @@ export function warranty(b: Battery, now = today(), alertDays = 30) {
   return {status: days < 0 ? 'Expired' : days <= alertDays ? 'Expiring soon' : 'Active',days:Math.max(0,days),progress:Math.max(0,Math.min(1,days/total))};
 }
 /**
- * Splits a scanned or typed label into the product it names and its 8 digits.
- * The printed forms (client samples, 25 Sep 2026): "M 1000 2609 0676", "GP M 1000 …",
- * "SS 2500 …", "IT 2200 SG …", "K 60L …", "I Din 75 …". "K60L" cannot be cut into K + 60L by
- * shape alone, so this matches against the ids the catalogue holds — longest first.
+ * How many digits the number after the model may have. Felix's plants do not agree — the main
+ * one prints 8 ("M1300 2608 0001") and 7 ("S2000 2607 001") — so the app takes the list from
+ * the server (`/masters`) rather than hard-coding it (memory.md D-18). Every known form is the
+ * same underneath: YYMM, then the serial.
  */
-export function splitLabel(input: string, knownModelIds: readonly string[] = []) {
+export const DEFAULT_DIGIT_LENGTHS = [7, 8];
+const isDigits = (v: string) => /^\d+$/.test(v);
+const monthOf = (d: string) => { if (d.length <= 4 || !isDigits(d)) return ''; const m = Number(d.slice(2, 4)); return m >= 1 && m <= 12 ? `20${d.slice(0, 2)}-${d.slice(2, 4)}` : ''; };
+const lengthsDesc = (ls: readonly number[]) => [...new Set(ls)].sort((a, b) => b - a);
+
+/**
+ * Splits a scanned or typed label into the product it names and its digits. "K60L" cannot be
+ * cut into K + 60L by shape alone, so this matches against the ids the catalogue holds —
+ * longest first — and a length only wins if what is left is a model we know.
+ */
+export function splitLabel(input: string, knownModelIds: readonly string[] = [], lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS) {
   const whole = (input||'').trim().toUpperCase().replace(/[\s\-._/]+/g,'');
-  if (/^\d{8}$/.test(whole)) return { modelId: '', code: whole };
-  const tail = whole.slice(-8), head = whole.slice(0, -8);
-  if (!/^\d{8}$/.test(tail) || !head) return { modelId: '', code: whole };
+  const tryLengths = lengthsDesc(lengths);
+  if (isDigits(whole) && tryLengths.includes(whole.length)) return { modelId: '', code: whole };
   const ids = [...knownModelIds].sort((a,b) => b.length - a.length);
-  const direct = ids.find(id => id === head);
-  if (direct) return { modelId: direct, code: tail };
-  const swapped = /^(?:IT|FT)?(\d{3,4})([A-Z][A-Z0-9]?)$/.exec(head);       // "IT2200SG"
-  if (swapped) { const rebuilt = `${swapped[2]}${swapped[1]}`; if (ids.includes(rebuilt)) return { modelId: rebuilt, code: tail }; }
-  return { modelId: ids.find(id => head.endsWith(id)) ?? '', code: tail };
+  for (const len of tryLengths) {
+    const tail = whole.slice(-len), head = whole.slice(0, -len);
+    if (!head || !isDigits(tail) || !monthOf(tail)) continue;
+    if (ids.includes(head)) return { modelId: head, code: tail };
+    const swapped = /^(?:IT|FT)?(\d{3,4})([A-Z][A-Z0-9]?)$/.exec(head);       // "IT2200SG"
+    if (swapped) { const rebuilt = `${swapped[2]}${swapped[1]}`; if (ids.includes(rebuilt)) return { modelId: rebuilt, code: tail }; }
+    const endsWith = ids.find(id => head.endsWith(id));
+    if (endsWith) return { modelId: endsWith, code: tail };
+  }
+  // the label named a model the catalogue does not have — prefer a tail that looks like YYMM
+  const fallback = tryLengths.find(len => monthOf(whole.slice(-len))) ?? tryLengths.find(len => isDigits(whole.slice(-len)));
+  return { modelId: '', code: fallback ? whole.slice(-fallback) : whole };
 }
 /**
- * The battery's identity as printed on it. The 8 digits are NOT unique on their own: the
- * factory restarts the serial at 1 on the 26th of each month and counts separately per
- * product, so "M1000 26090001" and "S1000 26090001" are two different batteries (D-13).
+ * The battery's identity as printed on it. The digits are NOT unique on their own: the factory
+ * restarts the serial and counts separately per product, so "M1000 26090001" and
+ * "S1000 26090001" are two different batteries (D-13).
  */
 export const fullCode = (modelId: string, code: string) =>
   `${(modelId||'').toUpperCase().replace(/[\s\-._/]+/g,'')}${normalize(code)}`;
-/** The digits half of an identity, for display and for date/serial maths. */
-export const digitsOf = (fullOrDigits: string) => (fullOrDigits||'').slice(-8);
-export function deriveCode(code: string, knownModelIds: readonly string[] = []) {
-  const { code: c, modelId }=splitLabel(code, knownModelIds); const month=Number(c.slice(2,4));
-  return {serial:c.slice(-4),mfg:/^\d{8}$/.test(c)&&month>=1&&month<=12?`20${c.slice(0,2)}-${c.slice(2,4)}`:'',labelModelId:modelId};
+/** The digits half of a stored identity — exact, because the product prefix is known. */
+export const digitsOf = (batteryCode: string, modelId = '') => {
+  const prefix = (modelId||'').toUpperCase().replace(/[\s\-._/]+/g,'');
+  const v = batteryCode||'';
+  if (prefix && v.startsWith(prefix)) return v.slice(prefix.length);
+  const m = /(\d{5,})$/.exec(v);          // no product given: take the trailing digits
+  return m ? m[1] : v;
+};
+export const isValidDigits = (code: string, lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS) =>
+  lengthsDesc(lengths).includes(code.length) && !!monthOf(code);
+/** "7 or 8 digits" — so a message names what is actually accepted. */
+export const lengthsLabel = (lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS) => {
+  const ls = [...new Set(lengths)].sort((a,b) => a-b);
+  return ls.length === 1 ? `${ls[0]} digits` : `${ls.slice(0,-1).join(', ')} or ${ls[ls.length-1]} digits`;
+};
+export function deriveCode(code: string, knownModelIds: readonly string[] = [], lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS) {
+  const { code: c, modelId }=splitLabel(code, knownModelIds, lengths);
+  const mfg = lengthsDesc(lengths).includes(c.length) ? monthOf(c) : '';
+  return {serial:c.slice(4),mfg,labelModelId:modelId};
 }
 export const newItem = (): Item => ({id:uid('ITEM'),model:'',code:'',serial:'',oldSerial:'',mfg:'',rpl:today().slice(0,7),rtn:'',wr:'',remarks:''});
 export const newEntry = (dealerId: string, type = 'Replacement'): Entry => ({id:uid('ENT'),dealerId,type,date:today(),customer:'',place:'Sakri Road',order:'',remarks:'',items:[newItem()],status:'Draft',evidence:[],createdAt:new Date().toISOString(),retries:0});
@@ -73,7 +103,7 @@ export function validateEntry(e: Entry, state: State): Record<string,string> {
   e.items.forEach((item,i)=>{
     const key=`items.${i}.`; const code=normalize(item.code);
     if(!state.models.some(m=>m.id===item.model&&m.active)) errors[key+'model']='Choose an active model.';
-    if(!/^\d{8}$/.test(digitsOf(code))||!deriveCode(code).mfg) errors[key+'code']='Use an 8-digit code with a valid YYMM prefix.';
+    if(!isValidDigits(digitsOf(code, item.model))) errors[key+'code']=`Use ${lengthsLabel(state.serialDigitLengths)} starting with the YYMM it was made.`;
     if(!/^\d{4}$/.test(item.serial)) errors[key+'serial']='Enter the 4-digit serial, keeping leading zeroes.';
     if(e.items.some((x,j)=>j!==i&&normalize(x.code)===code)) errors[key+'code']='This battery is already in this entry.';
     const existing=state.batteries.find(b=>normalize(b.code)===code);

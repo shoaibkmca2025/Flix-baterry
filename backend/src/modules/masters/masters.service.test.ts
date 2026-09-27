@@ -6,7 +6,7 @@ vi.mock('../../database/client', () => ({
 }));
 
 vi.mock('../../utils/audit', () => ({ audit: vi.fn() }));
-vi.mock('../../utils/settings', () => ({ graceMonths: vi.fn(async () => 2) }));
+vi.mock('../../utils/settings', () => ({ graceMonths: vi.fn(async () => 2), serialDigitLengths: vi.fn(async () => [7, 8]) }));
 vi.mock('../batteries/batteries.repository', () => ({ listModels: vi.fn(async () => [{ id: 'M5', family: 'M', type: 'IT tall tubular', capacity: '150Ah', warrantyMonths: 24, active: true }]) }));
 
 vi.mock('./masters.repository', () => ({
