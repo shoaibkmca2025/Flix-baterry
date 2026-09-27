@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { initialState } from '../seed';
-import { approveEntry, chainFor, deriveCode, expiryFrom, filterEntries, fullCode, newEntry, splitLabel, validateEntry, warranty } from '../domain';
+import { approveEntry, chainFor, deriveCode, expiryFrom, filterEntries, fullCode, newEntry, newItem, splitLabel, validateEntry, warranty } from '../domain';
 const fresh=()=>structuredClone(initialState);
 test('manufacturing derivation preserves the short serial leading zeros',()=>{
  assert.deepEqual(deriveCode('21030047'),{serial:'0047',mfg:'2021-03',labelModelId:''});
@@ -56,4 +56,15 @@ test('filters combine status, type, model, query, and date range',()=>{
 test('warranty status is explicit at expiry and without a source date',()=>{
  const b=fresh().batteries[0];assert.equal(warranty(b,'2028-01-09').status,'Expiring soon');assert.equal(warranty(b,'2028-01-10').status,'Expired');
  assert.equal(warranty({...b,expiry:undefined}).status,'Not on record');
+});
+
+test('a 7-digit code validates: the serial is 3 digits, not 4 (client, 27 Sep)',()=>{
+ const state:any={models:[{id:'I700',plate:'I',modelNo:'700',months:12,active:true},{id:'M1000',plate:'M',modelNo:'1000',months:12,active:true}],
+  serialDigitLengths:[7,8],batteries:[],entries:[],overrides:[],policies:[{id:'POL-01',months:24,alertDays:30}]};
+ const entryWith=(model:string,typed:string)=>{const d=deriveCode(typed);
+  return {...newEntry('dealer-1','Regular Sales'),place:'Nashik',items:[{...newItem(),model,code:typed,serial:d.serial,mfg:d.mfg}]};};
+ assert.deepEqual(validateEntry(entryWith('I700','2609532'),state),{});      // the client's own entry
+ assert.deepEqual(validateEntry(entryWith('M1000','26095320'),state),{});    // 8 digits still fine
+ assert.ok(validateEntry(entryWith('M1000','260953'),state)['items.0.code']); // 6 digits still refused
+ assert.ok(validateEntry(entryWith('M1000','26135320'),state)['items.0.code']); // month 13 still refused
 });

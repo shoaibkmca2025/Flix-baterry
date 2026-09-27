@@ -103,8 +103,12 @@ export function validateEntry(e: Entry, state: State): Record<string,string> {
   e.items.forEach((item,i)=>{
     const key=`items.${i}.`; const code=normalize(item.code);
     if(!state.models.some(m=>m.id===item.model&&m.active)) errors[key+'model']='Choose an active model.';
-    if(!isValidDigits(digitsOf(code, item.model))) errors[key+'code']=`Use ${lengthsLabel(state.serialDigitLengths)} starting with the YYMM it was made.`;
-    if(!/^\d{4}$/.test(item.serial)) errors[key+'serial']='Enter the 4-digit serial, keeping leading zeroes.';
+    const digits=digitsOf(code, item.model), codeOk=isValidDigits(digits, state.serialDigitLengths);
+    if(!codeOk) errors[key+'code']=`Use ${lengthsLabel(state.serialDigitLengths)} starting with the YYMM it was made.`;
+    // the serial is whatever follows the YYMM, so its length follows the code's (3 digits on a
+    // 7-digit code, 4 on an 8-digit one). It is derived, never typed — a mismatch means the two
+    // fields have drifted apart, not that the dealer typed it wrong.
+    else if(item.serial!==digits.slice(4)) errors[key+'serial']='The serial does not match the number entered above.';
     if(e.items.some((x,j)=>j!==i&&normalize(x.code)===code)) errors[key+'code']='This battery is already in this entry.';
     const existing=state.batteries.find(b=>normalize(b.code)===code);
     if(existing&&['Replacement','Regular Sales'].includes(e.type)&&existing.state!=='Available') errors[key+'code']='This serial is already active. Choose an available battery.';
