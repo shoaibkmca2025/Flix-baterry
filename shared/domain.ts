@@ -95,6 +95,20 @@ export function deriveCode(code: string, knownModelIds: readonly string[] = [], 
   const mfg = lengthsDesc(lengths).includes(c.length) ? monthOf(c) : '';
   return {serial:c.slice(4),mfg,labelModelId:modelId};
 }
+/**
+ * The same request, whatever number it carries: its type, the dealer, and the batteries on it.
+ * A phone draft keeps the typed digits (26052369, model J700) while the server's copy stores the
+ * whole label (J70026052369), so the model prefix is stripped before comparing. Used to drop a
+ * local draft once that request is already on the server.
+ */
+export function entryKey(e: Pick<Entry, 'type' | 'dealerId' | 'items'>): string {
+  const digits = (code: string, model: string) => {
+    const c = normalize(code), m = (model || '').toUpperCase().replace(/[\s\-._/]+/g, '');
+    return m && c.startsWith(m) ? c.slice(m.length) : c;
+  };
+  const items = e.items.map(i => `${i.model}:${digits(i.code, i.model)}:${digits(i.oldSerial || '', i.oldModel || i.model)}`).sort();
+  return `${e.dealerId}|${e.type}|${items.join(',')}`;
+}
 export const newItem = (): Item => ({id:uid('ITEM'),model:'',code:'',serial:'',oldSerial:'',mfg:'',rpl:today().slice(0,7),rtn:'',wr:'',remarks:''});
 export const newEntry = (dealerId: string, type = 'Replacement'): Entry => ({id:uid('ENT'),dealerId,type,date:today(),customer:'',place:'Sakri Road',order:'',remarks:'',items:[newItem()],status:'Draft',evidence:[],createdAt:new Date().toISOString(),retries:0});
 export function validateEntry(e: Entry, state: State): Record<string,string> {

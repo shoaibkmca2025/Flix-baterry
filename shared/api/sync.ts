@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { useStore } from '../store';
-import type { State } from '../domain';
+import { entryKey, type State } from '../domain';
 import { fetchHydrated, type Hydrated } from './mapping';
 import { getAccessToken, loadSession, useAccessToken } from './session';
 
@@ -28,7 +28,10 @@ export async function syncStore(setState: (fn: (s: State) => State) => void, opt
       // keep them, or a refresh would silently delete the dealer's work. Challans always come from
       // the server: a phone-only challan is never real.
       const onServer = new Set((data.entries ?? []).map((e) => e.id));
-      const unsent = s.entries.filter((e) => (e.status === 'Draft' || e.status === 'Pending sync') && !onServer.has(e.id));
+      // …but a draft whose request is already on the server (sent under the server's own number)
+      // is done: it moves to the next stage and leaves Drafts instead of lingering as a copy.
+      const sentKeys = new Set((data.entries ?? []).map(entryKey));
+      const unsent = s.entries.filter((e) => (e.status === 'Draft' || e.status === 'Pending sync') && !onServer.has(e.id) && !sentKeys.has(entryKey(e)));
       return { ...s, ...data, entries: [...unsent, ...(data.entries ?? [])] };
     });
     lastSyncedAt = Date.now();

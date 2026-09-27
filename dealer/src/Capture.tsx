@@ -64,6 +64,11 @@ function dealerWarnings(e: Entry, state: State): { key: string; text: string }[]
   return out;
 }
 
+// Local numbers of drafts sent successfully this session. The leave-screen safety net below must
+// never bring one back: the server's copy replaced it under a new number, so looking the draft up
+// by its old number finds nothing and would re-save it as a Draft.
+const SENT = new Set<string>();
+
 function useFlow() {
   const d = useD(); const { setState } = useStore();
   const f = d.flow;
@@ -83,7 +88,7 @@ function useFlow() {
   latest.current = f;
   useEffect(() => () => {
     const cur = latest.current;
-    if (!cur) return;
+    if (!cur || SENT.has(cur.entry.id)) return;
     setState(s => {
       const already = s.entries.find(e => e.id === cur.entry.id);
       if (already && already.status !== 'Draft') return s;
@@ -607,6 +612,7 @@ export function D16() {
       const now = new Date().toISOString();
       const data: Entry = { ...e, status: state.offline ? 'Pending sync' : 'Submitted', createdAt: now, date: today(), items: e.items.map(it => ({ ...it, wr: it.oldSerial || it.wr })),
         handover: rep ? `Given to ${e.customer || 'the customer'} at the counter · ${dLong(now)}, ${tShort(now)}` : e.handover };
+      SENT.add(e.id);
       setState(s => audit({ ...s, entries: [data, ...s.entries.filter(x => x.id !== data.id)] }, 'Entry submitted', data.id, state.offline ? 'Saved on the dealer phone to send later' : 'Sent from the dealer app (preview)'));
       d.setFlow(null); d.go('d17', data.id);
       return;
@@ -614,6 +620,7 @@ export function D16() {
     setBusy(true);
     try {
       const result = await createEntry(buildEntryBody(e), token);
+      SENT.add(e.id); // sent: from here on this draft only exists as the server's request
       const data: Entry = { ...e, id: result.ref, apiId: result.id, status: result.status === 'approved' ? 'Approved' : 'Submitted', createdAt: result.createdAt, date: result.entryDate,
         items: e.items.map(it => ({ ...it, wr: it.oldSerial || it.wr })),
         handover: rep ? `Given to ${e.customer || 'the customer'} at the counter · ${dLong(result.createdAt)}, ${tShort(result.createdAt)}` : e.handover };

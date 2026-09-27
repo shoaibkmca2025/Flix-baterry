@@ -61,9 +61,12 @@ test('warranty status is explicit at expiry and without a source date',()=>{
 test('a 7-digit code validates: the serial is 3 digits, not 4 (client, 27 Sep)',()=>{
  const state:any={models:[{id:'I700',plate:'I',modelNo:'700',months:12,active:true},{id:'M1000',plate:'M',modelNo:'1000',months:12,active:true}],
   serialDigitLengths:[7,8],batteries:[],entries:[],overrides:[],policies:[{id:'POL-01',months:24,alertDays:30}]};
- const entryWith=(model:string,typed:string)=>{const d=deriveCode(typed);
-  return {...newEntry('dealer-1','Regular Sales'),place:'Nashik',items:[{...newItem(),model,code:typed,serial:d.serial,mfg:d.mfg}]};};
- assert.deepEqual(validateEntry(entryWith('I700','2609532'),state),{});      // the client's own entry
+ const entryWith=(model:string,typed:string,type='Regular Sales')=>{const d=deriveCode(typed);
+  return {...newEntry('dealer-1',type),place:'Nashik',items:[{...newItem(),model,code:typed,serial:d.serial,mfg:d.mfg}]};};
+ // 7 digits are for batteries ALREADY in the field (a sales return, an old battery coming back);
+ // a NEW battery is always 8 digits (client, 27 Sep) — so the 7-digit example is a sales return.
+ assert.deepEqual(validateEntry(entryWith('I700','2609532','Sales Return'),state),{}); // the client's own entry
+ assert.ok(validateEntry(entryWith('I700','2609532'),state)['items.0.code']);            // a 7-digit NEW battery is refused
  assert.deepEqual(validateEntry(entryWith('M1000','26095320'),state),{});    // 8 digits still fine
  assert.ok(validateEntry(entryWith('M1000','260953'),state)['items.0.code']); // 6 digits still refused
  assert.ok(validateEntry(entryWith('M1000','26135320'),state)['items.0.code']); // month 13 still refused
