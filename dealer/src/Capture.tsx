@@ -172,7 +172,7 @@ function PlateModelPicker({ value, onChange, error, label = 'Battery' }: { value
       <PickList search={forPlate.length > 4 ? 'Search models' : undefined} options={forPlate.map(m => ({ v: m.modelNo!, sub: `${m.months} months cover${m.capacity ? ` · ${m.capacity}` : ''}` }))} value={cur && printedPlate(cur) === plate ? cur.modelNo! : ''}
         onPick={v => { const picked = forPlate.find(m => m.modelNo === v); if (picked) onChange(picked.id); setOpen(null); }} /></Sheet>
     <Field select label={`${label} plates`} req mr="प्लेट्स" value={plate} ph="Choose plates (G, M, S…)" onPress={() => setOpen('plate')}
-      hint={plate && !error ? plateSub(plate) : undefined} />
+      hint={plate && !error ? plateSub(plate) : undefined} hintIcon="batt" />
     <Field select label={`${label} model`} req mr="मॉडेल" value={cur && printedPlate(cur) === plate ? cur.modelNo! : ''} ph={plate ? `Choose from ${forPlate.length} model${forPlate.length === 1 ? '' : 's'}` : 'Choose the plates first'}
       readonly={!plate} onPress={plate ? () => setOpen('model') : undefined} error={error} />
     {cur && !error && <Hint icon="shield" tone="ok" style={{ marginTop: -9, marginBottom: 13 }}>{printedPlate(cur)} {cur.modelNo} · {cur.months} months cover{state.graceMonths ? ` + ${state.graceMonths} grace` : ''}</Hint>}
@@ -190,11 +190,13 @@ function FullCodeLine({ modelId, code, lengths }: { modelId?: string; code: stri
   const model = state.models.find(m => m.id === modelId);
   if (!model || !isValidDigits(code, lengths)) return null;
   const printed = `${printedPlate(model)} ${model.modelNo} ${code.slice(0, 4)} ${code.slice(4)}`;
-  return <Plate style={{ marginBottom: 13 }}>
-    <PlateLab>Full number on the battery</PlateLab>
-    <PlateVal size={19}>{printed}</PlateVal>
-    <X s={12} c="#9BA9BB" style={{ marginTop: 5 }}>Check this reads the same as the label before you send it.</X>
-  </Plate>;
+  return <View accessible accessibilityLabel={`Full number on the battery: ${printed}. Check it reads the same as the label.`}>
+    <Plate style={{ marginBottom: 13 }}>
+      <PlateLab>Full number on the battery · पूर्ण नंबर</PlateLab>
+      <PlateVal size={21}>{printed}</PlateVal>
+      <X s={12} c={T.deepText} style={{ marginTop: 5 }}>Check this reads the same as the label before you send it.</X>
+    </Plate>
+  </View>;
 }
 
 /* ---------- scanner ---------- */
@@ -279,18 +281,17 @@ function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code:
   const chosen = state.models.find(m => m.id === fallbackModel);
   const term = chosen?.months ?? DEFAULT_TERM, grace = state.graceMonths ?? DEFAULT_GRACE;
   // The battery's identity is its whole printed number (D-13) — shown once, full width, never split into a separate serial.
-  const full = <View style={{ marginBottom: 12 }}><X s={11.5} w={6} c={T.slate}>Full battery number</X><X s={19} w={6} f="m" style={{ marginTop: 1 }} selectable>{printedNumber(chosen, code)}</X></View>;
   const ident: [string, React.ReactNode, ('mono' | '')?][] = [['Manufactured', mfg ? monthLong(mfg) : 'Not a valid YYMM'], ['Plates · model', chosen ? `${chosen.id} · ${chosen.months} months` : fallbackModel || 'Choose above'], ['Cover rule', `${term} + ${grace} months from manufacture`]];
   const fromMfg = mfg ? { start: `${mfg}-01`, expiry: expiryFrom(`${mfg}-01`, term + grace) } : null;
 
   if (!token || looking || !lookup) return <Card style={{ marginBottom: 14 }}>
     <CardH title="Checking with head office…" right={<Chip tone="mute" icon="clock" label="Please wait" />} />
-    {full}<KV pairs={ident} />
+    <KV pairs={ident} />
     {fromMfg && <WarrantyLeft start={fromMfg.start} expiry={fromMfg.expiry} from="manufacture date" months={term} grace={grace} />}</Card>;
 
   if (!lookup.found) return <Card style={{ borderColor: '#EBD49C', backgroundColor: '#FFFBF1', marginBottom: 14 }}>
     <CardH title="Not on record" right={<Chip tone="warn" icon="eye" label="Head office will check" />} />
-    {full}<KV pairs={[ident[0], ['Plates · model', lookup.model ? `${lookup.model.id} · ${lookup.model.warrantyMonths} months` : lookup.labelModelId || fallbackModel || 'Choose above'], ['Cover rule', `${lookup.cover.termMonths} + ${lookup.cover.graceMonths} months from manufacture`], ['Cover ends', dLong(lookup.cover.expiryDate)]]} />
+    <KV pairs={[ident[0], ['Plates · model', lookup.model ? `${lookup.model.id} · ${lookup.model.warrantyMonths} months` : lookup.labelModelId || fallbackModel || 'Choose above'], ['Cover rule', `${lookup.cover.termMonths} + ${lookup.cover.graceMonths} months from manufacture`], ['Cover ends', dLong(lookup.cover.expiryDate)]]} />
     {mfg && <WarrantyLeft start={lookup.cover.startDate} expiry={lookup.cover.expiryDate} from="manufacture date" months={lookup.cover.termMonths} grace={lookup.cover.graceMonths} />}
     {lookup.labelModelId && lookup.labelModelId !== fallbackModel && <Hint tone="err" style={{ marginTop: 10 }}>The label says {lookup.labelModelId}, but {fallbackModel || 'nothing'} is chosen above. Check the plates and model.</Hint>}
     {!!lookup.otherProductsWithTheseDigits?.length && <Hint tone="err" style={{ marginTop: 10 }}>These same digits belong to a {lookup.otherProductsWithTheseDigits.join(', ')} on record. Serial numbers repeat across models — check the plates and model on the label.</Hint>}
@@ -311,14 +312,14 @@ function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code:
 
   if (custody === 'other') return <Card style={{ borderColor: '#F0C7BC', backgroundColor: '#FFF8F6', marginBottom: 14 }}>
     <CardH title="Held by another shop" right={<Chip tone="bad" icon="lock" label="Not yours" />} />
-    {full}<KV pairs={ident} />
+    <KV pairs={ident} />
     <Gap h={8} /><X s={13.5} c={T.slate}>This serial is recorded against a different dealer. Check the label again, or call head office.</X></Card>;
 
   const blocked = battery.alreadyReplaced ? 'This battery has already been replaced once — its replacement carries the cover now. Check the label again.'
     : !cover.inWarranty ? 'Cover has ended for this chain. Head office will not accept a warranty replacement for it.' : null;
   return <Card style={{ borderColor: blocked ? '#F0C7BC' : '#B8DFCB', backgroundColor: blocked ? '#FFF8F6' : '#F7FCF9', marginBottom: 14 }}>
     <CardH title="Found on record" right={<Chip tone={battery.alreadyReplaced ? 'bad' : chipTone} icon={battery.alreadyReplaced ? 'lock' : status === 'Active' ? 'shield' : 'clock'} label={battery.alreadyReplaced ? 'Already replaced' : chipLabel} />} />
-    {full}<KV pairs={pairs} />
+    <KV pairs={pairs} />
     <WarrantyLeft start={cover.startDate} expiry={cover.expiryDate} from={chain && !chain.isOriginal ? "first battery's manufacture date" : 'manufacture date'} months={cover.termMonths} grace={cover.graceMonths} />
     {chain && !chain.isOriginal && <Hint icon="link" style={{ marginTop: 10 }}>This is a replacement battery. Its cover runs from the FIRST battery in the chain ({dLong(cover.startDate)}), not from its own manufacture month.</Hint>}
     {blocked && <Hint tone="err" style={{ marginTop: 10 }}>{blocked}</Hint>}
@@ -360,19 +361,15 @@ export function D11() {
     overlay={<ScanSheet open={scan} title="Scan the old battery" onClose={() => setScan(false)} onCode={c => { setOld(c); d.setFlow(x => x && { ...x, scanned: { ...x.scanned, [`old-${i}`]: true } }); d.toast('Scanned. Check the number matches the label.'); }} />}>
     <Steps labels={REP_STEPS} now={1} />
     <Gap h={14} />
-    <Banner tone="info" icon="batt" style={{ marginBottom: 14 }}>Start with the battery the customer brought back: choose its plates, then its model, then type the 8 digits — or scan the label to fill all three.</Banner>
+    <Banner tone="info" icon="batt" style={{ marginBottom: 14 }}>Start with the battery the customer brought back: choose its plates, then its model, then type the number on the label — or scan the label to fill all three.</Banner>
     <PlateModelPicker value={it.oldModel || ''} error={errs.oldModel} label="Old battery"
       onChange={v => { item({ oldModel: v, ...(it.model === newItem().model || it.model === it.oldModel ? { model: v } : {}) }); setErrs(x => ({ ...x, oldModel: '' })); }} />
     <Field label={`Old battery serial number (${lengthsLabel(lengths)})`} req mr="जुनी बॅटरी" mono numeric maxLength={maxLen} value={it.oldSerial} onChange={setOld}
-      readonly={!oldChosen} ph={oldChosen ? '8 digits on the label' : 'Choose the plates and model first'} error={errs.oldSerial}
-      hint={looking ? 'Checking warranty…' : undefined}
+      readonly={!oldChosen} ph={oldChosen ? 'Digits on the label' : 'Choose the plates and model first'} error={errs.oldSerial}
+      hint={looking ? 'Checking warranty…' : undefined} hintIcon="clock"
       tail={<><CapBtn n="scan" tone="alt" label="Scan old battery" onPress={() => setScan(true)} /><CapBtn n="cam" tone={oldPhoto ? 'done' : 'dark'} label="Photograph old battery label" onPress={async () => { const u = await takePhoto(d.toast); if (u) { upd(withPhoto(e, tagFor('Old battery', i), u)); d.toast('Photo saved. Check the number above matches it.'); } }} />
-    <FullCodeLine modelId={it.oldModel} code={it.oldSerial} lengths={lengths} /></>} />
-    {oldChosen && it.oldSerial.length === 8 && <Card style={{ marginBottom: 14, backgroundColor: T.deep, borderColor: T.deep }}>
-      <X s={11.5} w={6} c={T.deepText}>Full battery number · पूर्ण नंबर</X>
-      <X s={22} w={7} f="m" c={T.white} style={{ marginTop: 4 }}>{printedNumber(oldChosen, it.oldSerial)}</X>
-      <X s={12} c={T.deepText} style={{ marginTop: 4 }}>{oldChosen.plateCount ? `${oldChosen.plateCount} plates` : `${oldChosen.plate ?? ''} series`} · model {oldChosen.modelNo ?? oldChosen.id} · serial {it.oldSerial.slice(-4)}</X>
-    </Card>}
+</>} />
+    <FullCodeLine modelId={it.oldModel} code={it.oldSerial} lengths={lengths} />
     <OldBatteryInfo code={it.oldSerial} lookup={lookup} looking={looking} token={token} fallbackModel={it.oldModel} />
     <View style={{ marginBottom: 13 }}><Label text="What is the problem?" req mr="काय बिघडले" /></View>
     <ChipRow options={FAULTS} value={it.fault || ''} onChange={v => { item({ fault: v }); setErrs(x => ({ ...x, fault: '' })); }} />
