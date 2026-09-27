@@ -117,7 +117,7 @@ export function D23({ p }: { p?: string }) {
     top={<View style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingTop: 8, paddingHorizontal: 15, paddingBottom: 13, backgroundColor: T.zinc, borderBottomWidth: 1, borderBottomColor: T.zinc2 }}>
       <View style={{ flex: 1, minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 9, backgroundColor: T.white, borderWidth: 1.5, borderColor: q ? T.ink3 : T.zinc3, borderRadius: 9, paddingHorizontal: 13 }}>
         <Ic n="search" color={T.slate} />
-        <TextInput accessibilityLabel="Search serial, customer or request" value={q} onChangeText={setQ} placeholder="Serial, customer or request" placeholderTextColor="#93A0AF" autoCorrect={false} autoCapitalize="none" returnKeyType="search"
+        <TextInput accessibilityLabel="Search serial, customer or request" value={q} onChangeText={setQ} placeholder="Serial, customer or request" placeholderTextColor={T.hint} autoCorrect={false} autoCapitalize="none" returnKeyType="search"
           style={[{ flex: 1, fontFamily: family(q ? 'm' : 'b', q ? 6 : 4), fontSize: 16, color: T.ink, padding: 0 }, Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null]} />
         {!!q && <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setQ('')}><Ic n="x" color={T.slate} /></Pressable>}
       </View>

@@ -33,7 +33,7 @@ export function Page({ title, sub, children, tabs, actions, back, pad = true }: 
       <View style={{ flexShrink: 1 }}><X s={19} w={7} f="c" numberOfLines={1}>{title}</X>{sub ? <X s={12.5} c={T.slate} numberOfLines={1}>{sub}</X> : null}</View>
       <View style={{ marginLeft: 'auto', width: 320, flexDirection: 'row', alignItems: 'center', gap: 9, backgroundColor: qf ? T.white : T.zinc, borderWidth: 1.5, borderColor: qf ? T.steel : T.zinc3, borderRadius: 8, paddingHorizontal: 12, height: 38 }}>
         <Ic n="search" size={17} color={T.slate} />
-        <TextInput value={q} onChangeText={setQ} onSubmitEditing={() => { if (q.trim()) { a.go('search', q.trim()); setQ(''); } }} placeholder="Search a serial, dealer, entry or customer" placeholderTextColor={T.slate} returnKeyType="search" accessibilityLabel="Search everything" onFocus={() => setQf(true)} onBlur={() => setQf(false)}
+        <TextInput value={q} onChangeText={setQ} onSubmitEditing={() => { if (q.trim()) { a.go('search', q.trim()); setQ(''); } }} placeholder="Search a serial, dealer, entry or customer" placeholderTextColor={T.hint} returnKeyType="search" accessibilityLabel="Search everything" onFocus={() => setQf(true)} onBlur={() => setQf(false)}
           style={[{ flex: 1, fontFamily: family('b', 4), fontSize: 13.5, color: T.ink, padding: 0 }, noOutline]} />
       </View>
       {bell}
@@ -129,7 +129,7 @@ export function SearchBox({ value, onChange, ph, style }: { value: string; onCha
   const [focus, setFocus] = useState(false);
   return <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: T.white, borderWidth: 1, borderColor: focus ? T.steel : T.line, borderRadius: 7, paddingHorizontal: 10, minHeight: 32, minWidth: 200, flexGrow: 1 }, style]}>
     <Ic n="search" size={15} color={T.slate} />
-    <TextInput value={value} onChangeText={onChange} placeholder={ph} placeholderTextColor={T.slate} accessibilityLabel={ph} autoCorrect={false} autoCapitalize="none" onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} style={[{ flex: 1, fontFamily: family('b', 4), fontSize: 13, color: T.ink, paddingVertical: 6 }, noOutline]} />
+    <TextInput value={value} onChangeText={onChange} placeholder={ph} placeholderTextColor={T.hint} accessibilityLabel={ph} autoCorrect={false} autoCapitalize="none" onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} style={[{ flex: 1, fontFamily: family('b', 4), fontSize: 13, color: T.ink, paddingVertical: 6 }, noOutline]} />
     {!!value && <Pressable accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={6} onPress={() => onChange('')}><Ic n="x" size={15} color={T.slate} /></Pressable>}
   </View>;
 }

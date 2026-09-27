@@ -21,7 +21,7 @@ export function PickList({ options, value, onPick, search }: { options: { v: str
   return <View>
     {showSearch && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, backgroundColor: T.white, borderWidth: 1.5, borderColor: focus ? T.steel : q ? T.ink3 : T.line, borderRadius: 10, paddingLeft: 12, marginBottom: 10, minHeight: 46 }}>
       <Ic n="search" size={18} color={T.slate} />
-      <TextInput value={q} onChangeText={setQ} placeholder={search || 'Search'} placeholderTextColor={T.slate} accessibilityLabel={search || 'Search'}
+      <TextInput value={q} onChangeText={setQ} placeholder={search || 'Search'} placeholderTextColor={T.hint} accessibilityLabel={search || 'Search'}
         autoCorrect={false} autoCapitalize="none" returnKeyType="done" onFocus={() => setFocus(true)} onBlur={() => setFocus(false)}
         onSubmitEditing={() => { if (shown.length === 1) onPick(shown[0]!.v); }}
         style={[{ flex: 1, fontSize: 16, color: T.ink, paddingVertical: 10 }, noOutline]} />

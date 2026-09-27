@@ -190,8 +190,8 @@ export function Field(p: FieldProps) {
   const tail = p.tail ?? (p.select ? <Ic n="updown" size={20} color={p.onPress ? T.slate : T.zinc3} /> : null);
   const tailWrap = tail ? <View style={{ marginLeft: 'auto', flexDirection: 'row', gap: 8, alignItems: 'center' }}>{tail}</View> : null;
   const inner = p.onPress || p.readonly || !p.onChange
-    ? <X s={16} w={filled ? (p.mono ? 6 : 5) : 4} f={filled && p.mono ? 'm' : 'b'} c={filled ? T.ink : T.slate} style={{ flex: 1 }}>{p.value || p.ph}</X>
-    : <TextInput accessibilityLabel={p.label || p.ph} value={p.value} onChangeText={p.onChange} placeholder={p.ph} placeholderTextColor={T.slate} autoFocus={p.autoFocus}
+    ? <X s={16} w={filled ? (p.mono ? 6 : 5) : 4} f={filled && p.mono ? 'm' : 'b'} c={filled ? T.ink : T.hint} style={{ flex: 1 }}>{p.value || p.ph}</X>
+    : <TextInput accessibilityLabel={p.label || p.ph} value={p.value} onChangeText={p.onChange} placeholder={p.ph} placeholderTextColor={T.hint} autoFocus={p.autoFocus}
         onFocus={() => setFocus(true)} onBlur={() => setFocus(false)}
         keyboardType={p.phone ? 'phone-pad' : p.numeric ? 'number-pad' : 'default'} maxLength={p.maxLength} secureTextEntry={p.secure} autoCapitalize={p.caps ? 'characters' : p.secure || p.numeric ? 'none' : 'sentences'} autoCorrect={false} multiline={p.multiline}
         style={[textStyle, { flex: 1, padding: 0, margin: 0, minHeight: 23 }, p.multiline && { minHeight: 46, textAlignVertical: 'top' }, noOutline]} />;
@@ -206,7 +206,7 @@ export function OtpBoxes({ value, onChange, count = 6, autoFocus }: { value: str
   const at = Math.min(value.length, count - 1);
   return <Pressable accessibilityLabel={`Enter the ${count}-digit code`} onPress={() => ref.current?.focus()} style={{ flexDirection: 'row', gap: 7 }}>
     {Array.from({ length: count }, (_, i) => <View key={i} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 13, minHeight: 50, backgroundColor: T.white, borderWidth: 1.5, borderColor: focus && i === at ? T.steel : value[i] ? T.ink3 : T.line, borderRadius: 9 }}>
-      <X s={16} f={value[i] ? 'm' : 'b'} w={value[i] ? 5 : 4} c={value[i] ? T.ink : '#93A0AF'}>{value[i] || '·'}</X></View>)}
+      <X s={16} f={value[i] ? 'm' : 'b'} w={value[i] ? 5 : 4} c={value[i] ? T.ink : T.hint}>{value[i] || '·'}</X></View>)}
     <TextInput ref={ref} value={value} autoFocus={autoFocus} onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} accessibilityLabel={`${count}-digit code`} onChangeText={t => onChange(t.replace(/\D/g, '').slice(0, count))} keyboardType="number-pad" maxLength={count} textContentType="oneTimeCode" autoComplete="sms-otp" caretHidden
       style={[{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, opacity: 0.011, color: 'transparent' }, noOutline]} />
   </Pressable>;

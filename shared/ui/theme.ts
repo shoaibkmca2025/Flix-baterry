@@ -8,6 +8,7 @@ export const T = {
   ink: '#141A23', ink2: '#1F2833', ink3: '#2B3746',   // text
   zinc: '#F3F7F3', zinc2: '#DCE7DE', zinc3: '#C2D1C5', // page background, dividers — near-white with a green cast
   slate: '#5B6878',                                    // secondary text (5.25:1 on the page)
+  hint: '#848E9B',                                     // placeholder / hint text: clearly lighter than typed text (17.5:1), still readable (3.3:1)
   steel: '#0B6E26', steelSoft: '#E6F4E8',              // action green: links, selection, secondary buttons (white 6.4:1)
   volt: '#008800', voltSoft: '#FDF3DE',                // BRAND green (primary buttons, white 4.6:1); voltSoft stays the amber warning tint
   amber: '#E8A72C',                                    // waiting / pending (was the old accent)
