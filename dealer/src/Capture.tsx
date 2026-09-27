@@ -159,6 +159,24 @@ function PlateModelPicker({ value, onChange, error, label = 'Battery' }: { value
   </>;
 }
 
+/**
+ * The number as it is printed on the battery — the plates and model the dealer picked, joined
+ * to the digits they typed. Shown so they can read it back against the sticker before sending,
+ * because this combination IS the battery's identity (memory.md D-13): the digits repeat
+ * across products, so the same four digits under the wrong model is a different battery.
+ */
+function FullCodeLine({ modelId, code, lengths }: { modelId?: string; code: string; lengths: readonly number[] }) {
+  const { state } = useStore();
+  const model = state.models.find(m => m.id === modelId);
+  if (!model || !isValidDigits(code, lengths)) return null;
+  const printed = `${printedPlate(model)} ${model.modelNo} ${code.slice(0, 4)} ${code.slice(4)}`;
+  return <Plate style={{ marginBottom: 13 }}>
+    <PlateLab>Full number on the battery</PlateLab>
+    <PlateVal size={19}>{printed}</PlateVal>
+    <X s={12} c="#9BA9BB" style={{ marginTop: 5 }}>Check this reads the same as the label before you send it.</X>
+  </Plate>;
+}
+
 /* ---------- scanner ---------- */
 function ScanBox({ code, active, onCode, height = 212, label = 'Hold the label inside the box' }: { code?: string; active: boolean; onCode: (c: string) => void; height?: number; label?: string }) {
   const fired = useRef(false);
@@ -327,7 +345,8 @@ export function D11() {
     <Field label={`Old battery serial number (${lengthsLabel(lengths)})`} req mr="जुनी बॅटरी" mono numeric maxLength={maxLen} value={it.oldSerial} onChange={setOld}
       readonly={!oldChosen} ph={oldChosen ? '8 digits on the label' : 'Choose the plates and model first'} error={errs.oldSerial}
       hint={looking ? 'Checking warranty…' : undefined}
-      tail={<><CapBtn n="scan" tone="alt" label="Scan old battery" onPress={() => setScan(true)} /><CapBtn n="cam" tone={oldPhoto ? 'done' : 'dark'} label="Photograph old battery label" onPress={async () => { const u = await takePhoto(d.toast); if (u) { upd(withPhoto(e, tagFor('Old battery', i), u)); d.toast('Photo saved. Check the number above matches it.'); } }} /></>} />
+      tail={<><CapBtn n="scan" tone="alt" label="Scan old battery" onPress={() => setScan(true)} /><CapBtn n="cam" tone={oldPhoto ? 'done' : 'dark'} label="Photograph old battery label" onPress={async () => { const u = await takePhoto(d.toast); if (u) { upd(withPhoto(e, tagFor('Old battery', i), u)); d.toast('Photo saved. Check the number above matches it.'); } }} />
+    <FullCodeLine modelId={it.oldModel} code={it.oldSerial} lengths={lengths} /></>} />
     {oldChosen && it.oldSerial.length === 8 && <Card style={{ marginBottom: 14, backgroundColor: T.deep, borderColor: T.deep }}>
       <X s={11.5} w={6} c={T.deepText}>Full battery number · पूर्ण नंबर</X>
       <X s={22} w={7} f="m" c={T.white} style={{ marginTop: 4 }}>{printedNumber(oldChosen, it.oldSerial)}</X>
@@ -391,6 +410,7 @@ export function D13() {
       tail={<CapBtn n="cam" tone={photoOf(e, labelTag) ? 'done' : 'dark'} label="Photograph the serial" onPress={async () => { const u = await takePhoto(d.toast); if (u) { upd(withPhoto(e, labelTag, u)); d.toast('Photo of the serial saved.'); } }} />}
       hint={serialHint.t} hintTone={serialHint.ok ? 'ok' : serialHint.bad ? 'err' : undefined} hintIcon={serialHint.ok ? 'check' : serialHint.bad ? 'alert' : undefined} />
     <Field label="Made in" value={it.mfg ? monthLong(it.mfg) : ''} ph="Worked out from the serial" readonly hint="Worked out from the serial. Nothing to fill in." hintIcon="lock" />
+    <FullCodeLine modelId={it.model} code={it.code} lengths={lengths} />
     <Btn kind="primary" big iconAfter="chev" label={rep ? 'Next: check the warranty' : 'Next: photos and proof'} style={{ marginTop: 14 }} onPress={() => { if (!check()) return; saveDraft(); d.go(rep ? 'd31' : 'd15'); }} />
     <Btn kind="ghost" icon="plus" label="Add another battery to this request" style={{ marginTop: 9 }} onPress={() => { if (!check()) return; saveDraft(); d.go('d12'); }} />
   </Screen>;
