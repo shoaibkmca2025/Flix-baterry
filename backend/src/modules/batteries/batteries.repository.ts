@@ -81,7 +81,7 @@ export async function updateBatteryChainId(tx: Tx, id: string, chainId: string) 
   return row!;
 }
 
-export async function insertChain(tx: Tx, input: { rootBatteryId: string; warrantyStart: string; warrantyExpiry: string; termMonths: number }) {
+export async function insertChain(tx: Tx, input: { rootBatteryId: string; warrantyStart: string; warrantyExpiry: string; termMonths: number; graceMonths: number }) {
   const [row] = await tx.insert(warrantyChains).values(input).returning();
   return row!;
 }
