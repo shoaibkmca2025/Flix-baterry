@@ -123,7 +123,13 @@ export function challanStatus(c: Challan, state: State): { label: string; status
 }
 
 export const attention = (entries: Entry[]) => entries.filter(e => ['Conflict', 'Rejected', 'Pending sync', 'Draft'].includes(e.status));
-export const firstProblem = (e: Entry, state: State) => Object.values(validateEntry(e, state))[0];
+/**
+ * What is wrong with this request, in one line. Local validation first; failing that, the
+ * reason head office gave when it refused the send — otherwise a rejected entry would sit in
+ * My requests with no explanation, since the app cannot re-derive the server's decision.
+ */
+export const firstProblem = (e: Entry, state: State) =>
+  Object.values(validateEntry(e, state))[0] ?? e.items.find(i => i.exception)?.exception;
 
 export function challanHtml(c: Challan, d: Dealer) {
   const date = dLong(c.at).replace(/^(\d\d) (\w+) (\d+)$/, (_, dd, m, y) => `${dd} ${MONTH[MON.indexOf(m)]} ${y}`);

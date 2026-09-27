@@ -73,6 +73,8 @@ export function D19({ p }: { p?: string }) {
       <Field label="Why" req value={why} onChange={setWhy} ph="e.g. Misread the label in low light" multiline />
       <Btn kind="blue" icon="check" label="Send to head office" onPress={send} /></Sheet>}>
     {e.status === 'Conflict' && <Banner tone="bad" icon="alert" style={{ marginBottom: 12 }}><B>This entry cannot be approved yet.</B> {problem || 'Head office found a problem with a serial on it.'} Fix the serial or ask head office to review it.</Banner>}
+    {/* a request put aside part-finished, or refused when it was sent — it waits here with its reason rather than holding up the counter */}
+    {e.status === 'Draft' && !!problem && <Banner tone="warn" icon="alert" style={{ marginBottom: 12 }}><B>Not sent yet.</B> {problem} Open it, fix that, and send it when you can.</Banner>}
     {e.status === 'Rejected' && <Banner tone="bad" icon="x" style={{ marginBottom: 12 }}><B>Head office refused this entry.</B> {e.decisionReason || state.audits.find(a => a.ref === e.id && a.action === 'Reject entry')?.reason || 'Ask head office for the reason.'}</Banner>}
     {e.status === 'Pending sync' && <Banner tone="warn" icon="sync" style={{ marginBottom: 12 }}><B>Saved on this phone.</B> It is sent to head office when signal returns.</Banner>}
     {e.status === 'Draft' && <Banner tone="info" icon="pen" style={{ marginBottom: 12 }}><B>Not sent yet.</B> Continue where you left off.</Banner>}

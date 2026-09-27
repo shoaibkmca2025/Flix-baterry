@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { creditNoteFor, creditNotes, creditOf } from '../data';
+import { creditNoteFor, creditNotes, creditOf, firstProblem } from '../data';
 import type { CreditNote, Entry, State } from '../domain';
 
 const entry = (id: string, over: Partial<Entry> = {}): Entry => ({
@@ -64,4 +64,21 @@ test('preview mode (no server) still works off the demo values', () => {
   assert.equal(creditOf(state, e), 0);                     // M1000 has no demo value — correct, it is a real product
   const demo = entry('ENT-26-09-0005', { items: [{ ...e.items[0], model: 'M5' }] });
   assert.equal(creditOf(base({ entries: [demo] }), demo), 4250);
+});
+
+test('a request refused by head office keeps its reason, so it is not a mystery later', () => {
+  const e = entry('ENT-26-09-0009', { status: 'Draft' });
+  e.items[0].exception = 'Warranty expired on 2026-08-31. Request an admin override before submitting.';
+  const state = base({ entries: [e], models: [{ id: 'M1000', plate: 'M', modelNo: '1000', months: 12, active: true } as never],
+    serialDigitLengths: [7, 8] } as never);
+  // local validation has nothing to say about it — the reason came from the server
+  assert.match(String(firstProblem(e, state)), /Warranty expired/);
+});
+
+test('a draft that is merely unfinished reports the field that still needs work', () => {
+  const e = entry('ENT-26-09-0010', { status: 'Draft' });
+  e.items[0].code = '';                        // nothing typed yet
+  const state = base({ entries: [e], models: [{ id: 'M1000', plate: 'M', modelNo: '1000', months: 12, active: true } as never],
+    serialDigitLengths: [7, 8] } as never);
+  assert.ok(firstProblem(e, state), 'an unfinished draft must still say what is missing');
 });

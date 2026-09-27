@@ -71,6 +71,26 @@ function useFlow() {
   const upd = (v: Partial<Entry>) => d.setFlow(x => x && { ...x, entry: { ...x.entry, ...v } });
   const item = (v: Partial<Item>, i?: number) => d.setFlow(x => x && { ...x, entry: { ...x.entry, items: x.entry.items.map((it, j) => j === (i ?? x.cur) ? { ...it, ...v } : it) } });
   const saveDraft = () => { if (f) setState(s => ({ ...s, entries: [{ ...f.entry, status: 'Draft' }, ...s.entries.filter(e => e.id !== f.entry.id)] })); };
+
+  /**
+   * Whatever is on screen is kept as a draft the moment the dealer leaves it — Back, a bottom
+   * tab, or the phone going away mid-sentence. Nobody should have to finish an entry in one
+   * sitting just because a serial is wrong (the client's own instruction, 25 Sep 2026): a
+   * half-finished request waits in My requests instead of trapping them on the page.
+   * An entry that has already been sent is never pulled back to Draft.
+   */
+  const latest = useRef(f);
+  latest.current = f;
+  useEffect(() => () => {
+    const cur = latest.current;
+    if (!cur) return;
+    setState(s => {
+      const already = s.entries.find(e => e.id === cur.entry.id);
+      if (already && already.status !== 'Draft') return s;
+      return { ...s, entries: [{ ...cur.entry, status: 'Draft' as const }, ...s.entries.filter(e => e.id !== cur.entry.id)] };
+    });
+  }, []);
+
   return { f, d, upd, item, saveDraft };
 }
 
@@ -330,7 +350,8 @@ export function D11() {
   const next = () => {
     const all = dealerErrors(e, state), mine = itemErrors(all, i, ['oldSerial', 'fault']);
     if (!it.oldModel) mine.oldModel = 'Choose the plates and model printed on the old battery.';
-    setErrs(mine); if (Object.keys(mine).length) return;
+    setErrs(mine);
+    if (Object.keys(mine).length) { saveDraft(); d.toast('Saved as a draft. Fix the marked field now, or come back to it from My requests.'); return; }
     saveDraft(); d.go('d13');
   };
   const oldPhoto = photoOf(e, tagFor('Old battery', i));
@@ -384,7 +405,12 @@ export function D13() {
   const e = f.entry, i = f.cur, it = e.items[i], rep = e.type === 'Replacement';
   const { lookup, looking } = useLiveLookup(it.code, token, it.model, lengths);
   const labelTag = tagFor(rep ? 'New label' : 'Label', i);
-  const check = () => { const mineErrs = itemErrors(dealerErrors(e, state), i, ['code', 'serial', 'model']); setErrs(mineErrs); return !Object.keys(mineErrs).length; };
+  const check = () => {
+    const mineErrs = itemErrors(dealerErrors(e, state), i, ['code', 'serial', 'model']);
+    setErrs(mineErrs);
+    if (Object.keys(mineErrs).length) { saveDraft(); d.toast('Saved as a draft. Fix the marked field now, or come back to it from My requests.'); return false; }
+    return true;
+  };
   // A replacement's NEW battery must be a fresh code (the server rejects a duplicate); a sales
   // return's code is the opposite — it SHOULD already be this dealer's own battery coming back.
   const serialHint = !token || !isValidDigits(it.code, lengths) || errs.code ? { t: 'Stored exactly as printed — leading zeros are kept.', ok: false, bad: false }
@@ -597,7 +623,12 @@ export function D16() {
       d.setFlow(null); d.go('d17', data.id);
       sync(true); // the server's copy (with its items and claim) replaces the bridged one
     } catch (err) {
-      d.toast(err instanceof ApiError ? err.message : 'Could not reach the server. Try again.');
+      // Head office refused it (an expired chain, a duplicate serial) or the shop lost signal.
+      // Either way the request is kept as a draft with the reason on it, so the dealer can
+      // serve the next customer and come back to this one — never stranded on this screen.
+      const why = err instanceof ApiError ? err.message : 'Could not reach the server.';
+      setState(s => ({ ...s, entries: [{ ...e, status: 'Draft' as const, remarks: e.remarks, items: e.items.map((it, n) => n === 0 ? { ...it, exception: why } : it) }, ...s.entries.filter(x => x.id !== e.id)] }));
+      d.toast(`${why} Saved as a draft — find it under My requests.`);
     } finally { setBusy(false); }
   };
   return <Screen top={<AppBar title="Check before sending" back="d12" />}>
