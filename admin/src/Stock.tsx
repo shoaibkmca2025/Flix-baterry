@@ -99,10 +99,8 @@ export function Stock({ id }: { id?: string }) {
 /* ---------- old battery returns ---------- */
 const STAGE_NEXT: Record<string, [string, string, 'blue' | 'ghost' | 'danger'][]> = {
   'In transit': [['Received', 'Confirm it arrived', 'blue']],
-  Received: [['Testing', 'Send for testing', 'blue']],
-  Testing: [['Repaired', 'Mark repaired', 'blue'], ['Scrapped', 'Mark scrapped', 'danger']],
-  Repaired: [['Closed', 'Close return', 'blue']],
-  Scrapped: [['Closed', 'Close return', 'blue']],
+  // Once a battery is at the factory head office checks it offline and just approves or rejects it
+  // (the Approve / Reject buttons on each row) — no testing / repaired / scrapped steps.
 };
 const stageChip = (s?: string): [string, Tone, IconName] => s === 'In transit' ? ['On the way', 'vio', 'truck'] : s === 'Received' ? ['Arrived', 'live', 'box'] : s === 'Testing' ? ['Being tested', 'warn', 'eye'] : s === 'Repaired' ? ['Repaired', 'live', 'wrench'] : s === 'Scrapped' ? ['Scrapped', 'mute', 'x'] : s === 'Closed' ? ['Closed', 'live', 'check'] : ['At dealer', 'warn', 'shop'];
 
@@ -234,7 +232,7 @@ export function Returns() {
         : <Stack><Btn kind="ghost" sm label="← All challans" style={{ alignSelf: 'flex-start' }} onPress={() => setSelChallan(null)} />{detail}</Stack>;
     })()}
     {tab === 'way' && <Stack>
-      <Banner tone="info" icon="truck"><B>Scanning in is not approving.</B> Confirm a challan when the van arrives, then test each battery. The claim itself is approved from “Requests to approve”.</Banner>
+      <Banner tone="info" icon="truck"><B>Scanning in is not approving.</B> Confirm a challan when the van arrives, then approve or reject each battery once it has been checked.</Banner>
       {!openChallans.length && !looseOnWay.length && <Box><Empty icon="truck" title="Nothing on the way" text="When a dealer dispatches old batteries, their challan appears here." /></Box>}
       {openChallans.map(c => { const list = onWay.filter(e => c.entryIds.includes(e.id));
         return <Box key={c.no} title={c.no} right={canEdit ? <Btn kind="blue" sm icon="box" label={`Confirm all ${list.length} arrived`} onPress={() => setAct({ entries: list, to: 'Received', label: `Confirm challan ${c.no} arrived` })} /> : <StatusChip status="In transit" />}>
