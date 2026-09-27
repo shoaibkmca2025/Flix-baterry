@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useStore } from '@felix/shared/store';
-import { Entry, Item, State, DEFAULT_DIGIT_LENGTHS, deriveCode, digitsOf, expiryFrom, fullCode, isValidDigits, lengthsLabel, newEntry, newItem, normalize, splitLabel, today, validateEntry } from '@felix/shared/domain';
+import { Entry, Item, State, DEFAULT_DIGIT_LENGTHS, NEW_BATTERY_DIGIT_LENGTHS, deriveCode, digitsOf, expiryFrom, fullCode, isValidDigits, lengthsLabel, newEntry, newItem, normalize, splitLabel, today, validateEntry } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, BigTile, ChipRow, CapBtn, IconBtn, Plate, PlateLab, PlateVal, Meter, Gap } from '@felix/shared/ui/kit';
 import { Screen, AppBar, Sheet, useD } from './shell';
@@ -387,7 +387,8 @@ export function D13() {
   const token = useAccessToken();
   const [errs, setErrs] = useState<Record<string, string>>({});
   const modelIds = state.models.map(m => m.id);
-  const lengths = state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS;
+  // a new battery is always 8 digits; a sales return brings back one already in the field (7 or 8)
+  const lengths = f?.entry.type === 'Sales Return' ? (state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS) : NEW_BATTERY_DIGIT_LENGTHS;
   const maxLen = Math.max(...lengths);
   const setCode = (v: string, scanned = false) => {
     const { code: digits, modelId } = splitLabel(v, modelIds);

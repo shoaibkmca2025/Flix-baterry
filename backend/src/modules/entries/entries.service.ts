@@ -1,5 +1,5 @@
 import { db, withTransaction, type Tx } from '../../database/client';
-import { deriveCode, digitsOfFull, fullCode, lengthsSentence, readStored } from '../../domain/serials';
+import { deriveCode, digitsOfFull, fullCode, lengthsSentence, readStored, NEW_BATTERY_DIGIT_LENGTHS } from '../../domain/serials';
 import { coverFromMfg } from '../../domain/warranty';
 import { graceMonths, serialDigitLengths } from '../../utils/settings';
 import { audit } from '../../utils/audit';
@@ -55,9 +55,13 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
   const [modelRows, lengths] = await Promise.all([batteriesRepo.listModels(db), serialDigitLengths(db)]);
   const modelIds = modelRows.map((m) => m.id);
   const badFormat = `Use ${lengthsSentence(lengths)} that starts with the YYMM it was made.`;
+  // `code` is a NEW battery for a replacement or a sale (always 8 digits), but for a sales return it
+  // is a battery already in the field, which may carry the older 7-digit form like any old battery.
+  const codeLengths: readonly number[] = input.entryType === 'sales_return' ? lengths : NEW_BATTERY_DIGIT_LENGTHS;
+  const badNewFormat = input.entryType === 'sales_return' ? badFormat : `A new battery has ${lengthsSentence(NEW_BATTERY_DIGIT_LENGTHS)} that starts with the YYMM it was made.`;
   const derivedItems = input.items.map((item, i) => {
-    const newDerived = deriveCode(item.code, modelIds, lengths);
-    if (!newDerived.valid) throw new AppError('format_mismatch', 422, badFormat, { field: `items.${i}.code` });
+    const newDerived = deriveCode(item.code, modelIds, codeLengths);
+    if (!newDerived.valid) throw new AppError('format_mismatch', 422, badNewFormat, { field: `items.${i}.code` });
     const oldDerived = item.oldCode ? deriveCode(item.oldCode, modelIds, lengths) : null;
     if (item.oldCode && !oldDerived!.valid) throw new AppError('format_mismatch', 422, badFormat, { field: `items.${i}.oldCode` });
     // the old battery's product: what the dealer chose, else what its label prefix says, else like-for-like

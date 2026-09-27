@@ -39,6 +39,8 @@ export function warranty(b: Battery, now = today(), alertDays = 30) {
  * same underneath: YYMM, then the serial.
  */
 export const DEFAULT_DIGIT_LENGTHS = [7, 8];
+/** New batteries are always 8 digits; only batteries already in the field may be 7 (see backend domain/serials.ts). */
+export const NEW_BATTERY_DIGIT_LENGTHS = [8];
 const isDigits = (v: string) => /^\d+$/.test(v);
 const monthOf = (d: string) => { if (d.length <= 4 || !isDigits(d)) return ''; const m = Number(d.slice(2, 4)); return m >= 1 && m <= 12 ? `20${d.slice(0, 2)}-${d.slice(2, 4)}` : ''; };
 const lengthsDesc = (ls: readonly number[]) => [...new Set(ls)].sort((a, b) => b - a);
@@ -105,8 +107,10 @@ export function validateEntry(e: Entry, state: State): Record<string,string> {
   e.items.forEach((item,i)=>{
     const key=`items.${i}.`; const code=normalize(item.code);
     if(!state.models.some(m=>m.id===item.model&&m.active)) errors[key+'model']='Choose an active model.';
-    const digits=digitsOf(code, item.model), codeOk=isValidDigits(digits, state.serialDigitLengths);
-    if(!codeOk) errors[key+'code']=`Use ${lengthsLabel(state.serialDigitLengths)} starting with the YYMM it was made.`;
+    // a replacement's or sale's battery is NEW (8 digits); a sales return's is already in the field (setting)
+    const codeLengths=e.type==='Sales Return'?state.serialDigitLengths:NEW_BATTERY_DIGIT_LENGTHS;
+    const digits=digitsOf(code, item.model), codeOk=isValidDigits(digits, codeLengths);
+    if(!codeOk) errors[key+'code']=`Use ${lengthsLabel(codeLengths)} starting with the YYMM it was made.`;
     // the serial is whatever follows the YYMM, so its length follows the code's (3 digits on a
     // 7-digit code, 4 on an 8-digit one). It is derived, never typed — a mismatch means the two
     // fields have drifted apart, not that the dealer typed it wrong.

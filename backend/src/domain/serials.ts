@@ -19,6 +19,10 @@ export function normaliseLabel(input: string): string {
  * change, not a release.
  */
 export const DEFAULT_DIGIT_LENGTHS = [7, 8] as const;
+/** Batteries made now all carry 8 digits (client, 27 Sep 2026). Only batteries ALREADY in the field
+ * (an old battery coming back, a sales return) can have the older 7-digit form, so those follow
+ * the `serials.digit_lengths` setting while a new battery is always held to this. */
+export const NEW_BATTERY_DIGIT_LENGTHS = [8] as const;
 const MONTH_DIGITS = 4;
 
 export type DerivedCode = {
@@ -123,10 +127,12 @@ export function readStored(digits: string): { mfgMonth: string | null; serialNo:
 }
 
 /** "a 7- or 8-digit number" — for error messages, so they name what is actually accepted. */
+// "an 8-digit", "an 11-digit", "an 18-digit" — the article follows how the number is said aloud
+const article = (n: number) => (/^(8|11|18)/.test(String(n)) ? 'an' : 'a');
 export function lengthsSentence(lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS): string {
   const sorted = [...new Set(lengths)].sort((a, b) => a - b);
-  if (sorted.length === 1) return `a ${sorted[0]}-digit number`;
-  return `a ${sorted.slice(0, -1).join(', ')}- or ${sorted[sorted.length - 1]}-digit number`;
+  if (sorted.length === 1) return `${article(sorted[0]!)} ${sorted[0]}-digit number`;
+  return `${article(sorted[0]!)} ${sorted.slice(0, -1).join(', ')}- or ${sorted[sorted.length - 1]}-digit number`;
 }
 
 export function deriveCode(

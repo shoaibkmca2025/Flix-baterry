@@ -111,6 +111,29 @@ describe('create', () => {
     expect(repo.insertEntry).not.toHaveBeenCalled();
   });
 
+  it('a NEW battery must have 8 digits; the OLD battery coming back may have 7 (client rule, 27 Sep 2026)', async () => {
+    // 7-digit new battery on a replacement → refused with the new-battery message
+    await expect(create(dealerCtx, baseBody({ entryType: 'replacement', items: [{ modelId: 'M5', code: '2609123', oldCode: '26041212', faultCode: 'not_holding_charge' }] })))
+      .rejects.toMatchObject({ code: 'format_mismatch', field: 'items.0.code', message: expect.stringContaining('A new battery has an 8-digit number') });
+    // 7-digit new battery on a regular sale → refused too
+    await expect(create(dealerCtx, baseBody({ entryType: 'regular_sales', items: [{ modelId: 'M5', code: '2609123' }] })))
+      .rejects.toMatchObject({ code: 'format_mismatch', field: 'items.0.code' });
+    expect(repo.insertEntry).not.toHaveBeenCalled();
+  });
+
+  it('a 7-digit OLD battery with an 8-digit new one passes the format check', async () => {
+    vi.mocked(repo.insertEntry).mockResolvedValue({ id: 'entry-7', ref: 'ENT-26-09-0007' } as never);
+    vi.mocked(repo.insertEntryItem).mockResolvedValue({ id: 'item-7' } as never);
+    const r = create(dealerCtx, baseBody({ entryType: 'replacement', items: [{ modelId: 'M5', code: '26091234', oldCode: '2605231', faultCode: 'not_holding_charge' }] }));
+    await expect(r).resolves.toBeTruthy();
+  });
+
+  it('a sales return (a battery already in the field) may have 7 digits', async () => {
+    vi.mocked(repo.insertEntry).mockResolvedValue({ id: 'entry-8', ref: 'ENT-26-09-0008' } as never);
+    vi.mocked(repo.insertEntryItem).mockResolvedValue({ id: 'item-8' } as never);
+    await expect(create(dealerCtx, baseBody({ entryType: 'sales_return', items: [{ modelId: 'M5', code: '2605231' }] }))).resolves.toBeTruthy();
+  });
+
   it('rejects a replacement item whose old and new codes are the same', async () => {
     const body = baseBody({ entryType: 'replacement', items: [{ modelId: 'M5', code: '26041212', oldCode: '26041212', faultCode: 'not_holding_charge' }] });
     await expect(create(dealerCtx, body)).rejects.toMatchObject({ code: 'old_equals_new' });
