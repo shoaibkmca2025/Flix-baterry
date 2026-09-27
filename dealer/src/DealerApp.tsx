@@ -28,7 +28,7 @@ export function DealerApp({ signedIn, onSignedIn, onSignOut }: { signedIn: boole
   const [route, setRoute] = useState<Route>(signedIn ? { id: 'd07' } : { id: 'd01' });
   // Head office decisions land on the server; pull them in on home / My requests so statuses stay current.
   const { sync } = useSync();
-  useEffect(() => { if (signedIn && ['d07', 'd18', 'd33', 'd35'].includes(route.id)) sync(true); }, [route.id, signedIn, sync]);
+  useEffect(() => { if (signedIn && ['d07', 'd18', 'd33', 'd35'].includes(route.id)) sync(true, 15_000); }, [route.id, signedIn, sync]);
   const [history, setHistory] = useState<Route[]>([]);
   const [flow, setFlow] = useState<Flow | null>(null);
   const [toastMsg, setToastMsg] = useState('');

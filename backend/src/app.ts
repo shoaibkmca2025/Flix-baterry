@@ -17,6 +17,7 @@ import { registerCreditRoutes } from './modules/credits/credits.routes';
 import { registerAuditRoutes } from './modules/audit/audit.routes';
 import { registerStockRoutes } from './modules/stock/stock.routes';
 import { registerUserRoutes } from './modules/users/users.routes';
+import { registerSyncRoutes } from './modules/sync/sync.routes';
 import { registerWarrantyRoutes } from './modules/warranty/warranty.routes';
 
 // architecture.md §4 — buildApp() registers plugins + modules; used by both server.ts and tests (Fastify `inject`).
@@ -45,6 +46,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(registerAuditRoutes, { prefix: '/api/v1' });
   await app.register(registerStockRoutes, { prefix: '/api/v1/stock' });
   await app.register(registerUserRoutes, { prefix: '/api/v1' });
+  await app.register(registerSyncRoutes, { prefix: '/api/v1/sync' });
   await app.register(registerWarrantyRoutes, { prefix: '/api/v1/warranty' });
 
   return app;

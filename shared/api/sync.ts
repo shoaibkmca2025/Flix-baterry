@@ -9,10 +9,16 @@ import { getAccessToken, loadSession, useAccessToken } from './session';
 export { entryStatusOf, fetchHydrated, returnStageOf, toBattery, toDealer, toEntry, type Hydrated } from './mapping';
 
 let inflight: Promise<Hydrated | null> | null = null;
+let lastSyncedAt = 0;
 
-/** Pull the backend into the store. Safe to call often — concurrent calls share one request. */
-export async function syncStore(setState: (fn: (s: State) => State) => void): Promise<Hydrated | null> {
+/**
+ * Pull the backend into the store. Safe to call often — concurrent calls share one request, and
+ * with `maxAgeMs` a refresh newer than that is reused instead of fetched again (tab switches and
+ * polls pass it; a refresh after a write does not, so the write always shows).
+ */
+export async function syncStore(setState: (fn: (s: State) => State) => void, opts: { maxAgeMs?: number } = {}): Promise<Hydrated | null> {
   if (inflight) return inflight;
+  if (opts.maxAgeMs && Date.now() - lastSyncedAt < opts.maxAgeMs) return null;
   inflight = (async () => {
     const [session, token] = await Promise.all([loadSession(), getAccessToken()]);
     if (!session || !token) return null;
@@ -25,6 +31,7 @@ export async function syncStore(setState: (fn: (s: State) => State) => void): Pr
       const unsent = s.entries.filter((e) => (e.status === 'Draft' || e.status === 'Pending sync') && !onServer.has(e.id));
       return { ...s, ...data, entries: [...unsent, ...(data.entries ?? [])] };
     });
+    lastSyncedAt = Date.now();
     return data;
   })().finally(() => { inflight = null; });
   return inflight;
@@ -36,10 +43,10 @@ export function useSync() {
   const [syncing, setSyncing] = useState(false);
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
-  const sync = useCallback(async (quiet = false) => {
+  const sync = useCallback(async (quiet = false, maxAgeMs?: number) => {
     setSyncing(true);
     try {
-      const r = await syncStore(setState);
+      const r = await syncStore(setState, { maxAgeMs });
       return r !== null;
     } catch {
       if (!quiet) notify('Could not refresh from the server. Showing the last data received.');
@@ -56,8 +63,8 @@ export function useAutoSync(enabled: boolean) {
   const { sync } = useSync();
   useEffect(() => {
     if (!enabled) return;
-    sync(true);
-    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') sync(true); });
+    sync(true, 10_000);
+    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') sync(true, 10_000); });
     return () => sub.remove();
   }, [enabled, sync]);
 }

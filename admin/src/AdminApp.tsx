@@ -61,10 +61,11 @@ export function AdminApp({ session, onSignedIn, onSignOut }: { session: Session 
   // Real register: entries + dealers come from the server, re-pulled whenever a queue or home is opened,
   // and polled while the console stays open so new dealer sign-ups and requests show up without a reload.
   const { sync } = useSync();
-  useEffect(() => { if (session && SYNC_ROUTES.includes(route.r)) sync(true); }, [route.r, session, sync]);
+  useEffect(() => { if (session && SYNC_ROUTES.includes(route.r)) sync(true, 15_000); }, [route.r, session, sync]);
   useEffect(() => {
     if (!session) return;
-    const id = setInterval(() => sync(true), POLL_MS);
+    // only while the console is on screen — a background tab doesn't need a refresh every 30 s
+    const id = setInterval(() => { if (typeof document === 'undefined' || document.visibilityState !== 'hidden') sync(true, POLL_MS - 5_000); }, POLL_MS);
     return () => clearInterval(id);
   }, [session, sync]);
 

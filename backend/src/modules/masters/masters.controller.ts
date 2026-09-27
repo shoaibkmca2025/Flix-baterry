@@ -5,6 +5,7 @@ import type { CityCreateBody, CityUpdateBody } from './masters.validation';
 
 export async function bundle(_request: FastifyRequest, reply: FastifyReply) {
   const result = await service.bundle();
+  reply.header('cache-control', 'public, max-age=300'); // plates/models/cities change rarely
   reply.status(200).send(result);
 }
 

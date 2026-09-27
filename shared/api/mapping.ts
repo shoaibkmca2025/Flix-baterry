@@ -9,6 +9,8 @@ import type { Session } from './session';
 import { listMovements } from './stock';
 import { listChallans, type ChallanResult } from './returns';
 import { listAdmins } from './users';
+import { getSnapshot } from './snapshot';
+import { ApiError } from './client';
 
 /**
  * The bridge between the backend and the screens. Every screen still reads the local store
@@ -183,17 +185,25 @@ export type Hydrated = Partial<State> & { syncedAt: string };
 
 export async function fetchHydrated(session: Session, token: string): Promise<Hydrated> {
   const isAdmin = session.user.scope === 'admin';
-  const [masters, entriesPage, batteriesPage, claimsPage, movementsPage, dealersPage, auditPage, adminsPage, challanPage] = await Promise.all([
-    getMastersBundle(),
-    listEntries(token),
-    listBatteries(token),
-    listClaims(token),
-    listMovements(token),
-    isAdmin ? listDealers(token) : Promise.resolve(null),
-    isAdmin ? listAudit(token).catch(() => null) : Promise.resolve(null), // co-admins without audit.read still sync everything else
-    isAdmin && session.user.role === 'main_admin' ? listAdmins(token).catch(() => null) : Promise.resolve(null),
-    listChallans({ limit: 200 }, token),
-  ]);
+  // One request (GET /sync) instead of nine: the server is ~250 ms away and speaks HTTP/1.1, so
+  // nine calls meant several new TLS connections per refresh. A server without /sync (an older
+  // deployment) answers 404, and the app falls back to the individual lists.
+  const snap = await getSnapshot(token).catch((e) => { if (e instanceof ApiError && e.status === 404) return null; throw e; });
+  const none = { items: [] as never[] };
+  const [masters, entriesPage, batteriesPage, claimsPage, movementsPage, dealersPage, auditPage, adminsPage, challanPage] = snap
+    ? [snap.masters, snap.entries ?? none, snap.batteries ?? none, snap.claims ?? none, snap.movements ?? none,
+       isAdmin ? snap.dealers : null, isAdmin ? snap.audit : null, isAdmin ? snap.admins : null, snap.challans ?? none] as const
+    : await Promise.all([
+        getMastersBundle(),
+        listEntries(token),
+        listBatteries(token),
+        listClaims(token),
+        listMovements(token),
+        isAdmin ? listDealers(token) : Promise.resolve(null),
+        isAdmin ? listAudit(token).catch(() => null) : Promise.resolve(null), // co-admins without audit.read still sync everything else
+        isAdmin && session.user.role === 'main_admin' ? listAdmins(token).catch(() => null) : Promise.resolve(null),
+        listChallans({ limit: 200 }, token),
+      ]);
 
   // A server a release behind may omit newer masters fields (plateTypes/grace arrived with D-11).
   // Default them rather than let one missing list abort the whole sync — that silently froze the
