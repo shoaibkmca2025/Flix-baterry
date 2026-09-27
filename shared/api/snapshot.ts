@@ -2,6 +2,7 @@ import { apiGet } from './client';
 import type { ApiAuditEvent } from './audit';
 import type { ApiBattery } from './batteries';
 import type { ApiClaim } from './claims';
+import type { ApiCreditNote } from './credits';
 import type { ApiDealer } from './dealers';
 import type { EntryWithItems } from './entries';
 import type { getMastersBundle } from './masters';
@@ -21,6 +22,7 @@ export type Snapshot = {
   audit: Page<ApiAuditEvent> | null;
   admins: { items: ApiUser[] } | null;
   challans: Page<ChallanResult> | null;
+  creditNotes: Page<ApiCreditNote> | null;
   syncedAt: string;
 };
 

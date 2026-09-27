@@ -1,5 +1,5 @@
 import { Battery, Challan, Dealer, Entry, State, chainFor, normalize, today, warranty, validateEntry } from './domain';
-import { escapeHtml } from './reports';
+import { escapeHtml } from './html';
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTH = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -61,24 +61,53 @@ export function nextChallanNo(state: State) {
   return stem + pad(n);
 }
 
-/** Demo credit value per model for an approved warranty claim (set by head office in production). */
+/**
+ * Demo credit values, for the preview that runs without a server (the demo seed's own models).
+ * A signed-in dealer never sees these: head office types the real amount and the credit note
+ * carries it (memory.md D-08).
+ */
 export const CREDIT_VALUE: Record<string, number> = { M3: 3800, M5: 4250, M7: 4900, B5: 3600, S5: 1400, I700: 5200 };
 export const rupees = (n: number) => '₹ ' + n.toLocaleString('en-IN');
 export const decisionOf = (state: State, id: string) => state.audits.find(a => a.ref === id && ['Entry approved', 'Reject entry'].includes(a.action));
 export const personOf = (actor?: string) => (actor || 'Head office').split(' · ')[0];
 
+/** The note head office issued for this request, once it has been approved. */
+export const creditNoteFor = (state: State, e: Entry) =>
+  e.claimId ? state.creditNotes?.find(n => n.claimId === e.claimId) : undefined;
+
+/** What this request is worth to the dealer: the issued note, else the preview's own values. */
+export const creditOf = (state: State, e: Entry) => {
+  const note = creditNoteFor(state, e);
+  if (note) return note.status === 'reversed' ? 0 : note.amount;
+  return state.creditNotes ? 0 : e.items.reduce((t, i) => t + (CREDIT_VALUE[i.model] || 0), 0);
+};
+
+// the business month is Asia/Kolkata, same as the server's summary
+const IST = 5.5 * 60 * 60 * 1000;
+const istMonth = (iso: string) => new Date(Date.parse(iso) + IST).toISOString().slice(0, 7);
+
 export function creditNotes(state: State, dealerId: string) {
   const reps = dealerEntries(state, dealerId).filter(e => e.type === 'Replacement');
-  const credited = reps.filter(e => e.status === 'Approved').map(e => {
-    const audit = decisionOf(state, e.id);
-    return { no: e.id.replace(/^ENT/, 'CN'), entry: e, amount: e.items.reduce((t, i) => t + (CREDIT_VALUE[i.model] || 0), 0), date: audit?.at || e.date };
-  });
-  const month = today().slice(0, 7);
+  const month = istMonth(new Date().toISOString());
+
+  // Signed in: the notes head office actually issued. Preview: worked out from the demo values.
+  const credited = state.creditNotes
+    ? state.creditNotes
+        .filter(n => n.status !== 'reversed')
+        .map(n => ({ no: n.no, entry: reps.find(e => e.claimId === n.claimId), amount: n.amount, date: n.issuedAt }))
+        .filter((c): c is { no: string; entry: Entry; amount: number; date: string } => !!c.entry)
+        .sort((a, b) => b.date.localeCompare(a.date))
+    : reps.filter(e => e.status === 'Approved').map(e => ({
+        no: e.id.replace(/^ENT/, 'CN'), entry: e,
+        amount: e.items.reduce((t, i) => t + (CREDIT_VALUE[i.model] || 0), 0),
+        date: decisionOf(state, e.id)?.at || e.date,
+      }));
+
   return {
     credited, refused: reps.filter(e => e.status === 'Rejected'),
     checking: reps.filter(e => ['Submitted', 'Under Review', 'Conflict'].includes(e.status)),
-    monthTotal: credited.filter(c => c.date.slice(0, 7) === month).reduce((t, c) => t + c.amount, 0),
-    monthCount: credited.filter(c => c.date.slice(0, 7) === month).length,
+    monthTotal: credited.filter(c => istMonth(c.date) === month).reduce((t, c) => t + c.amount, 0),
+    monthCount: credited.filter(c => istMonth(c.date) === month).length,
   };
 }
 

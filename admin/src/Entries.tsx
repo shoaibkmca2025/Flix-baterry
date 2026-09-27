@@ -5,7 +5,7 @@ import { Entry, Item, approveEntry, deriveCode, filterEntries, newEntry, newItem
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
-import { CREDIT_VALUE, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, rupees, tShort, monthShort } from '@felix/shared/data';
+import { creditOf, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, rupees, tShort, monthShort } from '@felix/shared/data';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
 import { getAccessToken } from '@felix/shared/api/session';
@@ -22,7 +22,8 @@ export const arrivedAtFactory = (e: Entry) => ['Received', 'Testing', 'Repaired'
  * only after it reaches the factory — until then there is nothing to approve or refuse. */
 export const awaitingOldBattery = (e: Entry) => e.type === 'Replacement' && !arrivedAtFactory(e);
 const whereIsOld = (e: Entry) => e.returnState === 'In transit' ? 'Old battery on the way' : 'Old battery still at the dealer';
-const creditOf = (e: Entry) => e.type === 'Replacement' ? e.items.reduce((t, i) => t + (CREDIT_VALUE[i.model] || 0), 0) : 0;
+// The credit is whatever head office typed when it approved the claim — there is no rate
+// table to predict it from, so before that decision there is simply no number to show (D-08).
 const APPROVE_REASONS = ['Warranty checked against the first sale', 'Battery checked — manufacturing defect', 'Photos and serials match the label'];
 const REJECT_REASONS = ['Outside warranty cover', 'Physical damage — not covered', 'Serial does not match the label photo'];
 
@@ -103,7 +104,7 @@ export function useDecisions() {
       const errs = validateEntry(e, state);
       if (Object.keys(errs).length) { a.toast(`Cannot approve yet — ${Object.values(errs)[0]}`); return false; }
       setState(s => { const n = approveEntry(s, e); return audit({ ...n, notices: [notice(e.dealerId, `${e.id} approved`, reason), ...n.notices] }, 'Entry approved', e.id, reason, e.status, 'Approved'); });
-      a.toast(e.type === 'Replacement' ? `Approved. Stock, warranty history and a ${rupees(creditOf(e))} dealer credit are updated.` : 'Approved. Stock and battery history are updated.');
+      a.toast(e.type === 'Replacement' ? `Approved. Stock, warranty history and a ${rupees(creditOf(state, e))} dealer credit are updated.` : 'Approved. Stock and battery history are updated.');
     },
     reject: (e: Entry, reason: string) => {
       if (!live(e)) return status(e, 'Rejected', 'Reject entry', reason, 'Refused. The dealer sees the reason in their app.');
@@ -165,7 +166,7 @@ export function Approvals({ id }: { id?: string }) {
           { h: 'Old → new battery', w: 1.6, cell: e => <View>{e.items.map(i => <X key={i.id} s={12.5} f="m" w={5}>{i.oldSerial ? <X s={12.5} f="m" w={5} c={T.steel}>{i.oldSerial} → </X> : null}{i.code}</X>)}</View> },
           { h: 'Customer', w: 1.1, cell: e => e.customer || '—' },
           { h: 'Raised', w: 0.7, cell: e => dShort(e.createdAt) },
-          { h: 'Credit', w: 0.7, cell: e => creditOf(e) ? rupees(creditOf(e)) : '—' },
+          { h: 'Credit', w: 0.7, cell: e => creditOf(state, e) ? rupees(creditOf(state, e)) : '—' },
           { h: 'Decision', w: 1.6, cell: e => e.status === 'Conflict' ? <View style={{ gap: 5 }}><StatusChip status="Conflict" /><Btn kind="ghost" sm label="Open to fix" onPress={() => a.go('entry', e.id)} /></View>
             : awaitingOldBattery(e) ? <Chip tone="warn" icon={e.returnState === 'In transit' ? 'truck' : 'shop'} label={whereIsOld(e)} />
             : canEdit ? <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}><Btn kind="ghost" sm label="Refuse" color={T.terminal} borderColor="#F0C7BC" onPress={() => setAct({ kind: 'reject', e })} /><Btn kind="blue" sm label="Approve" onPress={() => setAct({ kind: 'approve', e })} /></View> : <StatusChip status={e.status} /> },
@@ -173,7 +174,7 @@ export function Approvals({ id }: { id?: string }) {
         mobile={{ title: e => dealer(e.dealerId)?.name, sub: e => <><Mono>{e.id}</Mono> · {e.type} · {dShort(e.createdAt)}</>, right: e => <StatusChip status={e.status} /> }} />
     </Box>
     <ReasonDialog open={act?.kind === 'approve'} title={`Approve ${act?.e.id || ''}`} confirm="Approve claim" kind="blue" suggestions={APPROVE_REASONS} amount={{ label: 'Credit to the dealer (₹)', hint: 'Shown to the dealer as what is coming. Your accounts team pays it separately.' }} onClose={() => setAct(null)} onConfirm={(r, amt) => act ? dec.approve(act.e, r, amt) : false}
-      intro={act ? <>{state.dealers.find(d => d.id === act.e.dealerId)?.name} · {act.e.items.length} {act.e.items.length === 1 ? 'battery' : 'batteries'}{creditOf(act.e) ? ` · ${rupees(creditOf(act.e))} credit to the dealer` : ''}. Cover dates carry over from the first sale — nothing restarts.</> : undefined} />
+      intro={act ? <>{state.dealers.find(d => d.id === act.e.dealerId)?.name} · {act.e.items.length} {act.e.items.length === 1 ? 'battery' : 'batteries'}{creditOf(state, act.e) ? ` · ${rupees(creditOf(state, act.e))} already credited` : ''}. Cover dates carry over from the first sale — nothing restarts.</> : undefined} />
     <ReasonDialog open={act?.kind === 'reject'} title={`Refuse ${act?.e.id || ''}`} confirm="Refuse claim" kind="danger" suggestions={REJECT_REASONS} onClose={() => setAct(null)} onConfirm={r => act ? dec.reject(act.e, r) : false}
       intro="The dealer sees this reason in their app. The customer keeps the battery already given; head office settles it with the dealer." />
   </Page>;
@@ -271,7 +272,7 @@ export function EntryDetail({ id }: { id?: string }) {
   const tags = e.evidenceTags && e.evidenceTags.length === e.evidence.length ? e.evidenceTags : e.evidence.map((_, i) => `Photo ${i + 1}`);
   const g = parseGps(e.gps);
   const banner = e.status === 'Conflict' ? <Banner tone="bad" icon="alert"><B>Serial exception — this cannot be approved yet.</B> {problems[0] || 'A serial needs checking.'} Ask the dealer for a correction, or correct it yourself.</Banner>
-    : e.status === 'Submitted' ? <Banner tone="warn" icon="clock"><B>Waiting for your decision.</B> {e.type === 'Replacement' ? `The customer already has the new battery. Approving credits the dealer ${rupees(creditOf(e))}.` : 'Approving updates stock and battery history.'}</Banner>
+    : e.status === 'Submitted' ? <Banner tone="warn" icon="clock"><B>Waiting for your decision.</B> {e.type === 'Replacement' ? `The customer already has the new battery. Approving credits the dealer ${rupees(creditOf(state, e))}.` : 'Approving updates stock and battery history.'}</Banner>
     : e.status === 'Under Review' ? <Banner tone="info" icon="eye"><B>Under review.</B> Approve or refuse once the check is done.</Banner>
     : e.status === 'Approved' ? <Banner tone="ok" icon="check"><B>Approved.</B> Stock, warranty history and the replacement chain are updated.</Banner>
     : e.status === 'Rejected' ? <Banner tone="bad" icon="x"><B>Refused.</B> {e.decisionReason || state.audits.find(x => x.ref === e.id && x.action === 'Reject entry')?.reason || ''}</Banner>
@@ -318,7 +319,7 @@ export function EntryDetail({ id }: { id?: string }) {
       </Stack>
       <Stack>
         <Card><CardH title="Entry" right={<StatusChip status={e.status} />} />
-          <KV pairs={[['Dealer', dealer?.name || e.dealerId], ['City · place', `${dealer?.city || '—'} · ${e.place}`], ['Customer', e.customer || '—'], ['Reference', e.order || '—'], ['Date', dLong(e.date)], ['Sent', `${dShort(e.createdAt)}, ${tShort(e.createdAt)}`], ['Batteries', String(e.items.length)], ['Dealer credit', creditOf(e) ? rupees(creditOf(e)) : '—']]} />
+          <KV pairs={[['Dealer', dealer?.name || e.dealerId], ['City · place', `${dealer?.city || '—'} · ${e.place}`], ['Customer', e.customer || '—'], ['Reference', e.order || '—'], ['Date', dLong(e.date)], ['Sent', `${dShort(e.createdAt)}, ${tShort(e.createdAt)}`], ['Batteries', String(e.items.length)], ['Dealer credit', creditOf(state, e) ? rupees(creditOf(state, e)) : '—']]} />
           {e.remarks ? <X s={13.5} c={T.ink3} style={{ marginTop: 11 }}>“{e.remarks}”</X> : null}
           {dealer && <Btn kind="ghost" sm icon="shop" label="Open dealer" style={{ marginTop: 11 }} onPress={() => a.go('dealer', dealer.id)} />}
         </Card>
@@ -336,7 +337,7 @@ export function EntryDetail({ id }: { id?: string }) {
         </Card>}
       </Stack>
     </Cols>
-    <ReasonDialog open={act === 'approve'} title={`Approve ${e.id}`} confirm="Approve" suggestions={APPROVE_REASONS} amount={e.type === 'Replacement' ? { label: 'Credit to the dealer (₹)', hint: 'Shown to the dealer as what is coming. Your accounts team pays it separately.' } : undefined} onClose={() => setAct('')} onConfirm={(r, amt) => dec.approve(e, r, amt)} intro={creditOf(e) ? `The dealer is credited ${rupees(creditOf(e))}. Cover dates carry over from the first sale.` : 'Stock and battery history are updated.'} />
+    <ReasonDialog open={act === 'approve'} title={`Approve ${e.id}`} confirm="Approve" suggestions={APPROVE_REASONS} amount={e.type === 'Replacement' ? { label: 'Credit to the dealer (₹)', hint: 'Shown to the dealer as what is coming. Your accounts team pays it separately.' } : undefined} onClose={() => setAct('')} onConfirm={(r, amt) => dec.approve(e, r, amt)} intro={creditOf(state, e) ? `The dealer is credited ${rupees(creditOf(state, e))}. Cover dates carry over from the first sale.` : 'Stock and battery history are updated.'} />
     <ReasonDialog open={act === 'review'} title="Start a review" confirm="Mark under review" suggestions={['Waiting for the old battery to arrive', 'Checking the label photo', 'Calling the dealer']} onClose={() => setAct('')} onConfirm={r => dec.review(e, r)} />
     <ReasonDialog open={act === 'reject'} title={`Refuse ${e.id}`} confirm="Refuse" kind="danger" suggestions={REJECT_REASONS} onClose={() => setAct('')} onConfirm={r => dec.reject(e, r)} intro="The dealer sees this reason in their app." />
     <ReasonDialog open={act === 'void'} title="Void / archive this entry" confirm="Void entry" kind="danger" onClose={() => setAct('')} onConfirm={r => dec.voidEntry(e, r)} intro="It leaves live totals and reports, but stays fully readable in search, history and the audit log." />

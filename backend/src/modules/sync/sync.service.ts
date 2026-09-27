@@ -11,6 +11,8 @@ import * as dealersService from '../dealers/dealers.service';
 import { DealerListQuery } from '../dealers/dealers.validation';
 import * as entriesService from '../entries/entries.service';
 import { EntryListQuery } from '../entries/entries.validation';
+import * as creditsService from '../credits/credits.service';
+import { CreditNoteListQuery } from '../credits/credits.validation';
 import * as mastersService from '../masters/masters.service';
 import * as returnsService from '../returns/returns.service';
 import { ChallanListQuery } from '../returns/returns.validation';
@@ -39,7 +41,7 @@ export async function snapshot(ctx: Ctx) {
   const admin = user.scope === 'admin';
   const when = <T>(allowed: boolean, load: () => Promise<T>): Promise<T | null> => (allowed ? load() : Promise.resolve(null));
 
-  const [masters, entries, batteries, claims, movements, dealers, audit, admins, challans] = await Promise.all([
+  const [masters, entries, batteries, claims, movements, dealers, audit, admins, challans, creditNotes] = await Promise.all([
     mastersService.bundle(),
     when(can('entries.read'), () => entriesService.list(ctx, EntryListQuery.parse(PAGE))),
     when(can('batteries.read'), () => batteriesService.list(ctx, BatteryListQuery.parse(PAGE))),
@@ -49,7 +51,8 @@ export async function snapshot(ctx: Ctx) {
     when(admin && can('audit.read'), () => auditService.list(ctx, AuditListQuery.parse(PAGE))),
     when(admin && can('admins.manage'), async () => ({ items: await usersService.listAdmins(ctx) })),
     when(can('claims.read'), () => returnsService.list(ctx, ChallanListQuery.parse(PAGE))),
+    when(can('credits.read'), () => creditsService.list(ctx, CreditNoteListQuery.parse(PAGE))),
   ]);
 
-  return { masters, entries, batteries, claims, movements, dealers, audit, admins, challans, syncedAt: ctx.now().toISOString() };
+  return { masters, entries, batteries, claims, movements, dealers, audit, admins, challans, creditNotes, syncedAt: ctx.now().toISOString() };
 }

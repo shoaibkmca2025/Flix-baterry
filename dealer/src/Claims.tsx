@@ -13,7 +13,7 @@ import { createChallan } from '@felix/shared/api/returns';
 import { toChallan } from '@felix/shared/api/mapping';
 import { errorMessage } from '@felix/shared/api/client';
 import { useSync } from '@felix/shared/api/sync';
-import { ageDays, challanHtml, challanStatus, coverOf, creditNotes, CREDIT_VALUE, dLong, dShort, decisionOf, findBattery, nextChallanNo, personOf, rupees, spanShort, tShort, toSendBack } from '@felix/shared/data';
+import { ageDays, challanHtml, challanStatus, coverOf, creditNotes, creditOf, dLong, dShort, decisionOf, findBattery, nextChallanNo, personOf, rupees, spanShort, tShort, toSendBack } from '@felix/shared/data';
 
 const oldList = (e: Entry) => e.items.map(i => i.oldSerial).filter(Boolean).join(', ');
 
@@ -25,7 +25,7 @@ export function D32({ p }: { p?: string }) {
   const decided = decisionOf(state, e.id), rep = e.type === 'Replacement';
   const cover = rep ? coverOf(findBattery(state, e.items[0]?.oldSerial || ''), state) : null;
   const approved = e.status === 'Approved', refused = e.status === 'Rejected';
-  const credit = e.items.reduce((t, i) => t + (CREDIT_VALUE[i.model] || 0), 0);
+  const credit = creditOf(state, e); // what head office actually issued (D-08)
   const back = e.returnState && e.returnState !== 'At dealer';
   const meaning: [string, IconName, AvTone][] = refused
     ? [['The customer keeps the battery you already gave', 'user', 'green'], ['No credit is raised for this claim', 'x', 'red'], ['Head office settles it with you separately', 'phone', 'amber']]
@@ -144,7 +144,7 @@ export function D35() {
       const st = challanStatus(c, state);
       const outcomes = c.rows.map(r => { const e = state.entries.find(x => x.id === r.ref); const audit = e && decisionOf(state, e.id);
         return { r, e, tone: e?.status === 'Approved' ? 'live' : e?.status === 'Rejected' ? 'bad' : 'warn', icon: e?.status === 'Approved' ? 'check' : e?.status === 'Rejected' ? 'x' : 'clock',
-          label: e?.status === 'Approved' ? `Approved · ${rupees(CREDIT_VALUE[r.model] || 0)}` : e?.status === 'Rejected' ? `Refused${audit?.reason ? ` · ${audit.reason}` : ''}` : st.status === 'In transit' ? 'On the way' : 'Being checked' } as const; });
+          label: e?.status === 'Approved' ? `Approved${e && creditOf(state, e) ? ` · ${rupees(creditOf(state, e))}` : ''}` : e?.status === 'Rejected' ? `Refused${audit?.reason ? ` · ${audit.reason}` : ''}` : st.status === 'In transit' ? 'On the way' : 'Being checked' } as const; });
       const refused = outcomes.filter(o => o.e?.status === 'Rejected');
       return <Card key={c.no} style={ci ? { marginTop: 11 } : undefined} onPress={() => d.go('d36', c.no)} label={`Open challan ${c.no}`}>
         <CardH mono title={c.no} right={<StatusChip status={st.status} label={st.label} />} />

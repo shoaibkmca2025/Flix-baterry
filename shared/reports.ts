@@ -6,7 +6,8 @@ import * as XLSX from 'xlsx';
 import { Dealer, Entry, State } from './domain';
 export const columns=['Dealer','City','Place','Model','Code','Serial No','Mfg Mon','Rpl Mon','Rtn Mon','Month','WR Serial No.','Old Serial No.','Entry Reference No.','Entry Type','Status'];
 export function exportRows(entries:Entry[],state:State) {return entries.flatMap(e=>e.items.map(i=>{const d=state.dealers.find(d=>d.id===e.dealerId);return [d?.name||'',d?.city||'',e.place,i.model,i.code,i.serial,i.mfg,i.rpl,i.rtn,e.date.slice(0,7),i.wr,i.oldSerial,e.id,e.type,e.status];}));}
-export const escapeHtml=(v:string)=>v.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
+import { escapeHtml } from './html';
+export { escapeHtml };
 async function saveFile(name:string,data:string,mime:string,base64=false) {
  if(Platform.OS==='web') {const bytes=base64?Uint8Array.from(atob(data),c=>c.charCodeAt(0)):data;const blob=new Blob([bytes],{type:mime});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
  else {const file=new File(Paths.cache,name);file.create({overwrite:true});if(base64)file.write(Uint8Array.from(atob(data),c=>c.charCodeAt(0)));else file.write(data);if(await Sharing.isAvailableAsync())await Sharing.shareAsync(file.uri,{mimeType:mime});}
