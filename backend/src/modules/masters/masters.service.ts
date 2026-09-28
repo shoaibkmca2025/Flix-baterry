@@ -5,14 +5,25 @@ import { AppError } from '../../utils/errors';
 import { listModels } from '../batteries/batteries.repository';
 import { graceMonths, serialDigitLengths } from '../../utils/settings';
 import * as repo from './masters.repository';
-import type { CityCreateBody, CityUpdateBody } from './masters.validation';
+import type { CityCreateBody, CityUpdateBody, PlantCreateBody, PlantUpdateBody } from './masters.validation';
 
 // M-06 masters — architecture.md §19 GET /masters: "one bundle with ETag" (ETag itself is
 // a later addition — plugins/etag.ts doesn't exist yet). Public: a not-yet-registered
 // dealer needs the city list before they have any token (d04's city picker).
 export async function bundle() {
-  const [allCities, models, plateTypes, grace, serialLengths] = await Promise.all([repo.listCities(db), listModels(db), repo.listPlateTypes(db), graceMonths(db), serialDigitLengths(db)]);
-  return { cities: allCities.filter((c) => c.active), models, plateTypes: plateTypes.filter((p) => p.active), warrantyGraceMonths: grace, serialDigitLengths: serialLengths };
+  const [allCities, models, plateTypes, grace, serialLengths, plants] = await Promise.all([
+    repo.listCities(db), listModels(db), repo.listPlateTypes(db), graceMonths(db), serialDigitLengths(db), repo.listPlants(db),
+  ]);
+  return {
+    cities: allCities.filter((c) => c.active),
+    models,
+    plateTypes: plateTypes.filter((p) => p.active),
+    // ALL plants, switched-off ones included: a battery tagged before its plant was switched off
+    // must still show that plant's name. The arrival dropdown offers only the `active` ones.
+    plants: plants.map(({ id, name, active }) => ({ id, name, active })),
+    warrantyGraceMonths: grace,
+    serialDigitLengths: serialLengths,
+  };
 }
 
 function requireManageActor(ctx: Ctx) {
@@ -48,6 +59,42 @@ export async function updateCity(ctx: Ctx, id: string, input: CityUpdateBody) {
   return withTransaction(async (tx) => {
     const after = await repo.updateCity(tx, id, input);
     await audit(tx, { ctx, action: 'master.updated', entityType: 'city', entityId: id, entityRef: before.name, before, after, outcome: 'ok' });
+    return after;
+  });
+}
+
+// ---- plants (D-19) — head office keeps its own list; every change is audited.
+export async function listPlantsAdmin(ctx: Ctx) {
+  requireManageActor(ctx);
+  return repo.listPlants(db);
+}
+
+export async function createPlant(ctx: Ctx, input: PlantCreateBody) {
+  requireManageActor(ctx);
+  const clash = await repo.findPlantByName(db, input.name);
+  if (clash) throw new AppError('plant_taken', 409, `There is already a plant called ${clash.name}.`, { field: 'name' });
+  return withTransaction(async (tx) => {
+    const plant = await repo.insertPlant(tx, { name: input.name });
+    await audit(tx, { ctx, action: 'master.updated', entityType: 'plant', entityId: plant.id, entityRef: plant.name, after: plant, outcome: 'ok' });
+    return plant;
+  });
+}
+
+export async function updatePlant(ctx: Ctx, id: string, input: PlantUpdateBody) {
+  requireManageActor(ctx);
+  const before = await repo.findPlantById(db, id);
+  if (!before) throw new AppError('plant_not_found', 404, 'Plant not found.');
+  if (input.name !== undefined) {
+    const clash = await repo.findPlantByName(db, input.name, id);
+    if (clash) throw new AppError('plant_taken', 409, `There is already a plant called ${clash.name}.`, { field: 'name' });
+  }
+  // with no plant switched on, no battery could be confirmed as arrived at all
+  if (input.active === false && before.active && (await repo.countActivePlants(db)) <= 1) {
+    throw new AppError('last_active_plant', 409, `${before.name} is the only plant switched on. Add or switch on another plant first.`, { field: 'active' });
+  }
+  return withTransaction(async (tx) => {
+    const after = await repo.updatePlant(tx, id, input, ctx.now());
+    await audit(tx, { ctx, action: 'master.updated', entityType: 'plant', entityId: id, entityRef: before.name, before, after, outcome: 'ok' });
     return after;
   });
 }

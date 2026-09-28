@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, lt, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lt, ne, or } from 'drizzle-orm';
 import { db, type Tx } from '../../database/client';
 import { challanLines, challans } from '../../models/returns.model';
 
@@ -45,9 +45,50 @@ export async function markReceived(tx: Tx, id: string, by: string, at: Date) {
   return row;
 }
 
-export async function updateLineStage(tx: Tx, id: string, values: Pick<NewLine, 'stage' | 'stageNote' | 'stagedBy' | 'stagedAt' | 'shortage'>) {
+export async function updateLineStage(tx: Tx, id: string, values: Pick<NewLine, 'stage' | 'stageNote' | 'stagedBy' | 'stagedAt' | 'shortage'> & { plantId?: string }) {
   const [row] = await tx.update(challanLines).set(values).where(eq(challanLines.id, id)).returning();
   return row;
+}
+
+export async function setLinePlant(tx: Tx, id: string, plantId: string) {
+  const [row] = await tx.update(challanLines).set({ plantId }).where(eq(challanLines.id, id)).returning();
+  return row;
+}
+
+export type LineListFilter = {
+  plantId?: string | 'none';
+  stage?: NewLine['stage'];
+  dealerId?: string;
+  limit: number;
+  cursor?: { createdAt: Date; id: string };
+};
+
+/** Returned batteries across challans, newest challan first — the "by plant" view (D-19). */
+export async function listLines(dbh: DbOrTx, filter: LineListFilter) {
+  const conditions = [
+    // "none" = arrived, but nobody has said which plant made it yet
+    filter.plantId === 'none' ? and(isNull(challanLines.plantId), ne(challanLines.stage, 'in_transit')) : undefined,
+    filter.plantId && filter.plantId !== 'none' ? eq(challanLines.plantId, filter.plantId) : undefined,
+    filter.stage ? eq(challanLines.stage, filter.stage) : undefined,
+    filter.dealerId ? eq(challans.dealerId, filter.dealerId) : undefined,
+    filter.cursor
+      ? or(lt(challans.createdAt, filter.cursor.createdAt), and(eq(challans.createdAt, filter.cursor.createdAt), lt(challanLines.id, filter.cursor.id)))
+      : undefined,
+  ].filter((c): c is NonNullable<typeof c> => c !== undefined);
+
+  const rows = await dbh
+    .select({ line: challanLines, challanNo: challans.no, dealerId: challans.dealerId, challanCreatedAt: challans.createdAt })
+    .from(challanLines)
+    .innerJoin(challans, eq(challans.id, challanLines.challanId))
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(desc(challans.createdAt), desc(challanLines.id))
+    .limit(filter.limit + 1);
+
+  const hasMore = rows.length > filter.limit;
+  const page = hasMore ? rows.slice(0, filter.limit) : rows;
+  const last = page[page.length - 1];
+  const nextCursor = hasMore && last ? Buffer.from(JSON.stringify({ createdAt: last.challanCreatedAt.toISOString(), id: last.line.id })).toString('base64url') : null;
+  return { items: page.map((r) => ({ ...r.line, challanNo: r.challanNo, dealerId: r.dealerId })), nextCursor };
 }
 
 export type ChallanListFilter = { status?: 'dispatched' | 'received'; dealerId?: string; limit: number; cursor?: { createdAt: Date; id: string } };

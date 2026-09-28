@@ -133,3 +133,8 @@ export async function listBatteries(dbh: DbOrTx, filter: BatteryListFilter) {
   const nextCursor = hasMore && last ? Buffer.from(JSON.stringify({ createdAt: last.createdAt.toISOString(), id: last.id })).toString('base64url') : null;
   return { items, nextCursor };
 }
+
+/** Copies a return's plant tag onto the battery's own record, when the register has one (D-19). */
+export async function setBatteryPlant(tx: Tx, batteryCode: string, plantId: string, at: Date) {
+  await tx.update(batteries).set({ plantId, updatedAt: at }).where(eq(batteries.batteryCode, batteryCode));
+}

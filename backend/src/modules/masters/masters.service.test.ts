@@ -16,10 +16,18 @@ vi.mock('./masters.repository', () => ({
   findCityByName: vi.fn(),
   insertCity: vi.fn(),
   updateCity: vi.fn(),
+  listPlants: vi.fn(async () => []),
+  findPlantById: vi.fn(),
+  findPlantByName: vi.fn(),
+  countActivePlants: vi.fn(),
+  insertPlant: vi.fn(),
+  updatePlant: vi.fn(),
 }));
 
+import { audit } from '../../utils/audit';
 import * as repo from './masters.repository';
-import { bundle, createCity, listCitiesAdmin, updateCity } from './masters.service';
+import { bundle, createCity, createPlant, listCitiesAdmin, listPlantsAdmin, updateCity, updatePlant } from './masters.service';
+import { PlantCreateBody, PlantUpdateBody } from './masters.validation';
 import type { Ctx } from '../../utils/context';
 
 const ctx: Ctx = {
@@ -81,5 +89,72 @@ describe('listCitiesAdmin / createCity / updateCity', () => {
     const result = await updateCity(adminCtx, 'city-1', { active: false });
 
     expect(result).toMatchObject({ active: false });
+  });
+});
+
+describe('plants (D-19) — head office keeps its own list', () => {
+  const main = { id: 'p-1', name: 'Main plant', active: true, createdAt: new Date(), updatedAt: new Date() };
+  const branch = { id: 'p-2', name: 'Branch 1', active: true, createdAt: new Date(), updatedAt: new Date() };
+
+  it('the bundle carries every plant, switched-off ones flagged, so old tags still have a name', async () => {
+    vi.mocked(repo.listCities).mockResolvedValue([] as never);
+    vi.mocked(repo.listPlants).mockResolvedValue([main, { ...branch, active: false }] as never);
+    const result = await bundle();
+    expect(result.plants).toEqual([{ id: 'p-1', name: 'Main plant', active: true }, { id: 'p-2', name: 'Branch 1', active: false }]);
+  });
+
+  it('only an admin can list, add or change plants', async () => {
+    await expect(listPlantsAdmin(ctx)).rejects.toMatchObject({ code: 'unauthenticated' });
+    await expect(createPlant(ctx, { name: 'Sinnar' })).rejects.toMatchObject({ code: 'unauthenticated' });
+    await expect(updatePlant(ctx, 'p-1', { name: 'Sinnar' })).rejects.toMatchObject({ code: 'unauthenticated' });
+  });
+
+  it('adds a plant, audited', async () => {
+    vi.mocked(repo.findPlantByName).mockResolvedValue(null as never);
+    vi.mocked(repo.insertPlant).mockResolvedValue({ ...branch, id: 'p-9', name: 'Sinnar' } as never);
+    const r = await createPlant(adminCtx, { name: 'Sinnar' });
+    expect(r.name).toBe('Sinnar');
+    expect(vi.mocked(audit).mock.calls[0]?.[1]).toMatchObject({ action: 'master.updated', entityType: 'plant', entityRef: 'Sinnar' });
+  });
+
+  it('refuses a second plant with the same name, whatever the capitals', async () => {
+    vi.mocked(repo.findPlantByName).mockResolvedValue(branch as never);
+    await expect(createPlant(adminCtx, { name: 'branch 1' })).rejects.toMatchObject({ code: 'plant_taken', status: 409, message: 'There is already a plant called Branch 1.' });
+    expect(repo.insertPlant).not.toHaveBeenCalled();
+  });
+
+  it('renames a plant; the name check ignores the plant being renamed', async () => {
+    vi.mocked(repo.findPlantById).mockResolvedValue(branch as never);
+    vi.mocked(repo.findPlantByName).mockResolvedValue(null as never);
+    vi.mocked(repo.updatePlant).mockResolvedValue({ ...branch, name: 'Sinnar plant' } as never);
+    const r = await updatePlant(adminCtx, 'p-2', { name: 'Sinnar plant' });
+    expect(r.name).toBe('Sinnar plant');
+    expect(repo.findPlantByName).toHaveBeenCalledWith(expect.anything(), 'Sinnar plant', 'p-2');
+    expect(vi.mocked(audit).mock.calls[0]?.[1]).toMatchObject({ before: { name: 'Branch 1' }, after: { name: 'Sinnar plant' } });
+  });
+
+  it('switches a plant off rather than deleting it', async () => {
+    vi.mocked(repo.findPlantById).mockResolvedValue(branch as never);
+    vi.mocked(repo.countActivePlants).mockResolvedValue(4);
+    vi.mocked(repo.updatePlant).mockResolvedValue({ ...branch, active: false } as never);
+    expect((await updatePlant(adminCtx, 'p-2', { active: false })).active).toBe(false);
+  });
+
+  it('will not switch off the last plant that is on — nothing could arrive after that', async () => {
+    vi.mocked(repo.findPlantById).mockResolvedValue(main as never);
+    vi.mocked(repo.countActivePlants).mockResolvedValue(1);
+    await expect(updatePlant(adminCtx, 'p-1', { active: false })).rejects.toMatchObject({ code: 'last_active_plant', status: 409 });
+    expect(repo.updatePlant).not.toHaveBeenCalled();
+  });
+
+  it('404 for a plant that does not exist', async () => {
+    vi.mocked(repo.findPlantById).mockResolvedValue(null as never);
+    await expect(updatePlant(adminCtx, 'nope', { name: 'X plant' })).rejects.toMatchObject({ code: 'plant_not_found', status: 404 });
+  });
+
+  it('validation: a name is needed, and an edit must change something', () => {
+    expect(PlantCreateBody.safeParse({ name: ' ' }).success).toBe(false);
+    expect(PlantUpdateBody.safeParse({}).success).toBe(false);
+    expect(PlantUpdateBody.safeParse({ active: false }).success).toBe(true);
   });
 });

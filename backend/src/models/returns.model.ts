@@ -1,6 +1,7 @@
 import { boolean, index, integer, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { dealers } from './identity.model';
 import { entries, entryItems } from './entries.model';
+import { plants } from './masters.model';
 
 // modules.md M-19 returns, trimmed for V1: challans + lines only (no stock movements — the
 // stock ledger isn't built; no PDF asset; no shortages). A challan is a dealer handing a
@@ -53,6 +54,9 @@ export const challanLines = pgTable(
     stagedBy: uuid('staged_by'),
     stagedAt: timestamp('staged_at', { withTimezone: true }),
     shortage: boolean('shortage').notNull().default(false), // on the challan but not in the van
+    // the plant that MADE this battery, read off its label by the admin on arrival (D-19);
+    // null while it is still on the way, or if it arrived before plants existed
+    plantId: uuid('plant_id').references(() => plants.id),
   },
-  (t) => [index('challan_lines_challan_idx').on(t.challanId), index('challan_lines_entry_idx').on(t.entryId)],
+  (t) => [index('challan_lines_challan_idx').on(t.challanId), index('challan_lines_entry_idx').on(t.entryId), index('challan_lines_plant_idx').on(t.plantId)],
 );

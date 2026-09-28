@@ -38,6 +38,22 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-28 · returned batteries are tagged with the plant that made them (Claude Code)
+**Worked on:** client request: sort returned batteries by the plant that made them, chosen per battery on arrival, with head office able to add and edit plants.
+**Done:**
+- `plants` master (migration `0012`) with add / rename / switch-off under `/masters/plants`; `GET /masters` carries every plant with its `active` flag. Seeded with 4 placeholder names, only into an empty table.
+- `POST /challans/lines/:lineId/receive`: one battery arrives, tagged with its plant (required). The challan turns *received* once nothing on it is still on the way.
+- `POST /challans/:id/receive` takes an optional `plantId` for the whole van, and now **skips lines already confirmed** instead of resetting them to *received*. It also refuses to call an already-confirmed battery "missing".
+- `PATCH /challans/lines/:lineId/plant` for a misread label (reason required); `GET /challans/lines?plantId=` for the per-plant list.
+- The tag is copied to `batteries.plant_id` when the battery is on the register.
+- Tests: 255 pass (27 new). Live against Neon: 25/25 on the flow, plus 5/5 on the battery-record copy. The first run's battery-record check passed only because there were no rows to check, so it was redone with a battery actually on the register.
+**Decisions:** memory.md D-19.
+**Found:** the admin app's per-battery "Confirm it arrived" button calls the **whole-challan** endpoint, so today confirming one battery confirms every battery on that challan. Backend fix is in place; the button has to be pointed at the new per-battery endpoint (admin app, not touched here).
+**Blockers / decisions needed:** real plant names from the client (placeholders are renamable). Admin app: the plant dropdown, the per-battery endpoint, removing the "All batteries on the challan arrived" chip, a plants screen. Once it sends `plantId`, make it required on the whole-van confirm.
+**Next:** frontend wiring (colleague / not in this pass).
+
+---
+
 ### 2026-09-27 · serial length is a setting now, not a constant; DIN revised (Claude Code)
 **Worked on:** the client's news that batteries are already in dealers' hands with **7-digit** codes, while the system demanded exactly 8 — so those batteries simply could not be entered.
 **Done:**

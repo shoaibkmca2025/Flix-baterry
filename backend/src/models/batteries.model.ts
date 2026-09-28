@@ -1,6 +1,6 @@
 import { boolean, char, index, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { dealers } from './identity.model';
-import { batteryModels } from './masters.model';
+import { batteryModels, plants } from './masters.model';
 
 // architecture.md §8.3 BATTERIES — V1 trims location_id/customer_id/first_seen_entry_id
 // (inventory_locations, customers, entries don't exist yet). chain_id/replaced_from_id/
@@ -31,6 +31,9 @@ export const batteries = pgTable(
     chainId: uuid('chain_id'), // -> warranty_chains.id, see file comment above
     replacedFromId: uuid('replaced_from_id'), // -> batteries.id (the old battery, if this one replaced it)
     replacedById: uuid('replaced_by_id'), // -> batteries.id (the new battery, if this one was replaced)
+    // the plant that made it — known once head office has tagged it on a return (D-19); a copy of
+    // the challan line's tag, so a battery search can say where it was made
+    plantId: uuid('plant_id').references(() => plants.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

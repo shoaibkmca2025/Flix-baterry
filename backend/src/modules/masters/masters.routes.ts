@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../../middleware/auth';
 import { requirePermission } from '../../middleware/rbac';
 import * as controller from './masters.controller';
-import { CityCreateBody, CityUpdateBody } from './masters.validation';
+import { CityCreateBody, CityUpdateBody, PlantCreateBody, PlantUpdateBody } from './masters.validation';
 
 // M-06 masters — architecture.md §19. GET /masters is public: a not-yet-registered
 // dealer needs the city list before they have any token (d04's city picker).
@@ -18,5 +18,18 @@ export async function registerMastersRoutes(app: FastifyInstance) {
     '/cities/:id',
     { preHandler: [requireAuth, requirePermission('masters.manage')], schema: { body: CityUpdateBody } },
     controller.updateCity,
+  );
+
+  // plants (D-19): add, rename, switch off/on — main admin only, like cities
+  app.get('/plants', { preHandler: [requireAuth, requirePermission('masters.manage')] }, controller.listPlants);
+  app.post<{ Body: PlantCreateBody }>(
+    '/plants',
+    { preHandler: [requireAuth, requirePermission('masters.manage')], schema: { body: PlantCreateBody } },
+    controller.createPlant,
+  );
+  app.patch<{ Params: { id: string }; Body: PlantUpdateBody }>(
+    '/plants/:id',
+    { preHandler: [requireAuth, requirePermission('masters.manage')], schema: { body: PlantUpdateBody } },
+    controller.updatePlant,
   );
 }

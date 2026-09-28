@@ -3,14 +3,17 @@ import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
 import { monthKey, nextFormattedRef } from '../../utils/ids';
+import * as batteriesRepo from '../batteries/batteries.repository';
 import * as claimsRepo from '../claims/claims.repository';
 import * as claimsService from '../claims/claims.service';
 import * as entriesRepo from '../entries/entries.repository';
+import * as mastersRepo from '../masters/masters.repository';
 import * as repo from './returns.repository';
-import type { ChallanCreateBody, ChallanListQuery, ChallanReceiveBody, LineStageBody } from './returns.validation';
+import type { ChallanCreateBody, ChallanListQuery, ChallanReceiveBody, LinePlantBody, LineReceiveBody, LineStageBody, ReturnLineListQuery } from './returns.validation';
 
 // M-19 returns (modules.md), V1: a dealer hands old batteries to the van (dispatch), head
-// office confirms the van arrived (receive), then each battery moves through testing →
+// office confirms each battery arrived and tags the plant that made it (receiveLine — or
+// receive, for the whole van at once), then each battery moves through testing →
 // repaired/scrapped → closed.
 //
 // A challan can be raised before head office approves the entry, so it may carry batteries
@@ -88,6 +91,27 @@ async function carryClaims(ctx: Ctx, claimIds: (string | null)[], target: 'await
   }
 }
 
+// A plant the admin can tag a battery with: it exists and is switched on (D-19).
+async function activePlant(plantId: string) {
+  const plant = await mastersRepo.findPlantById(db, plantId);
+  if (!plant) throw new AppError('plant_not_found', 422, 'Choose a plant from the list.', { field: 'plantId' });
+  if (!plant.active) throw new AppError('plant_inactive', 422, `${plant.name} is switched off. Choose another plant, or switch it back on first.`, { field: 'plantId' });
+  return plant;
+}
+
+// Moves the claim of each arrived battery to received (best effort, after the commit).
+async function carryArrived(ctx: Ctx, arrived: { entryId: string; entryItemId: string }[]) {
+  if (!arrived.length) return;
+  const items = await entriesRepo.findItemsByEntryIds(db, [...new Set(arrived.map((l) => l.entryId))]);
+  const itemIds = new Set(arrived.map((l) => l.entryItemId));
+  await carryClaims(ctx, items.filter((it) => itemIds.has(it.id)).map((it) => it.claimId), 'received');
+}
+
+/**
+ * "Confirm all arrived" — every battery still on the way arrives at once, all tagged with the
+ * one plant given (if any). A battery already confirmed on its own (receiveLine) keeps its stage
+ * and its plant: this used to reset every line on the challan back to "received".
+ */
 export async function receive(ctx: Ctx, id: string, input: ChallanReceiveBody) {
   const user = requireAdmin(ctx);
   const challan = await repo.findChallanById(db, id);
@@ -96,25 +120,94 @@ export async function receive(ctx: Ctx, id: string, input: ChallanReceiveBody) {
   const lines = await repo.findLinesByChallanId(db, id);
   const missing = new Set(input.missingBatteryCodes.map((c) => c.replace(/\s/g, '').toUpperCase()));
   for (const code of missing) {
-    if (!lines.some((l) => l.batteryCode === code)) throw new AppError('line_not_on_challan', 422, `${code} is not on ${challan.no}.`);
+    const line = lines.find((l) => l.batteryCode === code);
+    if (!line) throw new AppError('line_not_on_challan', 422, `${code} is not on ${challan.no}.`);
+    if (line.stage !== 'in_transit') throw new AppError('line_already_received', 422, `${code} was already confirmed as arrived, so it cannot be missing.`);
   }
+  const plant = input.plantId ? await activePlant(input.plantId) : null;
+  const pending = lines.filter((l) => l.stage === 'in_transit');
+  const arriving = pending.filter((l) => !missing.has(l.batteryCode));
 
   return withTransaction(async (tx) => {
     const now = ctx.now();
     const updated = await repo.markReceived(tx, id, user.id, now);
     const out = [];
     for (const line of lines) {
+      if (line.stage !== 'in_transit') { out.push(line); continue; }
       const short = missing.has(line.batteryCode);
-      out.push(await repo.updateLineStage(tx, line.id, { stage: short ? 'in_transit' : 'received', shortage: short, stageNote: input.reason ?? null, stagedBy: user.id, stagedAt: now }));
+      const tag = !short && plant ? { plantId: plant.id } : {};
+      out.push(await repo.updateLineStage(tx, line.id, { stage: short ? 'in_transit' : 'received', shortage: short, stageNote: input.reason ?? null, stagedBy: user.id, stagedAt: now, ...tag }));
+      if (tag.plantId) await batteriesRepo.setBatteryPlant(tx, line.batteryCode, tag.plantId, now);
     }
-    await audit(tx, { ctx, action: 'challan.received', entityType: 'challan', entityId: id, entityRef: challan.no, before: { status: 'dispatched' }, after: { status: 'received', shortages: [...missing] }, reason: input.reason, outcome: 'ok' });
+    await audit(tx, {
+      ctx, action: 'challan.received', entityType: 'challan', entityId: id, entityRef: challan.no,
+      before: { status: 'dispatched' },
+      after: { status: 'received', shortages: [...missing], arrived: arriving.map((l) => l.batteryCode), plantId: plant?.id ?? null, plant: plant?.name ?? null },
+      reason: input.reason, outcome: 'ok',
+    });
     return { ...updated, lines: out };
   }).then(async (result) => {
-    const arrived = lines.filter((l) => !missing.has(l.batteryCode));
-    const items = await entriesRepo.findItemsByEntryIds(db, [...new Set(arrived.map((l) => l.entryId))]);
-    const itemIds = new Set(arrived.map((l) => l.entryItemId));
-    await carryClaims(ctx, items.filter((it) => itemIds.has(it.id)).map((it) => it.claimId), 'received');
+    await carryArrived(ctx, arriving);
     return result;
+  });
+}
+
+/**
+ * One battery off the van (D-19). The admin reads its label and says which plant made it; it
+ * arrives tagged with that plant. The challan reads "arrived" once nothing on it is on the way.
+ */
+export async function receiveLine(ctx: Ctx, lineId: string, input: LineReceiveBody) {
+  const user = requireAdmin(ctx);
+  const line = await repo.findLineById(db, lineId);
+  if (!line) throw new AppError('line_not_found', 404, 'That battery is not on any challan.');
+  if (line.stage !== 'in_transit') throw new AppError('line_already_received', 409, `${line.batteryCode} was already confirmed as arrived.`);
+  const plant = await activePlant(input.plantId);
+  const challan = await repo.findChallanById(db, line.challanId);
+  if (!challan) throw new AppError('challan_not_found', 404, 'Challan not found.');
+
+  return withTransaction(async (tx) => {
+    const now = ctx.now();
+    const updated = await repo.updateLineStage(tx, line.id, { stage: 'received', shortage: false, plantId: plant.id, stageNote: input.reason ?? null, stagedBy: user.id, stagedAt: now });
+    await batteriesRepo.setBatteryPlant(tx, line.batteryCode, plant.id, now);
+    const others = await repo.findLinesByChallanId(tx, line.challanId);
+    const stillOnTheWay = others.filter((l) => l.id !== line.id && l.stage === 'in_transit').length;
+    if (!stillOnTheWay && challan.status === 'dispatched') await repo.markReceived(tx, challan.id, user.id, now);
+    await audit(tx, {
+      ctx, action: 'return.received', entityType: 'challan_line', entityId: line.id, entityRef: line.batteryCode,
+      before: { stage: 'in_transit' },
+      after: { stage: 'received', challan: challan.no, plantId: plant.id, plant: plant.name, stillOnTheWay },
+      reason: input.reason, outcome: 'ok',
+    });
+    return { ...updated, challanNo: challan.no, stillOnTheWay };
+  }).then(async (result) => {
+    await carryArrived(ctx, [line]);
+    return result;
+  });
+}
+
+/**
+ * Re-tag an arrived battery (D-19): the label was misread, or it arrived before plants existed.
+ * A reason is required because this changes what the per-plant failure counts say.
+ */
+export async function setLinePlant(ctx: Ctx, lineId: string, input: LinePlantBody) {
+  requireAdmin(ctx);
+  const line = await repo.findLineById(db, lineId);
+  if (!line) throw new AppError('line_not_found', 404, 'That battery is not on any challan.');
+  if (line.stage === 'in_transit') throw new AppError('line_not_arrived', 409, `${line.batteryCode} has not arrived yet. Choose its plant when you confirm it arrived.`);
+  const plant = await activePlant(input.plantId);
+  if (line.plantId === plant.id) throw new AppError('plant_unchanged', 409, `${line.batteryCode} is already tagged ${plant.name}.`, { field: 'plantId' });
+  const was = line.plantId ? await mastersRepo.findPlantById(db, line.plantId) : null;
+
+  return withTransaction(async (tx) => {
+    const now = ctx.now();
+    const updated = await repo.setLinePlant(tx, line.id, plant.id);
+    await batteriesRepo.setBatteryPlant(tx, line.batteryCode, plant.id, now);
+    await audit(tx, {
+      ctx, action: 'return.plant_changed', entityType: 'challan_line', entityId: line.id, entityRef: line.batteryCode,
+      before: { plantId: line.plantId, plant: was?.name ?? null }, after: { plantId: plant.id, plant: plant.name },
+      reason: input.reason, outcome: 'ok',
+    });
+    return updated;
   });
 }
 
@@ -143,6 +236,12 @@ export async function list(ctx: Ctx, query: ChallanListQuery) {
   const byChallan = new Map<string, typeof allLines>();
   for (const line of allLines) byChallan.set(line.challanId, [...(byChallan.get(line.challanId) ?? []), line]);
   return { items: page.items.map((c) => ({ ...c, lines: byChallan.get(c.id) ?? [] })), nextCursor: page.nextCursor };
+}
+
+export async function listLines(ctx: Ctx, query: ReturnLineListQuery) {
+  const user = requireUser(ctx);
+  const dealerId = user.scope === 'dealer' ? user.dealerId : undefined;
+  return repo.listLines(db, { plantId: query.plantId, stage: query.stage, dealerId, limit: query.limit, cursor: decodeCursor(query.cursor) });
 }
 
 export async function getById(ctx: Ctx, id: string) {
