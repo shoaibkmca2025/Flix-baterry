@@ -15,7 +15,7 @@ export async function otpVerify(request: FastifyRequest<{ Body: OtpVerifyBody }>
 
 export async function login(request: FastifyRequest<{ Body: AdminLoginBody }>, reply: FastifyReply) {
   const result = await service.loginWithPassword(buildCtx(request), request.body);
-  reply.status(202).send(result);
+  reply.status(200).send(result); // signed in — no second step for admins (D-21)
 }
 
 export async function passwordForgot(request: FastifyRequest<{ Body: PasswordForgotBody }>, reply: FastifyReply) {

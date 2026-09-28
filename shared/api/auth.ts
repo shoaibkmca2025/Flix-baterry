@@ -34,8 +34,9 @@ export function verifyOtp(challengeId: string, code: string): Promise<VerifyOtpL
   return apiPost('/auth/otp/verify', { challengeId, code });
 }
 
+/** Head office: email + password signs straight in — there is no two-step code for admins (D-21). */
 export function adminLogin(email: string, password: string) {
-  return apiPost<OtpChallenge>('/auth/login', { email, password });
+  return apiPost<VerifyOtpLoginResult>('/auth/login', { email, password });
 }
 
 export function passwordForgot(email: string) {

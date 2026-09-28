@@ -38,6 +38,14 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-28 · head office signs in with a password alone; the code stays for dealers (Claude Code)
+**Worked on:** client request: no sign-in code for admins, keep it for the dealer app.
+**Done:** `loginWithPassword` issues the session directly (lockout and the `auth.signed_in` audit row unchanged); `POST /auth/login` answers 200 with tokens. Admin sign-in screen: email + password → console; the two-step code card and "Use a different account" are gone. Dealer sign-in and *Forgot password* unchanged.
+**Verified:** backend 258 tests; live: admin login 200 with a working session and no code created (88 before, 88 after), wrong password 401, audit row written, dealer sign-in still sends a code; in a browser the console opens straight after *Sign in*.
+**Decisions:** memory.md D-21.
+
+---
+
 ### 2026-09-28 · approved means "approved for refund" — no amount anywhere (Claude Code)
 **Worked on:** client request: stop typing and showing a refund amount; the dealer is only told the battery is approved for refund.
 **Done:**

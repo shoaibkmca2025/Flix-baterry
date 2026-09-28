@@ -174,31 +174,37 @@ describe('loginWithPassword', () => {
     await expect(loginWithPassword(ctx, { email: 'admin@example.com', password: 'x' })).rejects.toThrow('Too many failed attempts');
   });
 
-  // Regression: requestOtp used to only attach a userId to the challenge for purposes
-  // 'login'/'reset', leaving admin_2fa challenges with userId: null — so a correct 2FA
-  // code still failed verifyOtp's "!challenge.userId" check. Found manually against a
-  // real database; this test would have caught it without needing one.
-  it('a correct password creates a 2FA challenge carrying the admin userId, and the right code then signs them in', async () => {
+  // Client, 28 Sep 2026 (memory.md D-21): head office signs in with the password alone.
+  it('a correct password signs the admin in at once — no two-step code is sent', async () => {
     const passwordHash = await hashPassword('Password123');
     vi.mocked(repo.countRecentBadLogins).mockResolvedValue(0);
-    vi.mocked(repo.countRecentOtpChallenges).mockResolvedValue(0);
-    vi.mocked(repo.findUserByEmail).mockResolvedValue({ id: 'admin-1', scope: 'admin', role: 'main_admin', status: 'active', passwordHash } as never);
-    vi.mocked(repo.insertOtpChallenge).mockResolvedValue({ id: 'chal-2fa' } as never);
-
-    await loginWithPassword(ctx, { email: 'admin@example.com', password: 'Password123' });
-
-    expect(repo.insertOtpChallenge).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ userId: 'admin-1', purpose: 'admin_2fa' }));
-
-    vi.mocked(repo.findOtpChallenge).mockResolvedValue({
-      id: 'chal-2fa', purpose: 'admin_2fa', target: 'admin@example.com', codeHash: hashOtp('123456'), userId: 'admin-1',
-      attempts: 0, maxAttempts: 5, expiresAt: new Date('2026-09-16T10:10:00Z'), consumedAt: null,
-    } as never);
-    vi.mocked(repo.findUserById).mockResolvedValue({ id: 'admin-1', scope: 'admin', role: 'main_admin', dealerId: null, status: 'active', name: 'Admin' } as never);
+    vi.mocked(repo.findUserByEmail).mockResolvedValue({ id: 'admin-1', name: 'S. Deshpande', scope: 'admin', role: 'main_admin', dealerId: null, status: 'active', passwordHash } as never);
     vi.mocked(repo.insertSession).mockResolvedValue({ id: 'session-1' } as never);
 
-    const result = await verifyOtp(ctx, { challengeId: 'chal-2fa', code: '123456' });
+    const result = await loginWithPassword(ctx, { email: 'admin@example.com', password: 'Password123' });
 
-    expect(result).toHaveProperty('accessToken');
+    expect(result).toMatchObject({ user: { id: 'admin-1', scope: 'admin', role: 'main_admin' }, dealer: null });
+    expect(result.accessToken).toEqual(expect.any(String));
+    expect(result.refreshToken).toEqual(expect.any(String));
+    expect(repo.insertOtpChallenge).not.toHaveBeenCalled();
+    expect(repo.insertLoginAttempt).toHaveBeenCalledWith(expect.anything(), 'admin@example.com', expect.anything(), 'ok');
+    expect(repo.updateUserLastLogin).toHaveBeenCalledWith(expect.anything(), 'admin-1');
+  });
+
+  it('a dealer account cannot use the admin password sign-in', async () => {
+    const passwordHash = await hashPassword('Password123');
+    vi.mocked(repo.countRecentBadLogins).mockResolvedValue(0);
+    vi.mocked(repo.findUserByEmail).mockResolvedValue({ id: 'u-9', scope: 'dealer', role: 'dealer_manager', status: 'active', passwordHash } as never);
+    await expect(loginWithPassword(ctx, { email: 'dealer@example.com', password: 'Password123' })).rejects.toMatchObject({ code: 'invalid_credentials' });
+    expect(repo.insertSession).not.toHaveBeenCalled();
+  });
+
+  it('a switched-off admin is refused even with the right password', async () => {
+    const passwordHash = await hashPassword('Password123');
+    vi.mocked(repo.countRecentBadLogins).mockResolvedValue(0);
+    vi.mocked(repo.findUserByEmail).mockResolvedValue({ id: 'admin-2', scope: 'admin', role: 'operations', status: 'suspended', passwordHash } as never);
+    await expect(loginWithPassword(ctx, { email: 'ops@example.com', password: 'Password123' })).rejects.toMatchObject({ code: 'user_blocked' });
+    expect(repo.insertSession).not.toHaveBeenCalled();
   });
 });
 

@@ -968,7 +968,7 @@ Role column: **D** dealer principals · **A** head-office principals (with the n
 |---|---|---|
 | POST `/auth/otp/request` | P | send OTP (login, register, reset, verify_mobile) |
 | POST `/auth/otp/verify` | P | verify OTP → tokens (login) or `verifiedToken` (register/reset) |
-| POST `/auth/login` | P | email + password → 2FA challenge (admins) / tokens (dealer with OTP-less policy off) |
+| POST `/auth/login` | P | email + password → tokens for head office (no 2FA step since 28 Sep 2026 — memory.md D-21) |
 | POST `/auth/refresh` · POST `/auth/logout` · GET/DELETE `/auth/sessions` | D A | token rotation, sign out, device list |
 | POST `/auth/password/forgot` · `/auth/password/reset` · `/auth/password/change` | P / D A | recovery and change |
 | GET `/me` · PATCH `/me` (language, smsAlerts, name) | D A | profile & preferences |

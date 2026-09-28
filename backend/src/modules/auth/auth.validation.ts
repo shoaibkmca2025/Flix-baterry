@@ -20,6 +20,7 @@ export type OtpVerifyBody = z.infer<typeof OtpVerifyBody>;
 export const AdminLoginBody = z.object({
   email,
   password: z.string().min(1),
+  deviceId: z.string().optional(),
 });
 export type AdminLoginBody = z.infer<typeof AdminLoginBody>;
 

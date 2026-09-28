@@ -186,8 +186,17 @@ export async function loginWithPassword(ctx: Ctx, input: AdminLoginBody) {
     throw new AppError('user_blocked', 403, 'This account is not active.');
   }
 
-  await withTransaction((tx) => repo.insertLoginAttempt(tx, input.email, ctx.request.ip, 'ok'));
-  return requestOtp(ctx, { target: input.email, purpose: 'admin_2fa' });
+  // Head office signs in with email + password alone — no two-step code (client, 28 Sep 2026 —
+  // memory.md D-21). The code stays for dealers, where it IS the sign-in. What still guards an
+  // admin account: the lockout above after repeated wrong passwords, and this audit row.
+  const tokens = await withTransaction(async (tx) => {
+    await repo.insertLoginAttempt(tx, input.email, ctx.request.ip, 'ok');
+    const t = await issueTokens(tx, { id: user.id, scope: user.scope, role: user.role, dealerId: user.dealerId }, input.deviceId, ctx);
+    await repo.updateUserLastLogin(tx, user.id);
+    await audit(tx, { ctx, action: 'auth.signed_in', entityType: 'user', entityId: user.id, outcome: 'ok' });
+    return t;
+  });
+  return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, user: { id: user.id, name: user.name, scope: user.scope, role: user.role }, dealer: null };
 }
 
 export async function forgotPassword(ctx: Ctx, email: string) {

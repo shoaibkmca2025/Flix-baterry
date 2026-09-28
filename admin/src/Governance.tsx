@@ -12,7 +12,7 @@ import { useSync } from '@felix/shared/api/sync';
 import { Role, Staff, uid, validateEntry } from '@felix/shared/domain';
 import { printHtml, escapeHtml } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
-import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Line, Avatar, OtpBoxes, TestCode } from '@felix/shared/ui/kit';
+import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Line, Avatar, OtpBoxes } from '@felix/shared/ui/kit';
 import { dShort, personOf } from '@felix/shared/data';
 import { Page, Box, Cols, Stack, Table, SearchBox, FilterPick, Dialog, ReasonDialog, Select, ToggleRow, Diff, Empty, fmtAt, useA } from './ui';
 
@@ -218,32 +218,24 @@ export function SignIn({ onDone }: { onDone: (session: Session) => void }) {
   const inset = useSafeAreaInsets();
   const [mode, setMode] = useState<'in' | 'reset'>('in'), [email, setEmail] = useState(''), [pw, setPw] = useState(''), [code, setCode] = useState(''), [err, setErr] = useState(''), [done, setDone] = useState('');
   const [challenge, setChallenge] = useState<string | null>(null), [busy, setBusy] = useState(false);
-  const [devCode, setDevCode] = useState(''); // TEMPORARY: OTP shown on screen until SMS is connected
   const fail = (e: unknown, fallback: string) => setErr(e instanceof ApiError ? e.message : fallback);
   const reset = (m: 'in' | 'reset') => { setMode(m); setChallenge(null); setCode(''); setPw(''); setErr(''); };
   const validEmail = () => { if (/^\S+@\S+\.\S+$/.test(email.trim())) return true; setErr('Enter your work email.'); return false; };
 
-  // Step 1: email + password → the server sends a two-step code. Step 2: the code → a real session.
+  // Email + password → straight into the console. Head office has no two-step code (D-21);
+  // the code is only for dealers, where it is the sign-in itself.
   const signIn = async () => {
     if (busy) return;
-    if (!challenge) {
-      if (!validEmail()) return;
-      if (pw.length < 8) { setErr('The password has at least 8 characters.'); return; }
-      setBusy(true);
-      try { const r = await adminLogin(email.trim(), pw); setChallenge(r.challengeId); setDevCode(r.devCode ?? ''); setDone(''); setErr(''); }
-      catch (e) { fail(e, 'Could not reach the server. Try again.'); }
-      finally { setBusy(false); }
-      return;
-    }
-    if (code.length < 6) { setErr('Enter the 6-digit code.'); return; }
+    if (!validEmail()) return;
+    if (pw.length < 8) { setErr('The password has at least 8 characters.'); return; }
     setBusy(true);
     try {
-      const result = await verifyOtp(challenge, code);
-      if (!('accessToken' in result) || result.user.scope !== 'admin') { setErr('This account cannot open the head office console.'); return; }
+      const result = await adminLogin(email.trim(), pw);
+      if (result.user.scope !== 'admin') { setErr('This account cannot open the head office console.'); return; }
       const session: Session = { user: result.user };
       await saveSession({ accessToken: result.accessToken, refreshToken: result.refreshToken }, session);
       onDone(session);
-    } catch (e) { fail(e, 'That code is not right.'); }
+    } catch (e) { fail(e, 'Could not reach the server. Try again.'); }
     finally { setBusy(false); }
   };
 
@@ -275,21 +267,12 @@ export function SignIn({ onDone }: { onDone: (session: Session) => void }) {
       <View style={{ backgroundColor: T.white, borderRadius: 12, padding: 24 }}>
         {mode === 'in' ? <>
           <X s={19} w={7} f="c" style={{ marginBottom: 12 }}>Sign in</X>
-          {!challenge ? <>
-            <Field label="Work email" req value={email} onChange={v => { setEmail(v); setErr(''); }} ph="admin@example.com" />
-            <Field label="Password" req secure value={pw} onChange={v => { setPw(v); setErr(''); }} ph="••••••••••" />
-          </> : <Card style={{ backgroundColor: T.steelSoft, borderColor: '#6FAF7F' }}>
-            <CardH title="Two-step code" size={14} />
-            <X s={13} c={T.slate} style={{ marginBottom: 10 }}>We sent a 6-digit code for {email.trim()}.</X>
-            {!!devCode && <TestCode code={devCode} onUse={() => { setCode(devCode); setErr(''); }} style={{ marginBottom: 12 }} />}
-            <OtpBoxes value={code} onChange={v => { setCode(v); setErr(''); }} />
-          </Card>}
+          <Field label="Work email" req value={email} onChange={v => { setEmail(v); setErr(''); }} ph="admin@example.com" />
+          <Field label="Password" req secure value={pw} onChange={v => { setPw(v); setErr(''); }} ph="••••••••••" />
           {err ? <Hint tone="err">{err}</Hint> : null}
           {done ? <Banner tone="ok" icon="check" style={{ marginTop: 12 }}>{done}</Banner> : null}
-          <Btn kind="blue" icon="lock" label={busy ? 'Please wait…' : challenge ? 'Sign in' : 'Continue'} style={{ marginTop: 13 }} onPress={signIn} />
-          {challenge
-            ? <Pressable accessibilityRole="button" onPress={() => reset('in')} style={{ alignSelf: 'center', padding: 8, marginTop: 4 }}><X s={13} w={6} c={T.steel}>Use a different account</X></Pressable>
-            : <Pressable accessibilityRole="button" onPress={() => { reset('reset'); setDone(''); }} style={{ alignSelf: 'center', padding: 8, marginTop: 4 }}><X s={13} w={6} c={T.steel}>Forgot password?</X></Pressable>}
+          <Btn kind="blue" icon="lock" label={busy ? 'Please wait…' : 'Sign in'} style={{ marginTop: 13 }} onPress={signIn} />
+          <Pressable accessibilityRole="button" onPress={() => { reset('reset'); setDone(''); }} style={{ alignSelf: 'center', padding: 8, marginTop: 4 }}><X s={13} w={6} c={T.steel}>Forgot password?</X></Pressable>
           <Hint icon="shield" center>Every admin sign-in is recorded in the audit log.</Hint>
         </> : <>
           <X s={19} w={7} f="c" style={{ marginBottom: 6 }}>Reset your password</X>
