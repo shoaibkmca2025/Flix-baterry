@@ -20,7 +20,7 @@ export async function registerMastersRoutes(app: FastifyInstance) {
     controller.updateCity,
   );
 
-  // plants (D-19): add, rename, switch off/on — main admin only, like cities
+  // plants (D-19): add, edit, switch off/on, delete an unused one — main admin only, like cities
   app.get('/plants', { preHandler: [requireAuth, requirePermission('masters.manage')] }, controller.listPlants);
   app.post<{ Body: PlantCreateBody }>(
     '/plants',
@@ -32,4 +32,5 @@ export async function registerMastersRoutes(app: FastifyInstance) {
     { preHandler: [requireAuth, requirePermission('masters.manage')], schema: { body: PlantUpdateBody } },
     controller.updatePlant,
   );
+  app.delete<{ Params: { id: string } }>('/plants/:id', { preHandler: [requireAuth, requirePermission('masters.manage')] }, controller.deletePlant);
 }

@@ -46,12 +46,19 @@ export const batteryModels = pgTable('battery_models', {
 // The plants that make Felix batteries (client, 28 Sep 2026 — memory.md D-19). When an old
 // battery reaches head office, the admin reads its label and tags it with the plant that MADE
 // it, so failures can be counted per plant. Head office adds and renames plants itself
-// (masters.manage); a plant is switched off, never deleted, because tagged batteries keep
-// pointing at it and their history must still read "Branch 2".
+// (masters.manage). A plant that batteries are tagged with is switched off, never deleted: they
+// keep pointing at it and their history must still read "Branch 2". Only a plant nothing is
+// counted under can be deleted (a mistake, or one added too early).
 export const plants = pgTable('plants', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull().unique(),
   active: boolean('active').notNull().default(true),
+  // the plant's details — where it is and who to call there; all optional, admin-only (never in
+  // the public /masters bundle)
+  location: text('location'),
+  contactName: text('contact_name'),
+  contactPhone: text('contact_phone'),
+  notes: text('notes'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

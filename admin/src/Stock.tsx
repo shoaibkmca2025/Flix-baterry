@@ -14,6 +14,7 @@ import { ageDays, challanHtml, dLong, dShort } from '@felix/shared/data';
 import { saveHtmlDocument } from '@felix/shared/reports';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, Tabs, Dialog, ReasonDialog, Select, Empty, useA } from './ui';
 import { useDecisions } from './Entries';
+import { usePlantManager, PlantCard } from './plants';
 
 const STATES = ['Available', 'Allocated', 'Sold', 'Returned', 'Replacement', 'Repair', 'Damaged', 'Scrap'];
 const TRANSITIONS: Record<string, string[]> = { Available: ['Allocated', 'Sold', 'Repair', 'Damaged', 'Scrap'], Allocated: ['Available', 'Sold', 'Returned'], Sold: ['Returned', 'Repair'], Returned: ['Repair', 'Available', 'Damaged', 'Scrap'], Replacement: ['Returned', 'Repair'], Repair: ['Available', 'Returned', 'Damaged', 'Scrap'], Damaged: ['Repair', 'Scrap'] };
@@ -369,8 +370,11 @@ const decisionChip = (status?: string): [string, Tone, IconName] => status === '
 /** Every old battery that has reached head office, under the plant (branch) that made it — decided or not. */
 export function ByPlant() {
   const a = useA(); const { state } = useStore();
-  const [plantF, setPlantF] = useState('all'), [dealer, setDealer] = useState('All'), [q, setQ] = useState('');
+  const [pick, setPlantF] = useState('all'), [dealer, setDealer] = useState('All'), [q, setQ] = useState('');
+  const pm = usePlantManager();
   const plants = state.plants ?? [];
+  const plantF = pick === 'all' || pick === NO_PLANT || plants.some(p => p.id === pick) ? pick : 'all';
+  const picked = plants.find(p => p.id === plantF);
   const plantName = (id?: string) => plants.find(p => p.id === id)?.name ?? 'Plant not set';
   const dealerName = (d: string) => state.dealers.find(x => x.id === d)?.name || d;
   const entryOf = (ref: string) => state.entries.find(e => e.id === ref);
@@ -387,13 +391,16 @@ export function ByPlant() {
   const open = (r: typeof arrived[number]) => { if (entryOf(r.ref)) a.go('entry', r.ref); };
 
   if (!plants.length) return <Page title="Batteries by plant" sub="Old batteries sorted by the plant that made them">
-    <Box><Empty icon="grid" title="No plants yet" text="Add your plants under Models & serial rules → Plants. Each battery is then tagged with its plant when it arrives." action={<Btn kind="ghost" sm label="Open Models & serial rules" onPress={() => a.go('catalogue')} />} /></Box>
+    <Box><Empty icon="grid" title="No plants yet" text="Add your plants here. Each battery is then tagged with its plant when it arrives." action={pm.canManage ? <Btn kind="blue" sm icon="plus" label="Add plant" onPress={pm.add} /> : undefined} /></Box>
+    {pm.dialogs}
   </Page>;
 
   return <Page title="Batteries by plant" sub="Every old battery that has arrived, under the plant that made it"
-    tabs={<Tabs value={plantF} onChange={setPlantF} items={[['all', `All ${arrived.length}`], ...plants.filter(p => p.active || countOf(p.id)).map(p => [p.id, `${p.name} ${countOf(p.id)}`] as [string, string]), ...(unset ? [[NO_PLANT, `Plant not set ${unset}`] as [string, string]] : [])]} />}>
+    actions={pm.canManage ? <Btn kind="primary" sm icon="plus" label="Add plant" onPress={pm.add} /> : undefined}
+    tabs={<Tabs value={plantF} onChange={setPlantF} items={[['all', `All ${arrived.length}`], ...plants.map(p => [p.id, `${p.name}${p.active ? '' : ' (off)'} ${countOf(p.id)}`] as [string, string]), ...(unset ? [[NO_PLANT, `Plant not set ${unset}`] as [string, string]] : [])]} />}>
     <Stack>
-      {plantF === 'all' && <Kpis cols={a.wide ? 4 : 2} items={[...plants.filter(p => p.active || countOf(p.id)).map(p => ({ v: String(countOf(p.id)), l: p.active ? p.name : `${p.name} (switched off)`, onPress: () => setPlantF(p.id) })), ...(unset ? [{ v: String(unset), l: 'Plant not set', tone: 'flag' as const, onPress: () => setPlantF(NO_PLANT) }] : [])]} />}
+      {plantF === 'all' && <Kpis cols={a.wide ? 4 : 2} items={[...plants.map(p => ({ v: String(countOf(p.id)), l: p.active ? p.name : `${p.name} (switched off)`, onPress: () => setPlantF(p.id) })), ...(unset ? [{ v: String(unset), l: 'Plant not set', tone: 'flag' as const, onPress: () => setPlantF(NO_PLANT) }] : [])]} />}
+      {picked && <PlantCard plant={picked} pm={pm} />}
       {plantF === NO_PLANT && <Banner tone="warn" icon="alert">These arrived before plants were tracked, or without one. Open <B>Old battery returns → At the company</B> and use <B>Set plant</B> on each.</Banner>}
       <Box title={plantF === 'all' ? 'All arrived batteries' : plantF === NO_PLANT ? 'Plant not set' : plantName(plantF)}
         right={<X s={12} c={T.slate}>{rows.length} {rows.length === 1 ? 'battery' : 'batteries'}</X>}
@@ -411,5 +418,6 @@ export function ByPlant() {
           mobile={{ title: r => <Mono>{r.serial}</Mono>, sub: r => `${r.model} · ${plantF === 'all' ? `${plantName(r.plant)} · ` : ''}${dealerName(r.dealerId)} · ${dShort(r.at)}`, right: r => chip(r.ref) }} />
       </Box>
     </Stack>
+    {pm.dialogs}
   </Page>;
 }

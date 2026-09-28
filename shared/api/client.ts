@@ -48,13 +48,14 @@ export function setUnauthorizedHandler(handler: (() => void) | null) {
 }
 
 /** One request; on a 401 the access token is refreshed once and the request retried with it. */
-async function send<T>(method: 'GET' | 'POST' | 'PATCH', path: string, body: unknown, options: ApiOptions): Promise<T> {
+async function send<T>(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, body: unknown, options: ApiOptions): Promise<T> {
   const deviceId = await getDeviceId();
   const go = async (token?: string) => {
     const headers: Record<string, string> = { 'X-Device-Id': deviceId };
-    if (method !== 'GET') headers['Content-Type'] = 'application/json';
+    const hasBody = method === 'POST' || method === 'PATCH'; // a DELETE has no body, and an empty JSON body is refused
+    if (hasBody) headers['Content-Type'] = 'application/json';
     if (token) headers.Authorization = `Bearer ${token}`;
-    return fetch(`${await getApiBaseUrl()}${path}`, { method, headers, body: method === 'GET' ? undefined : JSON.stringify(body) });
+    return fetch(`${await getApiBaseUrl()}${path}`, { method, headers, body: hasBody ? JSON.stringify(body) : undefined });
   };
   let res = await go(options.accessToken);
   if (res.status === 401 && options.accessToken) {
@@ -79,6 +80,10 @@ export function apiGet<T>(path: string, options: ApiOptions = {}): Promise<T> {
 
 export function apiPatch<T>(path: string, body: unknown, options: ApiOptions = {}): Promise<T> {
   return send<T>('PATCH', path, body, options);
+}
+
+export function apiDelete<T>(path: string, options: ApiOptions = {}): Promise<T> {
+  return send<T>('DELETE', path, undefined, options);
 }
 
 export function errorMessage(e: unknown, fallback = 'Could not reach the server. Try again.'): string {

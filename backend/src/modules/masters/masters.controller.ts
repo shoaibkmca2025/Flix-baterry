@@ -35,3 +35,7 @@ export async function createPlant(request: FastifyRequest<{ Body: PlantCreateBod
 export async function updatePlant(request: FastifyRequest<{ Params: { id: string }; Body: PlantUpdateBody }>, reply: FastifyReply) {
   reply.status(200).send(await service.updatePlant(buildCtx(request), request.params.id, request.body));
 }
+
+export async function deletePlant(request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+  reply.status(200).send(await service.deletePlant(buildCtx(request), request.params.id));
+}

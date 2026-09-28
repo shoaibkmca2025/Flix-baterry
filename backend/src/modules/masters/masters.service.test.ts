@@ -22,11 +22,13 @@ vi.mock('./masters.repository', () => ({
   countActivePlants: vi.fn(),
   insertPlant: vi.fn(),
   updatePlant: vi.fn(),
+  countPlantUse: vi.fn(),
+  deletePlant: vi.fn(),
 }));
 
 import { audit } from '../../utils/audit';
 import * as repo from './masters.repository';
-import { bundle, createCity, createPlant, listCitiesAdmin, listPlantsAdmin, updateCity, updatePlant } from './masters.service';
+import { bundle, createCity, createPlant, deletePlant, listCitiesAdmin, listPlantsAdmin, updateCity, updatePlant } from './masters.service';
 import { PlantCreateBody, PlantUpdateBody } from './masters.validation';
 import type { Ctx } from '../../utils/context';
 
@@ -156,5 +158,58 @@ describe('plants (D-19) — head office keeps its own list', () => {
     expect(PlantCreateBody.safeParse({ name: ' ' }).success).toBe(false);
     expect(PlantUpdateBody.safeParse({}).success).toBe(false);
     expect(PlantUpdateBody.safeParse({ active: false }).success).toBe(true);
+  });
+
+  it('keeps the details; an empty detail clears it, a bad phone is refused', () => {
+    const full = PlantCreateBody.parse({ name: 'Sinnar plant', location: ' MIDC, Sinnar ', contactName: 'R. Patil', contactPhone: '98220 12345', notes: 'Night shift only' });
+    expect(full).toMatchObject({ location: 'MIDC, Sinnar', contactName: 'R. Patil', contactPhone: '98220 12345', notes: 'Night shift only' });
+    expect(PlantUpdateBody.parse({ location: '' })).toEqual({ location: null });
+    expect(PlantUpdateBody.parse({ notes: 'Moved' })).toEqual({ notes: 'Moved' });
+    expect(PlantUpdateBody.safeParse({ contactPhone: 'call me' }).success).toBe(false);
+  });
+
+  it('the public bundle never carries the contact details', async () => {
+    vi.mocked(repo.listCities).mockResolvedValue([] as never);
+    vi.mocked(repo.listPlants).mockResolvedValue([{ ...main, location: 'Nashik', contactName: 'R. Patil', contactPhone: '9822012345', notes: 'x' }] as never);
+    expect((await bundle()).plants).toStrictEqual([{ id: 'p-1', name: 'Main plant', active: true }]);
+  });
+
+  describe('deletePlant', () => {
+    it('deletes a plant nothing is counted under, audited', async () => {
+      vi.mocked(repo.findPlantById).mockResolvedValue(branch as never);
+      vi.mocked(repo.countPlantUse).mockResolvedValue(0);
+      vi.mocked(repo.countActivePlants).mockResolvedValue(4);
+      expect(await deletePlant(adminCtx, 'p-2')).toEqual({ id: 'p-2', deleted: true });
+      expect(repo.deletePlant).toHaveBeenCalledWith(expect.anything(), 'p-2');
+      expect(vi.mocked(audit).mock.calls[0]?.[1]).toMatchObject({ action: 'master.deleted', entityType: 'plant', entityRef: 'Branch 1', before: { name: 'Branch 1' } });
+    });
+
+    it('refuses a plant with batteries under it, and says to switch it off', async () => {
+      vi.mocked(repo.findPlantById).mockResolvedValue(branch as never);
+      vi.mocked(repo.countPlantUse).mockResolvedValue(12);
+      await expect(deletePlant(adminCtx, 'p-2')).rejects.toMatchObject({ code: 'plant_in_use', status: 409, message: expect.stringContaining('Branch 1 has 12 batteries counted under it') });
+      expect(repo.deletePlant).not.toHaveBeenCalled();
+    });
+
+    it('a battery tagged at the same moment still stops it (foreign key)', async () => {
+      vi.mocked(repo.findPlantById).mockResolvedValue(branch as never);
+      vi.mocked(repo.countPlantUse).mockResolvedValue(0);
+      vi.mocked(repo.countActivePlants).mockResolvedValue(4);
+      vi.mocked(repo.deletePlant).mockRejectedValueOnce(Object.assign(new Error('fk'), { code: '23503' }) as never);
+      await expect(deletePlant(adminCtx, 'p-2')).rejects.toMatchObject({ code: 'plant_in_use', status: 409 });
+    });
+
+    it('will not delete the last plant that is on', async () => {
+      vi.mocked(repo.findPlantById).mockResolvedValue(main as never);
+      vi.mocked(repo.countPlantUse).mockResolvedValue(0);
+      vi.mocked(repo.countActivePlants).mockResolvedValue(1);
+      await expect(deletePlant(adminCtx, 'p-1')).rejects.toMatchObject({ code: 'last_active_plant', status: 409 });
+    });
+
+    it('needs an admin, and 404s for a plant that does not exist', async () => {
+      await expect(deletePlant(ctx, 'p-2')).rejects.toMatchObject({ code: 'unauthenticated' });
+      vi.mocked(repo.findPlantById).mockResolvedValue(null as never);
+      await expect(deletePlant(adminCtx, 'nope')).rejects.toMatchObject({ code: 'plant_not_found', status: 404 });
+    });
   });
 });

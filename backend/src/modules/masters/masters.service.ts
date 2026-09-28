@@ -74,7 +74,7 @@ export async function createPlant(ctx: Ctx, input: PlantCreateBody) {
   const clash = await repo.findPlantByName(db, input.name);
   if (clash) throw new AppError('plant_taken', 409, `There is already a plant called ${clash.name}.`, { field: 'name' });
   return withTransaction(async (tx) => {
-    const plant = await repo.insertPlant(tx, { name: input.name });
+    const plant = await repo.insertPlant(tx, input);
     await audit(tx, { ctx, action: 'master.updated', entityType: 'plant', entityId: plant.id, entityRef: plant.name, after: plant, outcome: 'ok' });
     return plant;
   });
@@ -97,4 +97,34 @@ export async function updatePlant(ctx: Ctx, id: string, input: PlantUpdateBody) 
     await audit(tx, { ctx, action: 'master.updated', entityType: 'plant', entityId: id, entityRef: before.name, before, after, outcome: 'ok' });
     return after;
   });
+}
+
+/**
+ * Delete a plant — only one that no battery is counted under (a typo, or a plant added too early).
+ * A plant with batteries is switched off instead: they keep pointing at it and must still show its
+ * name. The count is a friendly early answer; the foreign keys are the real guard, so a battery
+ * tagged at the same moment still stops the delete.
+ */
+export async function deletePlant(ctx: Ctx, id: string) {
+  requireManageActor(ctx);
+  const before = await repo.findPlantById(db, id);
+  if (!before) throw new AppError('plant_not_found', 404, 'Plant not found.');
+  const inUse = (n: number) => new AppError('plant_in_use', 409,
+    `${before.name} has ${n > 0 ? `${n} ${n === 1 ? 'battery' : 'batteries'}` : 'batteries'} counted under it, so it cannot be deleted. Switch it off instead — it leaves the arrival form and those batteries keep its name.`,
+    { field: 'id' });
+  const used = await repo.countPlantUse(db, id);
+  if (used > 0) throw inUse(used);
+  if (before.active && (await repo.countActivePlants(db)) <= 1) {
+    throw new AppError('last_active_plant', 409, `${before.name} is the only plant switched on. Add or switch on another plant first.`, { field: 'id' });
+  }
+  try {
+    return await withTransaction(async (tx) => {
+      await repo.deletePlant(tx, id);
+      await audit(tx, { ctx, action: 'master.deleted', entityType: 'plant', entityId: id, entityRef: before.name, before, outcome: 'ok' });
+      return { id, deleted: true as const };
+    });
+  } catch (err) {
+    if ((err as { code?: string }).code === '23503') throw inUse(0); // foreign_key_violation: tagged meanwhile
+    throw err;
+  }
 }

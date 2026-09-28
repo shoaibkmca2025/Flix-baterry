@@ -1,6 +1,8 @@
 import { and, asc, eq, ne, sql } from 'drizzle-orm';
 import { db, type Tx } from '../../database/client';
 import { cities, plants, plateTypes } from '../../models/masters.model';
+import { batteries } from '../../models/batteries.model';
+import { challanLines } from '../../models/returns.model';
 
 type DbOrTx = typeof db | Tx;
 
@@ -53,12 +55,27 @@ export function countActivePlants(dbh: DbOrTx) {
   return dbh.select({ n: sql<number>`count(*)::int` }).from(plants).where(eq(plants.active, true)).then((r) => r[0]?.n ?? 0);
 }
 
-export async function insertPlant(tx: Tx, input: { name: string }) {
+type PlantDetails = { location?: string | null; contactName?: string | null; contactPhone?: string | null; notes?: string | null };
+
+export async function insertPlant(tx: Tx, input: { name: string } & PlantDetails) {
   const [row] = await tx.insert(plants).values(input).returning();
   return row!;
 }
 
-export async function updatePlant(tx: Tx, id: string, input: { name?: string; active?: boolean }, at: Date) {
+export async function updatePlant(tx: Tx, id: string, input: { name?: string; active?: boolean } & PlantDetails, at: Date) {
   const [row] = await tx.update(plants).set({ ...input, updatedAt: at }).where(eq(plants.id, id)).returning();
   return row!;
+}
+
+/** How many batteries are counted under a plant (register rows or challan lines, whichever is more). */
+export async function countPlantUse(dbh: DbOrTx, id: string) {
+  const [onRegister, onChallans] = await Promise.all([
+    dbh.select({ n: sql<number>`count(*)::int` }).from(batteries).where(eq(batteries.plantId, id)).then((r) => r[0]?.n ?? 0),
+    dbh.select({ n: sql<number>`count(*)::int` }).from(challanLines).where(eq(challanLines.plantId, id)).then((r) => r[0]?.n ?? 0),
+  ]);
+  return Math.max(onRegister, onChallans);
+}
+
+export function deletePlant(tx: Tx, id: string) {
+  return tx.delete(plants).where(eq(plants.id, id));
 }
