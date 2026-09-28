@@ -400,13 +400,13 @@ describe('replacement decisions wait for the old battery to reach the factory', 
     vi.mocked(repo.findItemsByEntryId).mockResolvedValue([{ ...item, claimId: 'claim-1' }] as never);
     vi.mocked(claimsRepo.findClaimById).mockResolvedValue({ id: 'claim-1', status: 'received' } as never);
     vi.mocked(claimsService.check).mockResolvedValue({ id: 'claim-1', status: 'checked' } as never);
-    vi.mocked(claimsService.decide).mockResolvedValue({ claim: { id: 'claim-1', status: 'approved' }, creditNote: { no: 'CN-26-09-0009', amount: 3500 } } as never);
+    vi.mocked(claimsService.decide).mockResolvedValue({ claim: { id: 'claim-1', status: 'approved' }, creditNote: { no: 'CN-26-09-0009', amount: null } } as never);
 
     const r = await settle(adminCtx, 'entry-1', { decision: 'approved', reason: 'Verified at the factory' });
 
     expect(claimsService.check).toHaveBeenCalledWith(adminCtx, 'claim-1', expect.objectContaining({ disqualify: false, disposition: 'hold' }));
     expect(claimsService.decide).toHaveBeenCalledWith(adminCtx, 'claim-1', { outcome: 'approved', reason: 'Verified at the factory' });
-    expect(r.creditNotes).toEqual([{ no: 'CN-26-09-0009', amount: 3500 }]);
+    expect(r.creditNotes).toEqual([{ no: 'CN-26-09-0009', amount: null }]);
   });
 
   it('settle moves a claim still marked raised through dispatch and receive before deciding', async () => {

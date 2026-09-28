@@ -13,7 +13,7 @@ export function findCreditNoteByNo(dbh: DbOrTx, no: string) {
   return dbh.select().from(creditNotes).where(eq(creditNotes.no, no)).then((r) => r[0]);
 }
 
-export async function insertCreditNote(tx: Tx, input: { no: string; dealerId: string; claimId: string; amount: number; issuedBy: string; issuedAt: Date }) {
+export async function insertCreditNote(tx: Tx, input: { no: string; dealerId: string; claimId: string; amount: number | null; issuedBy: string; issuedAt: Date }) {
   const [row] = await tx.insert(creditNotes).values(input).returning();
   return row!;
 }

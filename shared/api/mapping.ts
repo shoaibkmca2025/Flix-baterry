@@ -1,5 +1,5 @@
 import { deriveCode, digitsOf } from '../domain';
-import type { Audit, Battery, Challan, Dealer, Entry, Item, Model, Movement, Staff, State, CreditNote } from '../domain';
+import type { Audit, Battery, Challan, Dealer, Entry, Item, Model, Movement, Staff, State } from '../domain';
 import { listAudit } from './audit';
 import { listBatteries, type ApiBattery } from './batteries';
 import { listClaims, type ApiClaim } from './claims';
@@ -9,7 +9,6 @@ import { getMastersBundle } from './masters';
 import type { Session } from './session';
 import { listMovements } from './stock';
 import { listChallans, type ChallanResult } from './returns';
-import { listCreditNotes } from './credits';
 import { listAdmins } from './users';
 import { getSnapshot } from './snapshot';
 import { ApiError } from './client';
@@ -192,10 +191,9 @@ export async function fetchHydrated(session: Session, token: string): Promise<Hy
   // deployment) answers 404, and the app falls back to the individual lists.
   const snap = await getSnapshot(token).catch((e) => { if (e instanceof ApiError && e.status === 404) return null; throw e; });
   const none = { items: [] as never[] };
-  const [masters, entriesPage, batteriesPage, claimsPage, movementsPage, dealersPage, auditPage, adminsPage, challanPage, creditPage] = snap
+  const [masters, entriesPage, batteriesPage, claimsPage, movementsPage, dealersPage, auditPage, adminsPage, challanPage] = snap
     ? [snap.masters, snap.entries ?? none, snap.batteries ?? none, snap.claims ?? none, snap.movements ?? none,
-       isAdmin ? snap.dealers : null, isAdmin ? snap.audit : null, isAdmin ? snap.admins : null, snap.challans ?? none,
-       snap.creditNotes ?? none] as const
+       isAdmin ? snap.dealers : null, isAdmin ? snap.audit : null, isAdmin ? snap.admins : null, snap.challans ?? none] as const
     : await Promise.all([
         getMastersBundle(),
         listEntries(token),
@@ -206,7 +204,6 @@ export async function fetchHydrated(session: Session, token: string): Promise<Hy
         isAdmin ? listAudit(token).catch(() => null) : Promise.resolve(null), // co-admins without audit.read still sync everything else
         isAdmin && session.user.role === 'main_admin' ? listAdmins(token).catch(() => null) : Promise.resolve(null),
         listChallans({ limit: 200 }, token),
-    listCreditNotes(token).catch(() => null), // a role without credits.read still syncs everything else
       ]);
 
   // A server a release behind may omit newer masters fields (plateTypes/grace arrived with D-11).
@@ -268,7 +265,6 @@ export async function fetchHydrated(session: Session, token: string): Promise<Hy
     dealers,
     entries,
     challans,
-    creditNotes: (creditPage?.items ?? []).map((n): CreditNote => ({ no: n.no, claimId: n.claimId, amount: n.amount, issuedAt: n.issuedAt, status: n.status })),
     batteries: batteriesPage.items.map((b) => toBattery(b, customerByCode)),
     movements,
     audits,

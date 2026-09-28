@@ -10,7 +10,7 @@ import { Entry, today, validateEntry } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, Mono, Btn, BtnRow, Card, Chip, StatusChip, Kpis, SecT, Line, Avatar, Gap, AvTone } from '@felix/shared/ui/kit';
 import { Screen, AppBar, useD, useTr } from './shell';
-import { attention, avatarTone, creditNotes, dealerEntries, dShort, rupees, toSendBack, ageDays } from '@felix/shared/data';
+import { attention, avatarTone, refunds, dealerEntries, dShort, toSendBack, ageDays } from '@felix/shared/data';
 
 /** Sends everything saved on this phone; invalid entries come back as serial exceptions. */
 export function useSyncNow() {
@@ -68,13 +68,13 @@ export function D07() {
   const needs = attention(all);
   const problems = all.filter(e => ['Conflict', 'Rejected'].includes(e.status));
   const queued = all.filter(e => e.status === 'Pending sync'), drafts = all.filter(e => e.status === 'Draft');
-  const back = toSendBack(state, dealerId), cn = creditNotes(state, dealerId);
+  const back = toSendBack(state, dealerId), rf = refunds(state, dealerId);
   const alerts: { av: [any, AvTone]; title: string; sub: string; go: () => void }[] = [];
   if (problems.length) alerts.push({ av: ['alert', 'red'], title: `${problems.length} ${problems.length === 1 ? 'request needs' : 'requests need'} your attention`, sub: problems.length === 1 ? `${problems[0].id} · ${problems[0].status === 'Conflict' ? 'head office has asked about the serial' : 'head office refused it — see why'}` : 'Tap to see what to fix', go: () => problems.length === 1 ? d.go('d19', problems[0].id) : d.go('d18', 'fix') });
   if (queued.length) alerts.push({ av: ['sync', 'amber'], title: `${queued.length} ${queued.length === 1 ? 'entry' : 'entries'} waiting to send`, sub: state.offline ? 'Saved on this phone · sends when signal returns' : 'Saved on this phone · tap to send now', go: sync });
   if (drafts.length) alerts.push({ av: ['pen', 'mute'], title: `${drafts.length} ${drafts.length === 1 ? 'entry' : 'entries'} not finished`, sub: 'Continue where you left off', go: () => d.go('d18', 'notsent') });
   if (back.length) alerts.push({ av: ['truck', 'amber'], title: `${back.length} old ${back.length === 1 ? 'battery' : 'batteries'} to send back`, sub: `Oldest has been in your shop ${ageDays(back[back.length - 1].date)} days`, go: () => d.tab('d33') });
-  alerts.push({ av: ['check', 'green'], title: `${rupees(cn.monthTotal)} credited this month`, sub: `${cn.monthCount} ${cn.monthCount === 1 ? 'claim' : 'claims'} approved · ${cn.checking.length} still being checked`, go: () => d.go('d37') });
+  alerts.push({ av: ['check', 'green'], title: `${rf.monthCount} ${rf.monthCount === 1 ? 'battery' : 'batteries'} approved for refund this month`, sub: `${rf.checking.length} still being checked`, go: () => d.go('d37') });
   return <Screen tab="home" top={<AppBar dark left={<View style={{ flex: 1 }}><X s={12} c={T.deepText}>Welcome back</X><X s={20} w={7} f="c" c={T.white} numberOfLines={1}>{dealer.name}</X></View>} />}>
     <Kpis items={[
       { v: String(sent.reduce((t, e) => t + e.items.length, 0)), l: 'Batteries recorded' },
@@ -103,7 +103,7 @@ export function D09() {
       <View style={{ flex: 1 }}><X s={17} w={7}>{dealer.name}</X><X s={12.5} c={T.slate}>{dealer.code || dealer.id} · {dealer.city}</X></View>
       <StatusChip status={dealer.status} /></Card>
     <SecT title="Account" />
-    <Card>{([['Shop profile & documents', 'shop', 'd06'], ['Credit notes', 'check', 'd37'], ['Change password', 'lock', 'd03']] as const).map((r, i) =>
+    <Card>{([['Shop profile & documents', 'shop', 'd06'], ['Refunds', 'check', 'd37'], ['Change password', 'lock', 'd03']] as const).map((r, i) =>
       <Line key={r[0]} last={i === 2} onPress={() => d.go(r[2])} av={<Avatar n={r[1]} tone="mute" />} title={r[0]} chev />)}</Card>
     <SecT title="App" />
     <Card>

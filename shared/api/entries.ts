@@ -83,7 +83,7 @@ export function rejectEntry(id: string, reason: string, accessToken: string) {
 }
 
 /** Head office's one decision on a replacement once its old battery is at the factory (entries.settle). */
-/** `amount` is the credit head office is telling the dealer to expect; required when approving (D-08). */
-export function settleEntry(id: string, decision: 'approved' | 'refused', reason: string, accessToken: string, amount?: number) {
-  return apiPost<{ entry: EntryResult; creditNotes: { no: string; amount: number }[] }>(`/entries/${id}/settle`, { decision, reason, amount }, { accessToken });
+/** Approving means "approved for refund" — there is no amount (memory.md D-20). */
+export function settleEntry(id: string, decision: 'approved' | 'refused', reason: string, accessToken: string) {
+  return apiPost<{ entry: EntryResult; creditNotes: { no: string }[] }>(`/entries/${id}/settle`, { decision, reason }, { accessToken });
 }

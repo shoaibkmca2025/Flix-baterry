@@ -364,7 +364,7 @@ export async function settle(ctx: Ctx, entryId: string, input: EntrySettleBody) 
     }
     if (claim.status === 'received') claim = await claimsService.check(ctx, claim.id, { findingCode: 'verified_on_arrival', conditionNote: input.reason, disposition: 'hold', disqualify: false });
     if (claim.status === 'checked') {
-      const decided = await claimsService.decide(ctx, claim.id, { outcome: 'approved', reason: input.reason, amount: input.amount! });
+      const decided = await claimsService.decide(ctx, claim.id, { outcome: 'approved', reason: input.reason });
       if (decided.creditNote) creditNotes.push(decided.creditNote);
     }
   }

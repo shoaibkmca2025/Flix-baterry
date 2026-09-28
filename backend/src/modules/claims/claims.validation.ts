@@ -11,19 +11,13 @@ export const ClaimCheckBody = z.object({
 }).refine((v) => !v.disqualify || !!v.reason, { message: 'Give a reason for rejecting the claim.', path: ['reason'] });
 export type ClaimCheckBody = z.infer<typeof ClaimCheckBody>;
 
-export const ClaimDecideBody = z
-  .object({
-    outcome: z.enum(['approved', 'refused']),
-    reason,
-    // Felix's accounts team settles the money itself; the credit note only tells the dealer
-    // what is coming, so head office types the figure rather than the system inventing one
-    // (memory.md D-08). Whole rupees; 0 is allowed and means "approved, nothing to credit".
-    amount: z.coerce.number().int('Enter whole rupees.').min(0, 'The amount cannot be negative.').max(10_000_000).optional(),
-  })
-  .refine((v) => v.outcome !== 'approved' || v.amount !== undefined, {
-    message: 'Enter the credit amount for this claim.',
-    path: ['amount'],
-  });
+// No amount: approving means "approved for refund", nothing more. Felix's accounts team works
+// out and pays the refund outside this system (client, 28 Sep 2026 — memory.md D-20). An
+// `amount` sent by an older app is ignored (zod drops unknown keys), not refused.
+export const ClaimDecideBody = z.object({
+  outcome: z.enum(['approved', 'refused']),
+  reason,
+});
 export type ClaimDecideBody = z.infer<typeof ClaimDecideBody>;
 
 export const ClaimListQuery = z.object({

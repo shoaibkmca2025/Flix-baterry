@@ -4,10 +4,10 @@ import { warrantyClaims } from './claims.model';
 
 export const creditNoteStatus = pgEnum('credit_note_status', ['issued', 'settled', 'reversed']);
 
-// architecture.md §8.3 credit_notes, trimmed for V1: no rate_id (credit_rates master table
-// doesn't exist yet — memory.md D-08 is still open; amounts come from a hardcoded demo map
-// in credits.service.ts until the client supplies real rates). Owned by the credits module;
-// claims.decide issues through credits.issueInTx, never by inserting here directly.
+// architecture.md §8.3 credit_notes, trimmed for V1. A note records that a claim was approved
+// for refund; the refund itself is worked out and paid by Felix's accounts team, so a note
+// carries no amount (memory.md D-20). Owned by the credits module; claims.decide issues
+// through credits.issueInTx, never by inserting here directly.
 export const creditNotes = pgTable(
   'credit_notes',
   {
@@ -20,7 +20,8 @@ export const creditNotes = pgTable(
       .notNull()
       .unique()
       .references(() => warrantyClaims.id),
-    amount: integer('amount').notNull(), // integer rupees, architecture.md §8.1
+    // integer rupees — only on notes issued before 28 Sep 2026 (D-08); null from then on (D-20)
+    amount: integer('amount'),
     issuedBy: uuid('issued_by').notNull(),
     issuedAt: timestamp('issued_at', { withTimezone: true }).notNull().defaultNow(),
     status: creditNoteStatus('status').notNull().default('issued'),

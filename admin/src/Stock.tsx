@@ -146,7 +146,8 @@ export function Returns() {
    *   Closed    → the claim decision itself, taken from "Requests to approve"
    */
   const applyLive = async (entries: Entry[], to: string, reason: string, plantId?: string, whole?: string) => {
-    const token = await getAccessToken(); if (!token) return;
+    // never fail silently: without a session the change would simply not happen
+    const token = await getAccessToken(); if (!token) { a.toast('Your sign-in has ended. Sign in again, then repeat this.'); return; }
     let done = 0;
     try {
       // A battery on a challan arrives through its own challan line, tagged with the plant that
@@ -193,7 +194,8 @@ export function Returns() {
   };
   const saveRetag = async (e: Entry, plantId: string, reason: string) => {
     if (!canEdit) { a.toast('Read-only access.'); return; }
-    const token = await getAccessToken(); if (!token) return;
+    // never fail silently: without a session the change would simply not happen
+    const token = await getAccessToken(); if (!token) { a.toast('Your sign-in has ended. Sign in again, then repeat this.'); return; }
     try {
       for (const r of linesOf(e).filter(l => l.stage !== 'In transit')) await setLinePlant(r.lineId!, { plantId, reason }, token);
       a.toast(`${codesOf(e)} is now counted under ${plantById(plantId)?.name}.`);
@@ -335,7 +337,7 @@ export function Returns() {
       <Select label="Plant that made this battery" req value={plantName} ph="Choose the plant" options={activePlants.map(p => ({ v: p.name }))} onChange={v => { setPlantName(v); setPlantErr(''); }} error={plantErr} />
     </ReasonDialog>
     <ReasonDialog open={decide?.kind === 'approve'} title={`Approve ${decide?.e.id || ''}`} confirm="Approve" kind="blue" onClose={() => setDecide(null)}
-      suggestions={['Verified at the factory — manufacturing defect', 'Checked offline, warranty valid']} intro="The old battery is at the factory. Approving records the replacement with the original cover dates and issues the dealer's credit note."
+      suggestions={['Verified at the factory — manufacturing defect', 'Checked offline, warranty valid']} intro="The old battery is at the factory. Approving records the replacement with the original cover dates, and the dealer is shown it is approved for refund."
       onConfirm={r => decide ? dec.approve(decide.e, r) : false} />
     <ReasonDialog open={decide?.kind === 'reject'} title={`Reject ${decide?.e.id || ''}`} confirm="Reject" kind="danger" onClose={() => setDecide(null)}
       suggestions={['Physical damage — not covered', 'No fault found on testing', 'Serial does not match the label']} intro="The dealer sees this reason in their app."

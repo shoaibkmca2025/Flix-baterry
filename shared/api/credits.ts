@@ -5,7 +5,7 @@ export type ApiCreditNote = {
   no: string; // CN-26-09-0002
   dealerId: string;
   claimId: string;
-  amount: number;
+  amount: number | null; // only on records from before 28 Sep 2026 — never shown (D-20)
   issuedBy: string;
   issuedAt: string;
   status: 'issued' | 'settled' | 'reversed';

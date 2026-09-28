@@ -41,19 +41,11 @@ export const EntryDecisionBody = z.object({ reason });
 export type EntryDecisionBody = z.infer<typeof EntryDecisionBody>;
 
 // the final decision on a replacement once its old battery is at the factory (entries.settle)
-export const EntrySettleBody = z
-  .object({
-    decision: z.enum(['approved', 'refused']),
-    reason,
-    // Felix's accounts team settles the money itself; the credit note only tells the dealer
-    // what is coming, so head office types the figure (memory.md D-08). Whole rupees, per
-    // item on the entry; 0 means "approved, nothing to credit".
-    amount: z.coerce.number().int('Enter whole rupees.').min(0, 'The amount cannot be negative.').max(10_000_000).optional(),
-  })
-  .refine((v) => v.decision !== 'approved' || v.amount !== undefined, {
-    message: 'Enter the credit amount for this claim.',
-    path: ['amount'],
-  });
+// Approving is "approved for refund" — no amount (memory.md D-20).
+export const EntrySettleBody = z.object({
+  decision: z.enum(['approved', 'refused']),
+  reason,
+});
 export type EntrySettleBody = z.infer<typeof EntrySettleBody>;
 
 export const EntryListQuery = z.object({

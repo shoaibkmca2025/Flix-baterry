@@ -13,7 +13,7 @@ import { createChallan } from '@felix/shared/api/returns';
 import { toChallan } from '@felix/shared/api/mapping';
 import { errorMessage } from '@felix/shared/api/client';
 import { useSync } from '@felix/shared/api/sync';
-import { ageDays, challanHtml, challanStatus, coverOf, creditNotes, creditOf, dLong, dShort, decisionOf, findBattery, nextChallanNo, personOf, rupees, spanShort, tShort, toSendBack } from '@felix/shared/data';
+import { ageDays, approvedForRefund, challanHtml, challanStatus, coverOf, dLong, dShort, decisionOf, findBattery, nextChallanNo, personOf, refunds, spanShort, tShort, toSendBack } from '@felix/shared/data';
 
 const oldList = (e: Entry) => e.items.map(i => i.oldSerial).filter(Boolean).join(', ');
 
@@ -25,10 +25,9 @@ export function D32({ p }: { p?: string }) {
   const decided = decisionOf(state, e.id), rep = e.type === 'Replacement';
   const cover = rep ? coverOf(findBattery(state, e.items[0]?.oldSerial || ''), state) : null;
   const approved = e.status === 'Approved', refused = e.status === 'Rejected';
-  const credit = creditOf(state, e); // what head office actually issued (D-08)
   const back = e.returnState && e.returnState !== 'At dealer';
   const meaning: [string, IconName, AvTone][] = refused
-    ? [['The customer keeps the battery you already gave', 'user', 'green'], ['No credit is raised for this claim', 'x', 'red'], ['Head office settles it with you separately', 'phone', 'amber']]
+    ? [['The customer keeps the battery you already gave', 'user', 'green'], ['This battery is not approved for refund', 'x', 'red'], ['Head office settles it with you separately', 'phone', 'amber']]
     : [['The customer keeps the battery you already gave', 'user', 'green'], [`Cover still ends ${cover ? dLong(cover.expiry) : 'on the original date'} — unchanged`, 'shield', 'green'], back ? [`The old battery is ${e.returnState?.toLowerCase()} at the company`, 'truck', 'green'] : [approved ? 'The old battery is now due back to the company' : 'The old battery goes back at the next pickup', 'truck', 'amber']];
   return <Screen tab="list" top={<AppBar title="Head office decision" back="d18" right={approved ? <Chip tone="live" icon="check" label="Approved" /> : refused ? <Chip tone="bad" icon="x" label="Refused" /> : <Chip tone="warn" icon="clock" label="Waiting" />} />}>
     {approved && <Banner tone="ok" icon="check" style={{ marginBottom: 13 }}><B>Approved on {dShort(decided?.at || e.date)} by {personOf(decided?.actor)}.</B> {decided?.reason || 'Head office checked the claim and accepted it.'}</Banner>}
@@ -37,9 +36,10 @@ export function D32({ p }: { p?: string }) {
     <Card><CardH mono title={e.id} right={<StatusChip status={e.status} />} />
       <KV pairs={rep ? [['Old battery', oldList(e) || '—', 'mono'], ['New battery', e.items.map(i => i.code).join(', '), 'mono'], ['Finding', decided?.reason ? (approved ? 'Claim accepted' : 'Claim refused') : 'Not checked yet'], ['Checked by', decided ? personOf(decided.actor) : '—'], ['Cover ends', cover ? dLong(cover.expiry) : 'Set by head office'], ['Remaining', cover ? spanShort(cover.leftSpan) : '—']]
         : [['Battery', e.items.map(i => i.code).join(', '), 'mono'], ['Type', e.type], ['Checked by', decided ? personOf(decided.actor) : '—'], ['Date', dLong(e.date)]]} /></Card>
-    {approved && rep && <Card style={{ borderColor: '#B8DFCB', backgroundColor: '#F7FCF9', marginTop: 11 }}><CardH title="Credited to your account" right={<StatusChip status="Approved" label="Credited" />} />
-      <KV pairs={[['Credit note', e.id.replace(/^ENT/, 'CN'), 'mono'], ['Amount', rupees(credit)], ['Credited on', dLong(decided?.at || e.date)], ['Against', e.id, 'mono']]} />
-      <Btn kind="ghost" sm icon="doc" label="See all credit notes" style={{ alignSelf: 'stretch', marginTop: 11 }} onPress={() => d.go('d37')} /></Card>}
+    {/* approved for refund — and nothing more: no amount, no note (client, 28 Sep 2026 — D-20) */}
+    {approvedForRefund(e) && <Card style={{ borderColor: '#B8DFCB', backgroundColor: '#F7FCF9', marginTop: 11 }}><CardH title="Approved for refund" right={<StatusChip status="Approved" label="Approved for refund" />} />
+      <KV pairs={[['Approved on', dLong(decided?.at || e.decidedAt || e.date)], ['Request', e.id, 'mono']]} />
+      <Btn kind="ghost" sm icon="doc" label="See all approved refunds" style={{ alignSelf: 'stretch', marginTop: 11 }} onPress={() => d.go('d37')} /></Card>}
     <SecT title="What this means" />
     <Card>{meaning.map((r, i) => <Line key={r[0]} last={i === meaning.length - 1} av={<Avatar n={r[1]} tone={r[2]} />} title={r[0]} titleSize={14} />)}</Card>
     {rep && !back && !refused && <Btn kind="primary" icon="truck" label="Old batteries to send back" style={{ marginTop: 13 }} onPress={() => d.tab('d33')} />}
@@ -144,7 +144,7 @@ export function D35() {
       const st = challanStatus(c, state);
       const outcomes = c.rows.map(r => { const e = state.entries.find(x => x.id === r.ref); const audit = e && decisionOf(state, e.id);
         return { r, e, tone: e?.status === 'Approved' ? 'live' : e?.status === 'Rejected' ? 'bad' : 'warn', icon: e?.status === 'Approved' ? 'check' : e?.status === 'Rejected' ? 'x' : 'clock',
-          label: e?.status === 'Approved' ? `Approved${e && creditOf(state, e) ? ` · ${rupees(creditOf(state, e))}` : ''}` : e?.status === 'Rejected' ? `Refused${audit?.reason ? ` · ${audit.reason}` : ''}` : st.status === 'In transit' ? 'On the way' : 'Being checked' } as const; });
+          label: e && approvedForRefund(e) ? 'Approved for refund' : e?.status === 'Approved' ? 'Being checked' : e?.status === 'Rejected' ? `Refused${audit?.reason ? ` · ${audit.reason}` : ''}` : st.status === 'In transit' ? 'On the way' : 'Being checked' } as const; });
       const refused = outcomes.filter(o => o.e?.status === 'Rejected');
       return <Card key={c.no} style={ci ? { marginTop: 11 } : undefined} onPress={() => d.go('d36', c.no)} label={`Open challan ${c.no}`}>
         <CardH mono title={c.no} right={<StatusChip status={st.status} label={st.label} />} />
@@ -212,24 +212,24 @@ export function D36({ p }: { p?: string }) {
   </Screen>;
 }
 
-/* d37 · credit notes */
+/* d37 · refunds — which batteries are approved for refund (no amounts, D-20) */
 export function D37() {
   const d = useD(); const { state, dealerId } = useStore();
-  const cn = creditNotes(state, dealerId), dealer = state.dealers.find(x => x.id === dealerId)!;
-  const statement = () => printHtml(`<h1>Felix Batteries · Credit statement</h1><p><b>${escapeHtml(dealer.name)}</b> · ${escapeHtml(dealer.city)} · ${escapeHtml(dealer.id)}<br/>Generated ${escapeHtml(dLong(new Date().toISOString()))}</p>
-    <table><thead><tr><th>Credit note</th><th>Request</th><th>Batteries</th><th>Date</th><th>Amount</th></tr></thead><tbody>${cn.credited.map(c => `<tr><td>${escapeHtml(c.no)}</td><td>${escapeHtml(c.entry.id)}</td><td>${escapeHtml(c.entry.items.map(i => `${i.oldSerial} · ${i.model}`).join(', '))}</td><td>${escapeHtml(dLong(c.date))}</td><td>${escapeHtml(rupees(c.amount))}</td></tr>`).join('')}</tbody></table>
-    <p>Total credited: <b>${escapeHtml(rupees(cn.credited.reduce((t, c) => t + c.amount, 0)))}</b> · Still being checked: ${cn.checking.length} · Refused: ${cn.refused.length}</p>`).then(() => d.toast('Statement ready.')).catch(() => d.toast('The statement could not be printed on this device.'));
-  return <Screen tab="truck" top={<AppBar title="Credit notes" back="d32" right={<Chip tone="live" label={rupees(cn.monthTotal)} />} />}>
-    <Banner tone="ok" icon="check" style={{ marginBottom: 13 }}><B>Every approved claim is credited to your account.</B> The credit is set against your next invoice from Felix Batteries.</Banner>
-    <Kpis items={[{ v: rupees(cn.monthTotal), l: 'Credited this month' }, { v: String(cn.credited.length), l: 'Claims approved' }, { v: String(cn.checking.length), l: 'Still being checked', tone: 'flag' }, { v: String(cn.refused.length), l: 'Refused', tone: 'bad' }]} />
-    <SecT title="Credited" />
-    <Card>{cn.credited.length ? cn.credited.map((c, i) => <Line key={c.no} last={i === cn.credited.length - 1} onPress={() => d.go('d32', c.entry.id)} av={<Avatar n="check" tone="green" />} title={c.no} titleMono
-      sub={`${c.entry.items.map(it => it.oldSerial || it.code).join(', ')} · ${c.entry.items[0]?.model} · ${dShort(c.date)}`}
-      right={<X s={19} w={7} f="c" c="#12603C">{rupees(c.amount)}</X>} />) : <X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>No credits yet. Approved claims appear here.</X>}</Card>
-    {cn.refused.length > 0 && <><SecT title="Refused" />
-      <Card>{cn.refused.map((e, i) => <Line key={e.id} last={i === cn.refused.length - 1} onPress={() => d.go('d32', e.id)} av={<Avatar n="x" tone="red" />} title={oldList(e) || e.id} titleMono
-        sub={`${e.items[0]?.model} · ${dShort(e.date)} · ${decisionOf(state, e.id)?.reason || 'outside cover'}`} right={<StatusChip status="Rejected" label="No credit" />} />)}
+  const r = refunds(state, dealerId), dealer = state.dealers.find(x => x.id === dealerId)!;
+  const statement = () => printHtml(`<h1>Felix Batteries · Approved for refund</h1><p><b>${escapeHtml(dealer.name)}</b> · ${escapeHtml(dealer.city)} · ${escapeHtml(dealer.id)}<br/>Generated ${escapeHtml(dLong(new Date().toISOString()))}</p>
+    <table><thead><tr><th>Request</th><th>Batteries</th><th>Approved on</th></tr></thead><tbody>${r.approved.map(x => `<tr><td>${escapeHtml(x.entry.id)}</td><td>${escapeHtml(x.entry.items.map(i => `${i.oldSerial} · ${i.model}`).join(', '))}</td><td>${escapeHtml(dLong(x.date))}</td></tr>`).join('')}</tbody></table>
+    <p>Approved for refund: <b>${r.approved.length}</b> · Still being checked: ${r.checking.length} · Refused: ${r.refused.length}</p>`).then(() => d.toast('Statement ready.')).catch(() => d.toast('The statement could not be printed on this device.'));
+  return <Screen tab="truck" top={<AppBar title="Refunds" back="d32" right={<Chip tone="live" label={`${r.monthCount} this month`} />} />}>
+    <Banner tone="ok" icon="check" style={{ marginBottom: 13 }}><B>These batteries are approved for refund.</B> Head office approves each one after checking it at the factory.</Banner>
+    <Kpis items={[{ v: String(r.monthCount), l: 'Approved this month' }, { v: String(r.approved.length), l: 'Approved for refund' }, { v: String(r.checking.length), l: 'Still being checked', tone: 'flag' }, { v: String(r.refused.length), l: 'Refused', tone: 'bad' }]} />
+    <SecT title="Approved for refund" />
+    <Card>{r.approved.length ? r.approved.map((x, i) => <Line key={x.entry.id} last={i === r.approved.length - 1} onPress={() => d.go('d32', x.entry.id)} av={<Avatar n="check" tone="green" />} title={oldList(x.entry) || x.entry.id} titleMono
+      sub={`${x.entry.items[0]?.model} · ${x.entry.id} · ${dShort(x.date)}`}
+      right={<StatusChip status="Approved" label="Approved for refund" />} />) : <X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>Nothing approved yet. Batteries appear here once head office approves them.</X>}</Card>
+    {r.refused.length > 0 && <><SecT title="Refused" />
+      <Card>{r.refused.map((e, i) => <Line key={e.id} last={i === r.refused.length - 1} onPress={() => d.go('d32', e.id)} av={<Avatar n="x" tone="red" />} title={oldList(e) || e.id} titleMono
+        sub={`${e.items[0]?.model} · ${dShort(e.date)} · ${decisionOf(state, e.id)?.reason || 'outside cover'}`} right={<StatusChip status="Rejected" label="Not approved" />} />)}
         <Hint style={{ marginTop: 10 }}>The customer kept the battery. Head office has raised this one with you separately.</Hint></Card></>}
-    <Btn kind="ghost" icon="down" label="Download statement" style={{ marginTop: 13 }} onPress={statement} />
+    <Btn kind="ghost" icon="down" label="Download list" style={{ marginTop: 13 }} onPress={statement} />
   </Screen>;
 }

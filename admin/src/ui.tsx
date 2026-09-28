@@ -149,20 +149,16 @@ export function Dialog({ open, title, sub, onClose, children, width = 560 }: { o
   </Modal>;
 }
 /** Every decision asks for a reason — suggestions keep it one tap for common cases. */
-export function ReasonDialog({ open, title, intro, confirm = 'Confirm', kind = 'blue', suggestions = [], amount, onClose, onConfirm, children, disabled }: { open: boolean; title: string; intro?: React.ReactNode; confirm?: string; kind?: 'blue' | 'danger' | 'primary'; suggestions?: string[]; onClose: () => void; onConfirm: (reason: string, amount?: number) => boolean | void; amount?: { label: string; hint?: string }; children?: React.ReactNode; disabled?: boolean }) {
+export function ReasonDialog({ open, title, intro, confirm = 'Confirm', kind = 'blue', suggestions = [], onClose, onConfirm, children, disabled }: { open: boolean; title: string; intro?: React.ReactNode; confirm?: string; kind?: 'blue' | 'danger' | 'primary'; suggestions?: string[]; onClose: () => void; onConfirm: (reason: string) => boolean | void; children?: React.ReactNode; disabled?: boolean }) {
   const [reason, setReason] = useState(''), [err, setErr] = useState('');
-  // Felix's accounts team decides what a claim is worth, so head office types the figure here
-  // rather than the system working one out (memory.md D-08).
-  const [amt, setAmt] = useState(''), [amtErr, setAmtErr] = useState('');
-  useEffect(() => { if (open) { setReason(''); setErr(''); setAmt(''); setAmtErr(''); } }, [open]);
+  useEffect(() => { if (open) { setReason(''); setErr(''); } }, [open]);
   return <Dialog open={open} title={title} onClose={onClose}>
     {intro ? <X s={14} c={T.slate} style={{ marginBottom: 14 }}>{intro}</X> : null}
     {children}
     {suggestions.length > 0 && <View style={{ marginBottom: 4 }}><X s={13} w={6} c={T.ink3} style={{ marginBottom: 10 }}>Common reasons</X><ChipRow options={suggestions} value={reason} onChange={v => { setReason(v); setErr(''); }} /></View>}
-    {amount && <Field label={amount.label} req value={amt} onChange={v => { setAmt(v.replace(/[^\d]/g, '')); setAmtErr(''); }} ph="e.g. 4250" numeric error={amtErr} hint={amount.hint} />}
     <Field label="Reason" req value={reason} onChange={v => { setReason(v); setErr(''); }} ph="Written into the audit log with your name" multiline error={err} />
     <Hint icon="lock" style={{ marginTop: -6, marginBottom: 14 }}>Your name, the time and this reason are recorded permanently.</Hint>
-    <Btn kind={kind} icon="check" label={confirm} disabled={disabled} onPress={() => { if (reason.trim().length < 5) { setErr('Write at least a few words (5 characters).'); return; } if (amount && !/^\d+$/.test(amt)) { setAmtErr('Enter the amount in whole rupees.'); return; } if (onConfirm(reason.trim(), amount ? Number(amt) : undefined) !== false) onClose(); }} />
+    <Btn kind={kind} icon="check" label={confirm} disabled={disabled} onPress={() => { if (reason.trim().length < 5) { setErr('Write at least a few words (5 characters).'); return; } if (onConfirm(reason.trim()) !== false) onClose(); }} />
   </Dialog>;
 }
 export function Select({ label, value, options, onChange, req, hint, error, ph = 'Choose', style }: { label?: string; value: string; options: (string | { v: string; sub?: string })[]; onChange: (v: string) => void; req?: boolean; hint?: string; error?: string; ph?: string; style?: StyleProp<ViewStyle> }) {

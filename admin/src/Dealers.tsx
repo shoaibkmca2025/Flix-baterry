@@ -4,7 +4,7 @@ import { useStore } from '@felix/shared/store';
 import { Customer, Dealer, uid } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar } from '@felix/shared/ui/kit';
-import { creditNotes, dLong, dShort, personOf, rupees, toSendBack } from '@felix/shared/data';
+import { refunds, dLong, dShort, personOf, toSendBack } from '@felix/shared/data';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, Tabs, Dialog, ReasonDialog, Select, ToggleRow, EntryTable, Empty, fmtAt, useA } from './ui';
 import { StaffManager } from './Governance';
 import { getAccessToken } from '@felix/shared/api/session';
@@ -117,7 +117,6 @@ export function DealerProfile({ id }: { id?: string }) {
   const d = state.dealers.find(x => x.id === id);
   if (!d) return <Page back title="Dealer"><Empty icon="alert" title="Dealer not found" /></Page>;
   const entries = state.entries.filter(e => e.dealerId === d.id);
-  const cn = creditNotes(state, d.id);
   const history = state.audits.filter(x => x.ref === d.id).sort((x, y) => y.at.localeCompare(x.at));
   const actions: ('Approve' | 'Reject' | 'Suspend' | 'Activate')[] = d.status === 'Pending Approval' ? ['Reject', 'Approve'] : d.status === 'Active' ? ['Suspend'] : ['Activate'];
   return <Page back title={d.name} sub={`${d.city} · ${dealerCode(d)} · ${d.status.toLowerCase()}`}
@@ -130,7 +129,7 @@ export function DealerProfile({ id }: { id?: string }) {
         <Hint icon="shield" style={{ marginTop: 10 }}>Suspending stops new entries at once. It never removes anything the dealer already recorded.</Hint>
       </Card>
       <Stack>
-        <Kpis items={[{ v: String(state.batteries.filter(b => b.dealerId === d.id).length), l: 'Batteries' }, { v: String(entries.filter(e => e.type === 'Replacement' && e.status !== 'Draft').length), l: 'Replacements' }, { v: String(toSendBack(state, d.id).length), l: 'Old batteries at shop', tone: toSendBack(state, d.id).length ? 'flag' : undefined, onPress: () => a.go('returns') }, { v: rupees(cn.monthTotal), l: 'Credited this month' }]} />
+        <Kpis items={[{ v: String(state.batteries.filter(b => b.dealerId === d.id).length), l: 'Batteries' }, { v: String(entries.filter(e => e.type === 'Replacement' && e.status !== 'Draft').length), l: 'Replacements' }, { v: String(toSendBack(state, d.id).length), l: 'Old batteries at shop', tone: toSendBack(state, d.id).length ? 'flag' : undefined, onPress: () => a.go('returns') }, { v: String(refunds(state, d.id).approved.length), l: 'Approved for refund' }]} />
         <Box title="Waiting for a decision">{<EntryTable compact showDealer={false} entries={entries.filter(e => ['Submitted', 'Under Review', 'Conflict'].includes(e.status))} onOpen={e => a.go('entry', e.id)} empty="Nothing waiting from this dealer." />}</Box>
       </Stack>
     </Cols>}

@@ -105,11 +105,11 @@ export async function decide(ctx: Ctx, id: string, input: ClaimDecideBody) {
       return { claim: updated, creditNote: null };
     }
 
-    // credits owns credit_notes (modules.md §4) — it picks the amount, numbers the note and
-    // writes its own audit row, all inside this transaction.
-    const creditNote = await issueCreditNoteInTx(tx, ctx, { claim, amount: input.amount! });
+    // credits owns credit_notes (modules.md §4) — it numbers the refund record and writes its
+    // own audit row, inside this transaction. No amount: the accounts team pays it (D-20).
+    const creditNote = await issueCreditNoteInTx(tx, ctx, { claim });
     const updated = await repo.updateClaimDecision(tx, claim.id, { status: 'approved', decidedBy: user.id, decisionReason: input.reason, creditNoteId: creditNote.id });
-    await audit(tx, { ctx, action: 'claim.approved', entityType: 'claim', entityId: claim.id, entityRef: claim.ref, before: { status: 'checked' }, after: { status: 'approved', creditNoteRef: creditNote.no, amount: creditNote.amount }, reason: input.reason, outcome: 'ok' });
+    await audit(tx, { ctx, action: 'claim.approved', entityType: 'claim', entityId: claim.id, entityRef: claim.ref, before: { status: 'checked' }, after: { status: 'approved', creditNoteRef: creditNote.no }, reason: input.reason, outcome: 'ok' });
     return { claim: updated, creditNote };
   });
 }

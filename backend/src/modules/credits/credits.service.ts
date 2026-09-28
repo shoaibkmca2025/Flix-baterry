@@ -11,9 +11,10 @@ import type { CreditNoteListQuery, CreditNoteReverseBody, CreditNoteSettleBody, 
 // M-18 credits — modules.md. Owns credit_notes: claims.decide issues through issueInTx (same
 // transaction), dealers read their own notes (d37 / d32 card), admins settle or reverse.
 //
-// The amount is NOT worked out here. Felix's accounts team decides and pays it outside this
-// system; the credit note exists to tell the dealer what is coming, so head office types the
-// figure when it decides the claim (memory.md D-08, closed 26 Sep 2026).
+// A note is the record that a claim was APPROVED FOR REFUND — it carries no amount. Felix's
+// accounts team works out and pays the refund outside this system, and the dealer is shown
+// only "approved for refund" (client, 28 Sep 2026 — memory.md D-20, superseding the typed
+// amount of D-08). Notes from before then keep the amount they were issued with.
 
 const BUSINESS_TZ_OFFSET_MS = 5.5 * 60 * 60 * 1000; // Asia/Kolkata, no DST (memory.md §12)
 
@@ -33,19 +34,18 @@ type Claim = typeof warrantyClaims.$inferSelect;
 // Called by claims.decide inside its own transaction — the caller stores the returned note's
 // id on the claim row. The audit row for the claim's approval belongs to claims; the one for
 // the note's issue belongs here.
-export async function issueInTx(tx: Tx, ctx: Ctx, input: { claim: Pick<Claim, 'id' | 'ref' | 'dealerId' | 'newBatteryId'>; amount: number }) {
+export async function issueInTx(tx: Tx, ctx: Ctx, input: { claim: Pick<Claim, 'id' | 'ref' | 'dealerId' | 'newBatteryId'> }) {
   const user = requireUser(ctx);
-  const amount = input.amount;
   const issuedAt = ctx.now();
   const no = await nextFormattedRef(tx, 'CN', 'credit_note', monthKey(issuedAt));
-  const note = await repo.insertCreditNote(tx, { no, dealerId: input.claim.dealerId, claimId: input.claim.id, amount, issuedBy: user.id, issuedAt });
+  const note = await repo.insertCreditNote(tx, { no, dealerId: input.claim.dealerId, claimId: input.claim.id, amount: null, issuedBy: user.id, issuedAt });
   await audit(tx, {
     ctx,
     action: 'credit_note.issued',
     entityType: 'credit_note',
     entityId: note.id,
     entityRef: note.no,
-    after: { status: 'issued', amount, claimRef: input.claim.ref, dealerId: input.claim.dealerId },
+    after: { status: 'issued', claimRef: input.claim.ref, dealerId: input.claim.dealerId },
     outcome: 'ok',
   });
   return note;

@@ -46,25 +46,23 @@ const claim = { id: 'claim-1', ref: 'CLM-26-09-0001', dealerId: 'dealer-1', newB
 beforeEach(() => vi.clearAllMocks());
 
 describe('issueInTx — called by claims.decide', () => {
-  it('uses the amount head office typed, and numbers the note CN-YY-MM-NNNN', async () => {
+  it('records the claim as approved for refund, numbered CN-YY-MM-NNNN', async () => {
     vi.mocked(repo.insertCreditNote).mockImplementation(async (_tx, input) => ({ id: 'cn-1', status: 'issued', ...input }) as never);
 
-    const note = await issueInTx({} as never, adminCtx, { claim, amount: 4250 });
+    const note = await issueInTx({} as never, adminCtx, { claim });
 
-    expect(note).toMatchObject({ no: 'CN-26-09-0001', dealerId: 'dealer-1', claimId: 'claim-1', amount: 4250, issuedBy: 'admin-1' });
+    expect(note).toMatchObject({ no: 'CN-26-09-0001', dealerId: 'dealer-1', claimId: 'claim-1', issuedBy: 'admin-1' });
     expect(audit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'credit_note.issued', entityRef: 'CN-26-09-0001' }));
   });
 
-  it('never invents a figure — the accounts team decides it, so nothing is derived from the model (D-08)', async () => {
+  it('carries no amount — the accounts team works out and pays the refund (D-20)', async () => {
     vi.mocked(repo.insertCreditNote).mockImplementation(async (_tx, input) => ({ id: 'cn-1', ...input }) as never);
-
-    expect((await issueInTx({} as never, adminCtx, { claim, amount: 7 })).amount).toBe(7);
-    // approved with nothing to credit is a real outcome, not an error
-    expect((await issueInTx({} as never, adminCtx, { claim, amount: 0 })).amount).toBe(0);
+    expect((await issueInTx({} as never, adminCtx, { claim })).amount).toBeNull();
+    expect(vi.mocked(audit).mock.calls[0]?.[1].after).not.toHaveProperty('amount');
   });
 
   it('refuses to issue without a signed-in actor', async () => {
-    await expect(issueInTx({} as never, anonCtx, { claim, amount: 4250 })).rejects.toMatchObject({ code: 'unauthenticated' });
+    await expect(issueInTx({} as never, anonCtx, { claim })).rejects.toMatchObject({ code: 'unauthenticated' });
     expect(repo.insertCreditNote).not.toHaveBeenCalled();
   });
 });

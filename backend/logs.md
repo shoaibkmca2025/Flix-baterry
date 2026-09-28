@@ -38,6 +38,20 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-28 · approved means "approved for refund" — no amount anywhere (Claude Code)
+**Worked on:** client request: stop typing and showing a refund amount; the dealer is only told the battery is approved for refund.
+**Done:**
+- Backend: `amount` removed from `POST /entries/{id}/settle` and `POST /claims/{id}/decide` (an older app sending one is ignored). Approval still issues the `credit_notes` record, now with `amount` null (migration `0013`, column nullable).
+- Dealer app: an *Approved for refund* card on the decision screen, *Approved for refund* on dispatches, *Credit notes* renamed *Refunds* (counts and batteries, downloadable list without amounts), home alert "N batteries approved for refund this month", menu item *Refunds*.
+- Admin: the amount field is gone from both approve forms (and from `ReasonDialog`), along with the *Credit* column and every ₹ figure; the entry page shows *Refund: Approved*.
+- `shared/data.ts`: `refunds()` and `approvedForRefund()` replace `creditNotes()`, `creditOf()` and the demo `CREDIT_VALUE` map; the app no longer loads credit notes.
+- Tests: backend 256 pass; shared 19 pass (`refunds.test.ts` replaces `credits.test.ts`); both apps typecheck.
+- In the browser: the admin approve form has no amount and approving returned 200, "Approved for refund". The database shows the claim approved and CN-26-09-0009 with amount null.
+**Found:** approving a replacement from the console had been failing with "Enter the credit amount for this claim": both approve buttons went through `settleLive`, which never sent the typed amount. Fixed by this change. Separately, the admin's no-session path now says so instead of doing nothing.
+**Decisions:** memory.md D-20 (supersedes D-08).
+
+---
+
 ### 2026-09-28 · admin console: the plant is chosen on arrival, and plants are managed (Claude Code)
 **Worked on:** the admin-app half of D-19, so the client's request works end to end.
 **Done:**
