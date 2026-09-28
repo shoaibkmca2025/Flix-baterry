@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { View, ScrollView, Pressable, StyleSheet, StyleProp, ViewStyle, Animated, PanResponder } from 'react-native';
+import { View, ScrollView, Pressable, StyleSheet, StyleProp, ViewStyle, Animated, PanResponder, Modal, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Entry } from '@felix/shared/domain';
 import type { Session } from '@felix/shared/api/session';
@@ -68,7 +68,11 @@ export function Screen({ top, children, tab, footer, overlay, bg, center, conten
     {overlay}
   </View>;
 }
-/** Bottom sheet that stays inside the phone screen. */
+/**
+ * Bottom sheet over whatever is on screen. It opens in a Modal, so it sits on the visible screen
+ * wherever it is declared — a picker placed half-way down a long form (the model / code fields)
+ * used to open at the bottom of the scrolled content, out of sight until the dealer scrolled.
+ */
 export function Sheet({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: React.ReactNode }) {
   const inset = useSafeAreaInsets(), d = useD();
   // Drag the grabber/header down to dismiss, as people expect of a sheet (the close button stays).
@@ -85,9 +89,10 @@ export function Sheet({ open, title, onClose, children }: { open: boolean; title
     onPanResponderTerminate: () => Animated.spring(dy, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start(),
   })).current;
   if (!open) return null;
-  return <View style={[StyleSheet.absoluteFill, { zIndex: 60 }]}>
+  return <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+   <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
     <Pressable accessibilityLabel="Close" onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(20,26,35,0.55)' }]} />
-    <Animated.View accessibilityViewIsModal style={{ position: 'absolute', left: 0, right: 0, bottom: 0, maxHeight: '88%', backgroundColor: T.zinc, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingBottom: d.framed ? 0 : inset.bottom, overflow: 'hidden', transform: [{ translateY: dy }] }}>
+    <Animated.View accessibilityViewIsModal style={{ maxHeight: '88%', backgroundColor: T.zinc, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingBottom: d.framed ? 0 : inset.bottom, overflow: 'hidden', transform: [{ translateY: dy }] }}>
       <View {...pan.panHandlers}>
         <View style={{ alignSelf: 'center', width: 38, height: 5, borderRadius: 3, backgroundColor: T.zinc3, marginTop: 7 }} />
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingTop: 8, paddingHorizontal: 15, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: T.zinc2 }}>
@@ -95,5 +100,6 @@ export function Sheet({ open, title, onClose, children }: { open: boolean; title
       </View>
       <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 15, paddingBottom: 22 }}>{children}</ScrollView>
     </Animated.View>
-  </View>;
+   </KeyboardAvoidingView>
+  </Modal>;
 }
