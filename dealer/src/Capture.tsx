@@ -64,10 +64,38 @@ function dealerWarnings(e: Entry, state: State): { key: string; text: string }[]
   return out;
 }
 
-// Local numbers of drafts sent successfully this session. The leave-screen safety net below must
-// never bring one back: the server's copy replaced it under a new number, so looking the draft up
-// by its old number finds nothing and would re-save it as a Draft.
+// Local numbers of drafts sent successfully — or deleted — this session. The leave-screen safety
+// net below must never bring one back: a sent draft's server copy replaced it under a new number,
+// so looking the draft up by its old number finds nothing and would re-save it as a Draft; a
+// deleted one is simply gone.
 const SENT = new Set<string>();
+
+/** Only what head office has never seen can be deleted: a draft, or an entry saved on the phone and not yet sent. */
+export const NOT_SENT: Entry['status'][] = ['Draft', 'Pending sync'];
+
+/**
+ * "Delete this entry" and its confirmation sheet. The entry only ever lived on this phone, so
+ * deleting it touches nothing on the server. `then` is where the dealer lands afterwards.
+ */
+export function useDeleteEntry(e: Entry | undefined, then: 'd07' | 'd18') {
+  const d = useD(); const { setState } = useStore();
+  const [ask, setAsk] = useState(false);
+  if (!e) return { button: null, sheet: null };
+  const remove = () => {
+    SENT.add(e.id);
+    setState(s => ({ ...s, entries: s.entries.filter(x => !(x.id === e.id && NOT_SENT.includes(x.status))) }));
+    setAsk(false); d.tab(then); d.setFlow(null);
+    d.toast(`${e.id} deleted. It was never sent to head office.`);
+  };
+  return {
+    button: <Btn kind="ghost" icon="x" label="Delete this entry" color={T.terminal} borderColor="#F0C7BC" style={{ marginTop: 9 }} onPress={() => setAsk(true)} />,
+    sheet: <Sheet open={ask} title="Delete this entry?" onClose={() => setAsk(false)}>
+      <X s={14} c={T.slate} style={{ marginBottom: 14 }}><B>{e.id}</B> was never sent to head office, so nothing else changes. This cannot be undone.</X>
+      <Btn kind="danger" icon="x" label="Delete entry" onPress={remove} />
+      <Btn kind="ghost" label="Keep it" style={{ marginTop: 9 }} onPress={() => setAsk(false)} />
+    </Sheet>,
+  };
+}
 
 function useFlow() {
   const d = useD(); const { setState } = useStore();
@@ -122,7 +150,7 @@ function coverStatus(cover: { inWarranty: boolean; daysRemaining: number }): 'Ac
   return !cover.inWarranty ? 'Expired' : cover.daysRemaining <= 30 ? 'Expiring soon' : 'Active';
 }
 
-/** The battery's full number as printed on its label: plates + model + the 8 digits,
+/** The battery's full number as printed on its label: code (plates) + model + the 8 digits,
  * e.g. "M 1000 2609 0676" or "GP M 1000 2609 0676" (D-13 — the digits alone are not unique). */
 function printedNumber(m: { plate?: string; modelNo?: string; brand?: string; id: string } | undefined, digits: string): string {
   const d = digits.length === 8 ? `${digits.slice(0, 4)} ${digits.slice(4)}` : digits;
@@ -131,55 +159,52 @@ function printedNumber(m: { plate?: string; modelNo?: string; brand?: string; id
   return `${head} ${d}`.trim();
 }
 
-/* ---------- plates → model picker (D-12: the label reads plates + model, e.g. "M 1000") ----------
- * Plates first, then only the models made with those plates, so a dealer never scrolls the whole
- * catalogue and cannot pick a plate/model pair Felix does not make. */
+/* ---------- model → code picker (D-12: the label reads code + model, e.g. "M 1000") ----------
+ * The model number first, then only the codes (plates) that model is made in, so a dealer never
+ * scrolls the whole catalogue and cannot pick a pair Felix does not make. The full number is still
+ * printed code first, exactly as on the label ("M 1000 2609 0676"). */
 type Mdl = State['models'][number];
 const printedPlate = (m: Mdl) => `${m.brand === 'gold_power' ? 'GP ' : ''}${m.plate}`; // 'M', or 'GP M' for the Gold Power (red) case
 const modelOrder = (a: Mdl, b: Mdl) => (Number(a.modelNo) || 9e9) - (Number(b.modelNo) || 9e9) || (a.modelNo ?? '').localeCompare(b.modelNo ?? '');
 function PlateModelPicker({ value, onChange, error, label = 'Battery' }: { value: string; onChange: (id: string) => void; error?: string; label?: string }) {
   const { state } = useStore();
-  const [open, setOpen] = useState<'plate' | 'model' | null>(null);
+  const [open, setOpen] = useState<'model' | 'code' | null>(null);
   const active = state.models.filter(m => m.active && m.plate && m.modelNo);
   const cur = state.models.find(m => m.id === value);
-  const [plate, setPlate] = useState(cur?.plate ? printedPlate(cur) : '');
+  const [modelNo, setModelNo] = useState(cur?.modelNo ?? '');
   // a scanned label (or a battery found on record) sets the model directly — follow it
-  useEffect(() => { if (cur?.plate) setPlate(printedPlate(cur)); }, [value]);
+  useEffect(() => { if (cur?.modelNo) setModelNo(cur.modelNo); }, [value]);
 
   const rank = new Map((state.plateTypes ?? []).map((p, k) => [p.code, k]));
-  const plates = [...new Set(active.map(printedPlate))].sort((a, b) => {
-    const pa = a.replace(/^GP /, ''), pb = b.replace(/^GP /, '');
-    return (rank.get(pa) ?? 999) - (rank.get(pb) ?? 999) || pa.localeCompare(pb) || Number(a.startsWith('GP ')) - Number(b.startsWith('GP '));
-  });
-  const modelsOf = (p: string) => active.filter(m => printedPlate(m) === p).sort(modelOrder);
-  const forPlate = modelsOf(plate);
-  const plateSub = (p: string) => {
-    const ms = modelsOf(p), first = ms[0];
-    const kind = first?.plateCount ? `${first.plateCount} plates` : 'Tubular series';
-    return `${kind}${p.startsWith('GP ') ? ' · Gold Power' : ''} · ${ms.length === 1 ? `model ${first!.modelNo}` : `${ms.length} models`}`;
-  };
-  const pickPlate = (p: string) => {
-    setPlate(p);
-    const ms = modelsOf(p);
-    if (ms.length === 1) { onChange(ms[0]!.id); setOpen(null); return; }        // only one model: nothing to ask
-    if (!cur || printedPlate(cur) !== p) onChange('');                              // old model does not exist on these plates
-    setOpen('model');
+  const codeOrder = (a: Mdl, b: Mdl) => (rank.get(a.plate!) ?? 999) - (rank.get(b.plate!) ?? 999) || a.plate!.localeCompare(b.plate!) || Number(a.brand === 'gold_power') - Number(b.brand === 'gold_power');
+  const modelNos = [...new Set([...active].sort(modelOrder).map(m => m.modelNo!))];
+  const codesOf = (n: string) => active.filter(m => m.modelNo === n).sort(codeOrder);
+  const forModel = codesOf(modelNo);
+  const modelSub = (n: string) => { const cs = codesOf(n); return cs.length === 1 ? `code ${printedPlate(cs[0]!)} · ${cs[0]!.months} months cover` : `${cs.length} codes · ${cs.map(printedPlate).join(', ')}`; };
+  const codeSub = (m: Mdl) => `${m.plateCount ? `${m.plateCount} plates` : 'Tubular series'}${m.brand === 'gold_power' ? ' · Gold Power' : ''} · ${m.months} months cover${m.capacity ? ` · ${m.capacity}` : ''}`;
+  const pickModel = (n: string) => {
+    setModelNo(n);
+    const cs = codesOf(n);
+    if (cs.length === 1) { onChange(cs[0]!.id); setOpen(null); return; }   // only one code: nothing to ask
+    if (!cur || cur.modelNo !== n) onChange('');                             // the old code is not made in this model
+    setOpen('code');
   };
 
   if (!active.length) return <Banner tone="bad" icon="alert" style={{ marginBottom: 13 }}>
-    The plates and models list has not loaded from head office yet. Go back and tap Sync now. If it stays empty, the server needs updating — call head office.
+    The models and codes list has not loaded from head office yet. Go back and tap Sync now. If it stays empty, the server needs updating — call head office.
   </Banner>;
 
+  const chosenCode = cur && cur.modelNo === modelNo ? printedPlate(cur) : '';
   return <>
-    <Sheet open={open === 'plate'} title="Plates" onClose={() => setOpen(null)}>
-      <PickList search="Search plates — M, 13, tubular…" options={plates.map(p => ({ v: p, sub: plateSub(p) }))} value={plate} onPick={pickPlate} /></Sheet>
-    <Sheet open={open === 'model'} title={plate ? `Models with ${plate} plates` : 'Model'} onClose={() => setOpen(null)}>
-      <PickList search={forPlate.length > 4 ? 'Search models' : undefined} options={forPlate.map(m => ({ v: m.modelNo!, sub: `${m.months} months cover${m.capacity ? ` · ${m.capacity}` : ''}` }))} value={cur && printedPlate(cur) === plate ? cur.modelNo! : ''}
-        onPick={v => { const picked = forPlate.find(m => m.modelNo === v); if (picked) onChange(picked.id); setOpen(null); }} /></Sheet>
-    <Field select label={`${label} plates`} req mr="प्लेट्स" value={plate} ph="Choose plates (G, M, S…)" onPress={() => setOpen('plate')}
-      hint={plate && !error ? plateSub(plate) : undefined} hintIcon="batt" />
-    <Field select label={`${label} model`} req mr="मॉडेल" value={cur && printedPlate(cur) === plate ? cur.modelNo! : ''} ph={plate ? `Choose from ${forPlate.length} model${forPlate.length === 1 ? '' : 's'}` : 'Choose the plates first'}
-      readonly={!plate} onPress={plate ? () => setOpen('model') : undefined} error={error} />
+    <Sheet open={open === 'model'} title="Model" onClose={() => setOpen(null)}>
+      <PickList search="Search models — 1000, DIN, 60L…" options={modelNos.map(n => ({ v: n, sub: modelSub(n) }))} value={modelNo} onPick={pickModel} /></Sheet>
+    <Sheet open={open === 'code'} title={modelNo ? `Codes for model ${modelNo}` : 'Code'} onClose={() => setOpen(null)}>
+      <PickList search={forModel.length > 4 ? 'Search codes' : undefined} options={forModel.map(m => ({ v: printedPlate(m), sub: codeSub(m) }))} value={chosenCode}
+        onPick={v => { const picked = forModel.find(m => printedPlate(m) === v); if (picked) onChange(picked.id); setOpen(null); }} /></Sheet>
+    <Field select label={`${label} model`} req mr="मॉडेल" value={modelNo} ph="Choose the model (1000, 1500…)" onPress={() => setOpen('model')} error={modelNo ? undefined : error} />
+    <Field select label={`${label} code`} req mr="कोड" value={chosenCode} ph={modelNo ? `Choose from ${forModel.length} code${forModel.length === 1 ? '' : 's'}` : 'Choose the model first'}
+      readonly={!modelNo} onPress={modelNo ? () => setOpen('code') : undefined} error={modelNo ? error : undefined}
+      hint={chosenCode && !error ? codeSub(cur!) : undefined} hintIcon="batt" />
     {cur && !error && <Hint icon="shield" tone="ok" style={{ marginTop: -9, marginBottom: 13 }}>{printedPlate(cur)} {cur.modelNo} · {cur.months} months cover{state.graceMonths ? ` + ${state.graceMonths} grace` : ''}</Hint>}
   </>;
 }
@@ -286,7 +311,7 @@ function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code:
   const chosen = state.models.find(m => m.id === fallbackModel);
   const term = chosen?.months ?? DEFAULT_TERM, grace = state.graceMonths ?? DEFAULT_GRACE;
   // The battery's identity is its whole printed number (D-13) — shown once, full width, never split into a separate serial.
-  const ident: [string, React.ReactNode, ('mono' | '')?][] = [['Manufactured', mfg ? monthLong(mfg) : 'Not a valid YYMM'], ['Plates · model', chosen ? `${chosen.id} · ${chosen.months} months` : fallbackModel || 'Choose above'], ['Cover rule', `${term} + ${grace} months from manufacture`]];
+  const ident: [string, React.ReactNode, ('mono' | '')?][] = [['Manufactured', mfg ? monthLong(mfg) : 'Not a valid YYMM'], ['Model · code', chosen ? `${chosen.id} · ${chosen.months} months` : fallbackModel || 'Choose above'], ['Cover rule', `${term} + ${grace} months from manufacture`]];
   const fromMfg = mfg ? { start: `${mfg}-01`, expiry: expiryFrom(`${mfg}-01`, term + grace) } : null;
 
   if (!token || looking || !lookup) return <Card style={{ marginBottom: 14 }}>
@@ -296,18 +321,18 @@ function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code:
 
   if (!lookup.found) return <Card style={{ borderColor: '#EBD49C', backgroundColor: '#FFFBF1', marginBottom: 14 }}>
     <CardH title="Not on record" right={<Chip tone="warn" icon="eye" label="Head office will check" />} />
-    <KV pairs={[ident[0], ['Plates · model', lookup.model ? `${lookup.model.id} · ${lookup.model.warrantyMonths} months` : lookup.labelModelId || fallbackModel || 'Choose above'], ['Cover rule', `${lookup.cover.termMonths} + ${lookup.cover.graceMonths} months from manufacture`], ['Cover ends', dLong(lookup.cover.expiryDate)]]} />
+    <KV pairs={[ident[0], ['Model · code', lookup.model ? `${lookup.model.id} · ${lookup.model.warrantyMonths} months` : lookup.labelModelId || fallbackModel || 'Choose above'], ['Cover rule', `${lookup.cover.termMonths} + ${lookup.cover.graceMonths} months from manufacture`], ['Cover ends', dLong(lookup.cover.expiryDate)]]} />
     {mfg && <WarrantyLeft start={lookup.cover.startDate} expiry={lookup.cover.expiryDate} from="manufacture date" months={lookup.cover.termMonths} grace={lookup.cover.graceMonths} />}
     {lookup.labelModelId && lookup.labelModelId !== fallbackModel && <Hint tone="err" style={{ marginTop: 10 }}>The label says {lookup.labelModelId}, but {fallbackModel || 'nothing'} is chosen above. Check the plates and model.</Hint>}
     {!!lookup.otherProductsWithTheseDigits?.length && <Hint tone="err" style={{ marginTop: 10 }}>These same digits belong to a {lookup.otherProductsWithTheseDigits.join(', ')} on record. Serial numbers repeat across models — check the plates and model on the label.</Hint>}
-    <Gap h={8} /><X s={13} c={T.slate}>Not sold through the app yet. Its cover is worked out from the manufacture month on the label and the plates + model you chose — head office puts it on record when it approves the replacement.</X></Card>;
+    <Gap h={8} /><X s={13} c={T.slate}>Not sold through the app yet. Its cover is worked out from the manufacture month on the label and the model and code you chose — head office puts it on record when it approves the replacement.</X></Card>;
 
   const { battery, model, chain, cover, custody } = lookup;
   const status = coverStatus(cover), [chipLabel, chipTone] = coverChip(status);
   const modelText = fallbackModel || '—';
   const pairs: [string, React.ReactNode, ('mono' | '')?][] = [
     ident[0],
-    ['Plates · model', model ? `${model.id}${model.plate ? ` (${model.plate} plates, ${model.modelNo})` : ''}` : modelText],
+    ['Model · code', model ? `${model.id}${model.plate ? ` (${model.plate} plates, ${model.modelNo})` : ''}` : modelText],
     ['Cover rule', `${cover.termMonths} + ${cover.graceMonths} months from manufacture`],
     ['Cover', `${dLong(cover.startDate)} → ${dLong(cover.expiryDate)}`],
     ['Status', STATE_LABEL[battery.state] || battery.state],
@@ -336,6 +361,7 @@ export function D11() {
   const { f, d, upd, item, saveDraft } = useFlow(); const { state } = useStore();
   const token = useAccessToken();
   const [scan, setScan] = useState(false), [errs, setErrs] = useState<Record<string, string>>({});
+  const del = useDeleteEntry(f?.entry, 'd07');
   if (!f) return null;
   const e = f.entry, i = f.cur, it = e.items[i];
   const modelIds = state.models.map(m => m.id);
@@ -355,7 +381,7 @@ export function D11() {
   };
   const next = () => {
     const all = dealerErrors(e, state), mine = itemErrors(all, i, ['oldSerial', 'fault']);
-    if (!it.oldModel) mine.oldModel = 'Choose the plates and model printed on the old battery.';
+    if (!it.oldModel) mine.oldModel = 'Choose the model and code printed on the old battery.';
     setErrs(mine);
     if (Object.keys(mine).length) { saveDraft(); d.toast('Saved as a draft. Fix the marked field now, or come back to it from My requests.'); return; }
     saveDraft(); d.go('d13');
@@ -363,14 +389,14 @@ export function D11() {
   const oldPhoto = photoOf(e, tagFor('Old battery', i));
   const oldChosen = state.models.find(m => m.id === it.oldModel);
   return <Screen top={<AppBar title="Old battery" back={i > 0 ? 'd12' : 'd10'} right={<Chip tone="mute" mono label={e.id} />} />}
-    overlay={<ScanSheet open={scan} title="Scan the old battery" onClose={() => setScan(false)} onCode={c => { setOld(c); d.setFlow(x => x && { ...x, scanned: { ...x.scanned, [`old-${i}`]: true } }); d.toast('Scanned. Check the number matches the label.'); }} />}>
+    overlay={<>{del.sheet}<ScanSheet open={scan} title="Scan the old battery" onClose={() => setScan(false)} onCode={c => { setOld(c); d.setFlow(x => x && { ...x, scanned: { ...x.scanned, [`old-${i}`]: true } }); d.toast('Scanned. Check the number matches the label.'); }} /></>}>
     <Steps labels={REP_STEPS} now={1} />
     <Gap h={14} />
-    <Banner tone="info" icon="batt" style={{ marginBottom: 14 }}>Start with the battery the customer brought back: choose its plates, then its model, then type the number on the label — or scan the label to fill all three.</Banner>
+    <Banner tone="info" icon="batt" style={{ marginBottom: 14 }}>Start with the battery the customer brought back: choose its model, then its code, then type the number on the label — or scan the label to fill all three.</Banner>
     <PlateModelPicker value={it.oldModel || ''} error={errs.oldModel} label="Old battery"
       onChange={v => { item({ oldModel: v, ...(it.model === newItem().model || it.model === it.oldModel ? { model: v } : {}) }); setErrs(x => ({ ...x, oldModel: '' })); }} />
     <Field label={`Old battery serial number (${lengthsLabel(lengths)})`} req mr="जुनी बॅटरी" mono numeric maxLength={maxLen} value={it.oldSerial} onChange={setOld}
-      readonly={!oldChosen} ph={oldChosen ? 'Digits on the label' : 'Choose the plates and model first'} error={errs.oldSerial}
+      readonly={!oldChosen} ph={oldChosen ? 'Digits on the label' : 'Choose the model and code first'} error={errs.oldSerial}
       hint={looking ? 'Checking warranty…' : undefined} hintIcon="clock"
       tail={<><CapBtn n="scan" tone="alt" label="Scan old battery" onPress={() => setScan(true)} /><CapBtn n="cam" tone={oldPhoto ? 'done' : 'dark'} label="Photograph old battery label" onPress={async () => { const u = await takePhoto(d.toast); if (u) { upd(withPhoto(e, tagFor('Old battery', i), u)); d.toast('Photo saved. Check the number above matches it.'); } }} />
 </>} />
@@ -382,6 +408,7 @@ export function D11() {
     <Field label="Remarks" mr="शेरा" multiline value={it.remarks} onChange={v => item({ remarks: v })} ph="Anything head office should know" />
     <Field label="Dealer / customer name" mr="डीलर / ग्राहकाचे नाव" value={e.customer} onChange={v => upd({ customer: v })} ph="Name of the dealer or customer" />
     <Btn kind="primary" big iconAfter="chev" label="Next: the new battery" style={{ marginTop: 4 }} onPress={next} />
+    {del.button}
     <Hint icon="lock" center style={{ marginTop: 10 }}>Your shop, city and dealer code are added automatically.</Hint>
   </Screen>;
 }
@@ -391,6 +418,7 @@ export function D13() {
   const { f, d, upd, item, saveDraft } = useFlow(); const { state } = useStore();
   const token = useAccessToken();
   const [errs, setErrs] = useState<Record<string, string>>({});
+  const del = useDeleteEntry(f?.entry, 'd07');
   const modelIds = state.models.map(m => m.id);
   // a new battery is always 8 digits; a sales return brings back one already in the field (7 or 8)
   const lengths = f?.entry.type === 'Sales Return' ? (state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS) : NEW_BATTERY_DIGIT_LENGTHS;
@@ -424,7 +452,7 @@ export function D13() {
         : lookup?.found && lookup.custody === 'other' ? { t: 'This battery belongs to another shop — check the label again.', ok: false, bad: true }
         : { t: 'Not on record — head office will check it.', ok: false, bad: false });
   return <Screen top={<AppBar title={rep ? 'New battery' : 'Returned battery'} back={rep ? 'd11' : 'd10'} right={<Chip tone="mute" mono label={e.id} />} />}
->
+    overlay={del.sheet}>
     <Steps labels={rep ? REP_STEPS : RET_STEPS} now={rep ? 2 : 1} />
     <Gap h={14} />
     <ScanBox code={it.code} active={sc.active} onCode={sc.handle} />
@@ -442,6 +470,7 @@ export function D13() {
     <FullCodeLine modelId={it.model} code={it.code} lengths={lengths} />
     <Btn kind="primary" big iconAfter="chev" label={rep ? 'Next: check the warranty' : 'Next: photos and proof'} style={{ marginTop: 14 }} onPress={() => { if (!check()) return; saveDraft(); d.go(rep ? 'd31' : 'd15'); }} />
     <Btn kind="ghost" icon="plus" label="Add another battery to this request" style={{ marginTop: 9 }} onPress={() => { if (!check()) return; saveDraft(); d.go('d12'); }} />
+    {del.button}
   </Screen>;
 }
 
@@ -592,6 +621,7 @@ export function D16() {
   const { f, d } = useFlow(); const { state, setState, audit, dealerId } = useStore(); const { sync } = useSync();
   const token = useAccessToken();
   const [busy, setBusy] = useState(false);
+  const del = useDeleteEntry(f?.entry, 'd07');
   if (!f) return null;
   const e = f.entry, rep = e.type === 'Replacement', dealer = state.dealers.find(x => x.id === dealerId)!;
   const errs = dealerErrors(e, state), errList = Object.entries(errs), warns = dealerWarnings(e, state);
@@ -636,7 +666,7 @@ export function D16() {
       d.toast(`${why} Saved as a draft — find it under My requests.`);
     } finally { setBusy(false); }
   };
-  return <Screen top={<AppBar title="Check before sending" back="d12" />}>
+  return <Screen top={<AppBar title="Check before sending" back="d12" />} overlay={del.sheet}>
     <Steps labels={rep ? REP_STEPS : RET_STEPS} now={3} />
     <Gap h={13} />
     {errList.length > 0 && <Banner tone="bad" icon="alert" style={{ marginBottom: 12 }}><B>{errList.length === 1 ? 'One thing must be fixed.' : `${errList.length} things must be fixed.`}</B> {errList[0][1]} <B u onPress={() => jump(errList[0][0])}>Go to the field</B></Banner>}
@@ -648,6 +678,7 @@ export function D16() {
       <X s={13} c="#9BA9BB">Total batteries</X><X s={19} w={7} c={T.white}>{e.items.length}</X></Card>
     <Btn kind="primary" big icon="check" label={busy ? 'Sending…' : state.offline ? 'Save and send later' : 'Send entry'} style={{ marginTop: 13 }} onPress={send} disabled={busy} />
     <Hint icon="lock" center style={{ marginTop: 9 }}>{rep ? 'The customer takes the battery today. Head office confirms the claim afterwards.' : 'Head office confirms the return afterwards.'}</Hint>
+    {!busy && del.button}
   </Screen>;
 }
 

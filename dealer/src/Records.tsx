@@ -13,7 +13,7 @@ import { entryTrail } from '@felix/shared/api/audit';
 
 // backend audit actions → the words this screen already uses (see `label` below)
 const TRAIL_LABEL: Record<string, string> = { 'entry.submitted': 'Entry submitted', 'entry.approved': 'Entry approved', 'entry.rejected': 'Reject entry' };
-import { ScanSheet } from './Capture';
+import { ScanSheet, NOT_SENT, useDeleteEntry } from './Capture';
 import { avatarTone, coverChip, coverOf, dLong, dShort, dealerEntries, findBattery, firstProblem, monthLong, spanLong, tShort } from '@felix/shared/data';
 
 const FILTERS = ['all', 'rep', 'month', 'fix', 'notsent'] as const;
@@ -47,6 +47,7 @@ export function D19({ p }: { p?: string }) {
   const d = useD(); const { state, setState, dealerId, audit } = useStore(); const sync = useSyncNow();
   const [ask, setAsk] = useState(false), [what, setWhat] = useState(''), [why, setWhy] = useState('');
   const e = state.entries.find(x => x.id === p && x.dealerId === dealerId);
+  const del = useDeleteEntry(e && NOT_SENT.includes(e.status) ? e : undefined, 'd18');
   // the server's own trail for a sent entry (audit module) — local audits cover demo entries
   const [trail, setTrail] = useState<Audit[]>([]);
   useEffect(() => {
@@ -67,11 +68,11 @@ export function D19({ p }: { p?: string }) {
     setAsk(false); setWhat(''); setWhy(''); d.toast('Sent to head office. You will see their answer here.');
   };
   return <Screen tab="list" top={<AppBar title="Entry" back="d18" />}
-    overlay={<Sheet open={ask} title="Ask head office to fix it" onClose={() => setAsk(false)}>
+    overlay={<>{del.sheet}<Sheet open={ask} title="Ask head office to fix it" onClose={() => setAsk(false)}>
       <X s={14} c={T.slate} style={{ marginBottom: 12 }}>A sent entry cannot be edited from the shop. Head office makes the change and keeps the original readable.</X>
       <Field label="What should change?" req value={what} onChange={setWhat} ph="e.g. Serial 26080319 should be 26080318" multiline />
       <Field label="Why" req value={why} onChange={setWhy} ph="e.g. Misread the label in low light" multiline />
-      <Btn kind="blue" icon="check" label="Send to head office" onPress={send} /></Sheet>}>
+      <Btn kind="blue" icon="check" label="Send to head office" onPress={send} /></Sheet></>}>
     {e.status === 'Conflict' && <Banner tone="bad" icon="alert" style={{ marginBottom: 12 }}><B>This entry cannot be approved yet.</B> {problem || 'Head office found a problem with a serial on it.'} Fix the serial or ask head office to review it.</Banner>}
     {/* a request put aside part-finished, or refused when it was sent — it waits here with its reason rather than holding up the counter */}
     {e.status === 'Draft' && !!problem && <Banner tone="warn" icon="alert" style={{ marginBottom: 12 }}><B>Not sent yet.</B> {problem} Open it, fix that, and send it when you can.</Banner>}
@@ -94,6 +95,7 @@ export function D19({ p }: { p?: string }) {
     </> : <X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>Nothing recorded yet.</X>}</Card>
     {e.status === 'Draft' && <Btn kind="primary" icon="pen" label="Continue this entry" style={{ marginTop: 13 }} onPress={() => openEntry(d, d.setFlow, e)} />}
     {e.status === 'Pending sync' && <Btn kind="primary" icon="sync" label="Send now" style={{ marginTop: 13 }} onPress={sync} />}
+    {del.button}
     {['Conflict', 'Rejected'].includes(e.status) && e.correction?.status !== 'Pending' && <Btn kind="ghost" icon="pen" label="Ask head office to fix it" style={{ marginTop: 13 }} onPress={() => setAsk(true)} />}
     {rep && !['Draft', 'Pending sync'].includes(e.status) && <Btn kind="blue" icon="check" label="Head office decision" style={{ marginTop: 9 }} onPress={() => d.go('d32', e.id)} />}
   </Screen>;
