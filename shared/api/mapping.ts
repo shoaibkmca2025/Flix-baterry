@@ -159,7 +159,7 @@ export function toChallan(c: ChallanResult, refOf: (entryId: string) => string):
     no: c.no, serverId: c.id, dealerId: c.dealerId, at: c.dispatchedAt, vehicle: c.vehicleNo ?? '', driver: c.driverName ?? '',
     receivedAt: c.receivedAt ?? undefined,
     entryIds: [...new Set(c.lines.map((l) => refOf(l.entryId)))],
-    rows: c.lines.map((l) => ({ serial: l.batteryCode, model: l.modelId, ref: refOf(l.entryId), fault: l.faultCode ? (FAULT_LABEL[l.faultCode] ?? l.faultCode) : '—', lineId: l.id, stage: RETURN_STAGE[l.stage] })),
+    rows: c.lines.map((l) => ({ serial: l.batteryCode, model: l.modelId, ref: refOf(l.entryId), fault: l.faultCode ? (FAULT_LABEL[l.faultCode] ?? l.faultCode) : '—', lineId: l.id, stage: RETURN_STAGE[l.stage], plantId: l.plantId ?? undefined })),
   };
 }
 
@@ -264,6 +264,7 @@ export async function fetchHydrated(session: Session, token: string): Promise<Hy
     plateTypes: plateTypes.map((p) => ({ code: p.code, label: p.label, plateCount: p.plateCount })),
     graceMonths: masters.warrantyGraceMonths,
     serialDigitLengths: masters.serialDigitLengths,
+    plants: (masters.plants ?? []).map(({ id, name, active }) => ({ id, name, active })),
     dealers,
     entries,
     challans,

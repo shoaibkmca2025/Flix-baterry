@@ -165,10 +165,10 @@ export function ReasonDialog({ open, title, intro, confirm = 'Confirm', kind = '
     <Btn kind={kind} icon="check" label={confirm} disabled={disabled} onPress={() => { if (reason.trim().length < 5) { setErr('Write at least a few words (5 characters).'); return; } if (amount && !/^\d+$/.test(amt)) { setAmtErr('Enter the amount in whole rupees.'); return; } if (onConfirm(reason.trim(), amount ? Number(amt) : undefined) !== false) onClose(); }} />
   </Dialog>;
 }
-export function Select({ label, value, options, onChange, req, hint, ph = 'Choose', style }: { label?: string; value: string; options: (string | { v: string; sub?: string })[]; onChange: (v: string) => void; req?: boolean; hint?: string; ph?: string; style?: StyleProp<ViewStyle> }) {
+export function Select({ label, value, options, onChange, req, hint, error, ph = 'Choose', style }: { label?: string; value: string; options: (string | { v: string; sub?: string })[]; onChange: (v: string) => void; req?: boolean; hint?: string; error?: string; ph?: string; style?: StyleProp<ViewStyle> }) {
   const [open, setOpen] = useState(false);
   const list = options.map(o => typeof o === 'string' ? { v: o } : o);
-  return <View style={style}><Field select label={label} req={req} value={value} ph={ph} onPress={() => setOpen(true)} hint={hint} />
+  return <View style={style}><Field select label={label} req={req} value={value} ph={ph} onPress={() => setOpen(true)} hint={hint} error={error} />
     <Dialog open={open} title={label || 'Choose'} onClose={() => setOpen(false)} width={460}><PickList options={list} value={value} onPick={v => { onChange(v); setOpen(false); }} /></Dialog></View>;
 }
 export function ToggleRow({ label, sub, value, onChange, disabled, last }: { label: string; sub?: string; value: boolean; onChange: (v: boolean) => void; disabled?: boolean; last?: boolean }) {

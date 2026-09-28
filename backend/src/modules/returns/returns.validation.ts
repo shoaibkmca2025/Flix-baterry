@@ -17,10 +17,8 @@ const plantId = z.string({ required_error: 'Choose the plant that made this batt
 export const ChallanReceiveBody = z.object({
   reason: reason.optional(),
   missingBatteryCodes: z.array(z.string().trim().min(1)).default([]), // on the challan, not in the van
-  // "Confirm all arrived": one plant for every battery arriving now. Optional only until the
-  // admin app sends it — without it the batteries arrive untagged and are tagged one by one
-  // afterwards (PATCH /challans/lines/:lineId/plant). D-19 says to make this required then.
-  plantId: plantId.optional(),
+  // "Confirm all arrived": one plant for every battery arriving now (D-19)
+  plantId,
 });
 export type ChallanReceiveBody = z.infer<typeof ChallanReceiveBody>;
 

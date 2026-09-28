@@ -4,12 +4,12 @@ import { useStore } from '@felix/shared/store';
 import { getAccessToken } from '@felix/shared/api/session';
 import { postMovement, type BatteryState } from '@felix/shared/api/stock';
 import { checkClaim, receiveClaim } from '@felix/shared/api/claims';
-import { receiveChallan, stageLine } from '@felix/shared/api/returns';
+import { receiveChallan, receiveLine, setLinePlant, stageLine } from '@felix/shared/api/returns';
 import { errorMessage } from '@felix/shared/api/client';
 import { useSync } from '@felix/shared/api/sync';
 import { Challan, Entry, today, uid } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
-import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar, Tone, IconName } from '@felix/shared/ui/kit';
+import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar, Plate, PlateLab, PlateVal, Tone, IconName } from '@felix/shared/ui/kit';
 import { ageDays, challanHtml, dLong, dShort } from '@felix/shared/data';
 import { saveHtmlDocument } from '@felix/shared/reports';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, Tabs, Dialog, ReasonDialog, Select, Empty, useA } from './ui';
@@ -106,7 +106,10 @@ const stageChip = (s?: string): [string, Tone, IconName] => s === 'In transit' ?
 
 export function Returns() {
   const a = useA(); const { state, setState, audit, canEdit } = useStore(); const { sync } = useSync();
-  const [tab, setTab] = useState('challans'), [act, setAct] = useState<{ entries: Entry[]; to: string; label: string } | null>(null), [handover, setHandover] = useState<Entry | null>(null);
+  // `whole` is the challan's server id when the van is confirmed in one go ("Confirm all arrived")
+  const [tab, setTab] = useState('challans'), [act, setAct] = useState<{ entries: Entry[]; to: string; label: string; whole?: string } | null>(null), [handover, setHandover] = useState<Entry | null>(null);
+  // the plant that made the battery (memory.md D-19) — chosen in the arrival form, or corrected later
+  const [plantName, setPlantName] = useState(''), [plantErr, setPlantErr] = useState(''), [retag, setRetag] = useState<Entry | null>(null), [plantF, setPlantF] = useState('All');
   const [dealerF, setDealerF] = useState('All'), [selChallan, setSelChallan] = useState<string | null>(null);
   const dec = useDecisions(); const [decide, setDecide] = useState<{ e: Entry; kind: 'approve' | 'reject' } | null>(null);
   // at the factory and not yet decided: this is where head office approves or refuses (verified offline)
@@ -118,6 +121,18 @@ export function Returns() {
   const atCompany = reps.filter(e => ['Received', 'Testing', 'Repaired', 'Scrapped'].includes(e.returnState || ''));
   const closed = reps.filter(e => e.returnState === 'Closed');
   const challanOf = (e: Entry) => state.challans.find(c => c.entryIds.includes(e.id));
+  // Plants come from the server; the preview that runs without one has none, and asks for none.
+  const plants = state.plants ?? [], activePlants = plants.filter(p => p.active);
+  const plantById = (id?: string) => plants.find(p => p.id === id);
+  /** The entry's old batteries as challan lines — where the server keeps each one's stage and plant. */
+  const linesOf = (e: Entry) => state.challans.flatMap(c => c.rows).filter(r => r.ref === e.id && r.lineId);
+  const plantOf = (e: Entry) => plantById(linesOf(e).find(r => r.plantId)?.plantId);
+  const codesOf = (e: Entry) => e.items.map(it => it.oldSerial).filter(Boolean).join(', ');
+  const openAct = (x: NonNullable<typeof act>) => { setPlantName(''); setPlantErr(''); setAct(x); };
+  const openRetag = (e: Entry) => { setPlantName(plantOf(e)?.name ?? ''); setPlantErr(''); setRetag(e); };
+  const pickedPlant = () => activePlants.find(p => p.name === plantName);
+  // the arrival form asks for the plant whenever a battery on a server challan is arriving
+  const needsPlant = act?.to === 'Received' && plants.length > 0 && act.entries.some(e => e.apiId && linesOf(e).length > 0);
   const openChallans = state.challans.filter(c => c.entryIds.some(id => onWay.some(e => e.id === id)));
   const looseOnWay = onWay.filter(e => !challanOf(e));
   const month = today().slice(0, 7);
@@ -130,17 +145,25 @@ export function Returns() {
    *   Scrapped  → claims.check, disposition scrap     (→ 'scrap')    — or a manual movement if already checked
    *   Closed    → the claim decision itself, taken from "Requests to approve"
    */
-  const applyLive = async (entries: Entry[], to: string, reason: string) => {
+  const applyLive = async (entries: Entry[], to: string, reason: string, plantId?: string, whole?: string) => {
     const token = await getAccessToken(); if (!token) return;
     let done = 0;
     try {
-      // A real challan (dispatched from the dealer app) is confirmed as a whole: the server marks
-      // its lines received and moves any claims on it along. Batteries not on a challan fall
-      // through to the claim steps below.
+      // A battery on a challan arrives through its own challan line, tagged with the plant that
+      // made it (D-19): one line at a time, or — "Confirm all arrived" — the whole van with one
+      // plant. The server moves any claim along. Batteries not on a challan fall through to the
+      // claim steps below.
       const onChallan = new Set<string>();
-      if (to === 'Received') {
-        const ids = new Set(entries.map(e => state.challans.find(c => c.serverId && c.entryIds.includes(e.id))?.serverId).filter((x): x is string => !!x));
-        for (const id of ids) { await receiveChallan(id, { reason }, token); done++; state.challans.filter(c => c.serverId === id).forEach(c => c.entryIds.forEach(ref => onChallan.add(ref))); }
+      if (to === 'Received' && plantId) {
+        if (whole) {
+          await receiveChallan(whole, { plantId, reason }, token);
+          entries.forEach(e => { onChallan.add(e.id); done++; });
+        } else for (const e of entries) {
+          const waiting = linesOf(e).filter(r => r.stage === 'In transit');
+          if (!waiting.length) continue;
+          for (const r of waiting) { await receiveLine(r.lineId!, { plantId, reason }, token); done++; }
+          onChallan.add(e.id);
+        }
       }
       for (const e of entries) {
         if (onChallan.has(e.id)) continue;
@@ -162,21 +185,32 @@ export function Returns() {
     } catch (err) { a.toast(errorMessage(err)); }
     finally { sync(true); }
   };
-  const apply = (entries: Entry[], to: string, reason: string) => {
+  const apply = (entries: Entry[], to: string, reason: string, plantId?: string, whole?: string) => {
     if (!canEdit) { a.toast('Read-only access.'); return false; }
-    if (entries.some(e => e.apiId)) { applyLive(entries.filter(e => e.apiId), to, reason); return; }
+    if (entries.some(e => e.apiId)) { applyLive(entries.filter(e => e.apiId), to, reason, plantId, whole); return; }
     setState(s => entries.reduce((acc, e) => audit({ ...acc, entries: acc.entries.map(x => x.id === e.id ? { ...x, returnState: to, returnNote: reason } : x) }, to, e.id, reason, e.returnState || 'At dealer', to), s));
     a.toast(entries.length > 1 ? `${entries.length} batteries marked “${stageChip(to)[0].toLowerCase()}”.` : `Marked “${stageChip(to)[0].toLowerCase()}”.`);
+  };
+  const saveRetag = async (e: Entry, plantId: string, reason: string) => {
+    if (!canEdit) { a.toast('Read-only access.'); return; }
+    const token = await getAccessToken(); if (!token) return;
+    try {
+      for (const r of linesOf(e).filter(l => l.stage !== 'In transit')) await setLinePlant(r.lineId!, { plantId, reason }, token);
+      a.toast(`${codesOf(e)} is now counted under ${plantById(plantId)?.name}.`);
+    } catch (err) { a.toast(errorMessage(err)); }
+    finally { sync(true); }
   };
   const byDealer = state.dealers.map(d => ({ d, list: atDealer.filter(e => e.dealerId === d.id) })).filter(x => x.list.length).sort((x, y) => y.list.length - x.list.length);
   const row = (e: Entry, i: number, arr: Entry[], showActions = true) => {
     const [l, t, ic] = stageChip(e.returnState);
+    const arrived = !!e.returnState && !['At dealer', 'In transit'].includes(e.returnState) && linesOf(e).length > 0;
     return <Line key={e.id} last={i === arr.length - 1} onPress={() => a.go('entry', e.id)} av={<Avatar n={ic} tone={t === 'vio' ? 'vio' : t === 'live' ? 'green' : t === 'mute' ? 'mute' : 'amber'} />}
       title={<Mono>{e.items.map(it => it.oldSerial).filter(Boolean).join(', ') || '—'}</Mono>}
-      sub={`${e.items[0]?.model} · ${e.id} · ${dealerName(e.dealerId)} · ${e.status === 'Approved' ? 'approved' : e.status === 'Rejected' ? 'refused' : e.status === 'Conflict' ? 'serial exception' : 'waiting for your decision'}`}
+      sub={`${e.items[0]?.model} · ${e.id} · ${dealerName(e.dealerId)} · ${e.status === 'Approved' ? 'approved' : e.status === 'Rejected' ? 'refused' : e.status === 'Conflict' ? 'serial exception' : 'waiting for your decision'}${arrived && plants.length ? ` · ${plantOf(e) ? `made at ${plantOf(e)!.name}` : 'plant not set'}` : ''}`}
       right={<View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: a.wide ? 420 : 170 }}>
         <Chip tone={t} icon={ic} label={l} />
-        {showActions && canEdit && (STAGE_NEXT[e.returnState || ''] || []).filter(([to]) => !(to === 'Closed' && undecided(e))).map(([to, label, kind]) => <Btn key={to} kind={kind === 'danger' ? 'ghost' : kind} sm label={label} color={kind === 'danger' ? T.terminal : undefined} borderColor={kind === 'danger' ? '#F0C7BC' : undefined} onPress={() => setAct({ entries: [e], to, label })} />)}
+        {showActions && canEdit && (STAGE_NEXT[e.returnState || ''] || []).filter(([to]) => !(to === 'Closed' && undecided(e))).map(([to, label, kind]) => <Btn key={to} kind={kind === 'danger' ? 'ghost' : kind} sm label={label} color={kind === 'danger' ? T.terminal : undefined} borderColor={kind === 'danger' ? '#F0C7BC' : undefined} onPress={() => openAct({ entries: [e], to, label })} />)}
+        {showActions && canEdit && arrived && e.apiId && plants.length > 0 && <Btn kind="ghost" sm label={plantOf(e) ? 'Change plant' : 'Set plant'} onPress={() => openRetag(e)} />}
         {canEdit && e.returnState && e.returnState !== 'In transit' && e.returnState !== 'At dealer' && undecided(e) && <>
           <Btn kind="ghost" sm icon="x" label="Reject" color={T.terminal} borderColor="#F0C7BC" onPress={() => setDecide({ e, kind: 'reject' })} />
           <Btn kind="blue" sm icon="check" label="Approve" onPress={() => setDecide({ e, kind: 'approve' })} /></>}
@@ -220,7 +254,7 @@ export function Returns() {
       const detail = <Box title={`${sel.no} · ${dealerName(sel.dealerId)}`}
         right={<View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <Btn kind="ghost" sm icon="down" label="Download challan" onPress={download} />
-          {canEdit && !sel.receivedAt && stillOnWay.length ? <Btn kind="blue" sm icon="box" label={`Confirm all ${stillOnWay.length} arrived`} onPress={() => setAct({ entries: stillOnWay, to: 'Received', label: `Confirm challan ${sel.no} arrived` })} /> : chip(sel)}</View>}>
+          {canEdit && !sel.receivedAt && stillOnWay.length ? <Btn kind="blue" sm icon="box" label={`Confirm all ${stillOnWay.length} arrived`} onPress={() => openAct({ entries: stillOnWay, to: 'Received', label: `Confirm challan ${sel.no} arrived`, whole: sel.serverId })} /> : chip(sel)}</View>}>
         <View style={{ paddingHorizontal: 14, paddingTop: 11 }}><KV cols={a.wide ? 3 : 2} pairs={[['Dealer', dealerName(sel.dealerId)], ['Sent', dLong(sel.at)], ['Arrived', sel.receivedAt ? dLong(sel.receivedAt) : 'Not yet'], ['Vehicle', sel.vehicle || '—'], ['Collected by', sel.driver || '—'], ['Batteries', String(sel.rows.length)]]} /></View>
         <View style={{ paddingHorizontal: 14 }}>
           {entries.map((e, i, arr) => row(e, i, unmatched.length ? [...arr, e] : arr))}
@@ -232,10 +266,10 @@ export function Returns() {
         : <Stack><Btn kind="ghost" sm label="← All challans" style={{ alignSelf: 'flex-start' }} onPress={() => setSelChallan(null)} />{detail}</Stack>;
     })()}
     {tab === 'way' && <Stack>
-      <Banner tone="info" icon="truck"><B>Scanning in is not approving.</B> Confirm a challan when the van arrives, then approve or reject each battery once it has been checked.</Banner>
+      <Banner tone="info" icon="truck"><B>Scanning in is not approving.</B> Confirm each battery as it comes off the van and choose the plant that made it, then approve or reject it once it has been checked.</Banner>
       {!openChallans.length && !looseOnWay.length && <Box><Empty icon="truck" title="Nothing on the way" text="When a dealer dispatches old batteries, their challan appears here." /></Box>}
       {openChallans.map(c => { const list = onWay.filter(e => c.entryIds.includes(e.id));
-        return <Box key={c.no} title={c.no} right={canEdit ? <Btn kind="blue" sm icon="box" label={`Confirm all ${list.length} arrived`} onPress={() => setAct({ entries: list, to: 'Received', label: `Confirm challan ${c.no} arrived` })} /> : <StatusChip status="In transit" />}>
+        return <Box key={c.no} title={c.no} right={canEdit ? <Btn kind="blue" sm icon="box" label={`Confirm all ${list.length} arrived`} onPress={() => openAct({ entries: list, to: 'Received', label: `Confirm challan ${c.no} arrived`, whole: c.serverId })} /> : <StatusChip status="In transit" />}>
           <View style={{ paddingHorizontal: 14, paddingTop: 11 }}><KV cols={a.wide ? 4 : 2} pairs={[['From', dealerName(c.dealerId)], ['Sent', `${dLong(c.at)}`], ['Vehicle', c.vehicle || '—'], ['Collected by', c.driver || '—']]} /></View>
           <View style={{ paddingHorizontal: 14 }}>{list.map((e, i, arr) => row(e, i, arr))}</View>
         </Box>; })}
@@ -249,14 +283,57 @@ export function Returns() {
         title={<Mono>{e.items.map(it => it.oldSerial).filter(Boolean).join(', ')}</Mono>} sub={`${dealerName(e.dealerId)} · ${e.id} · ${ageDays(e.date)} days · ${e.handover ? 'handed over' : 'handover not confirmed'}`}
         right={canEdit ? <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: a.wide ? 360 : 150 }}>
           {!e.handover && <Btn kind="ghost" sm label="Confirm handover" onPress={() => setHandover(e)} />}
-          <Btn kind="ghost" sm icon="truck" label="Record dispatch" onPress={() => setAct({ entries: [e], to: 'In transit', label: 'Record dispatch (challan or transport details)' })} /></View> : undefined} />)}</View>
+          <Btn kind="ghost" sm icon="truck" label="Record dispatch" onPress={() => openAct({ entries: [e], to: 'In transit', label: 'Record dispatch (challan or transport details)' })} /></View> : undefined} />)}</View>
         : <X s={13.5} c={T.slate} style={{ padding: 14 }}>No old batteries waiting at dealers.</X>}</Box>
     </Cols>}
-    {tab === 'company' && <Box title="At the company">{atCompany.length ? <View style={{ paddingHorizontal: 14 }}>{atCompany.map((e, i, arr) => row(e, i, arr))}</View> : <Empty icon="box" title="Nothing at the company" text="Batteries appear here once a challan is confirmed." />}</Box>}
+    {tab === 'company' && (() => {
+      if (!plants.length) return <Box title="At the company">{atCompany.length ? <View style={{ paddingHorizontal: 14 }}>{atCompany.map((e, i, arr) => row(e, i, arr))}</View> : <Empty icon="box" title="Nothing at the company" text="Batteries appear here once a challan is confirmed." />}</Box>;
+      // one box per plant that made the batteries (D-19); switched-off plants still hold their old batteries
+      const NOT_SET = 'Plant not set';
+      const groups = [...plants.map(p => ({ key: p.id, name: p.name, off: !p.active, list: atCompany.filter(e => plantOf(e)?.id === p.id) })),
+        { key: 'none', name: NOT_SET, off: false, list: atCompany.filter(e => !plantOf(e)) }]
+        .filter(g => g.list.length && (plantF === 'All' || plantF === g.name));
+      return <Stack>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+          <FilterPick label="Plant" value={plantF} options={[...plants.map(p => p.name), NOT_SET]} onChange={setPlantF} />
+          <X s={12.5} c={T.slate}>{groups.reduce((t, g) => t + g.list.length, 0)} {groups.reduce((t, g) => t + g.list.length, 0) === 1 ? 'battery' : 'batteries'} · sorted by the plant that made them</X>
+        </View>
+        {!groups.length ? <Box><Empty icon="box" title={atCompany.length ? 'None from this plant' : 'Nothing at the company'} text="Batteries appear here once they are confirmed as arrived." /></Box>
+          : groups.map(g => <Box key={g.key} title={g.name} right={<View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>{g.off ? <Chip tone="mute" label="Switched off" /> : null}<X s={12} c={T.slate}>{g.list.length} {g.list.length === 1 ? 'battery' : 'batteries'}</X></View>}>
+            <View style={{ paddingHorizontal: 14 }}>{g.list.map((e, i, arr) => row(e, i, arr))}</View>
+          </Box>)}
+      </Stack>;
+    })()}
     {tab === 'closed' && <Box title="Closed returns">{closed.length ? <View style={{ paddingHorizontal: 14 }}>{closed.map((e, i, arr) => row(e, i, arr, false))}</View> : <Empty icon="check" title="No closed returns yet" />}</Box>}
-    <ReasonDialog open={!!act} title={act?.label || ''} confirm={act?.to === 'Scrapped' ? 'Mark scrapped' : 'Confirm'} kind={act?.to === 'Scrapped' ? 'danger' : 'blue'} onClose={() => setAct(null)} onConfirm={r => act ? apply(act.entries, act.to, r) : false}
-      suggestions={act?.to === 'Received' ? ['Scanned in at Nashik warehouse', 'All batteries on the challan arrived'] : act?.to === 'Testing' ? ['Sent to the test bench'] : act?.to === 'Repaired' ? ['Cells replaced, holds charge'] : act?.to === 'Scrapped' ? ['Dead cells — not repairable', 'Cracked case'] : act?.to === 'Closed' ? ['Checked and closed'] : act?.to === 'In transit' ? ['Company van pickup'] : []}
-      intro={act ? `${act.entries.length} ${act.entries.length === 1 ? 'battery' : 'batteries'} · ${act.entries.map(e => e.id).join(', ')}` : undefined} />
+    <ReasonDialog open={!!act} title={act?.label || ''} confirm={act?.to === 'Scrapped' ? 'Mark scrapped' : 'Confirm'} kind={act?.to === 'Scrapped' ? 'danger' : 'blue'} onClose={() => setAct(null)}
+      onConfirm={r => {
+        if (!act) return false;
+        const plant = pickedPlant();
+        if (needsPlant && !plant) { setPlantErr(act.whole ? 'Choose the plant that made these batteries.' : 'Choose the plant that made this battery.'); return false; }
+        return apply(act.entries, act.to, r, plant?.id, act.whole);
+      }}
+      suggestions={act?.to === 'Received' ? ['Scanned in at Nashik warehouse'] : act?.to === 'Testing' ? ['Sent to the test bench'] : act?.to === 'Repaired' ? ['Cells replaced, holds charge'] : act?.to === 'Scrapped' ? ['Dead cells — not repairable', 'Cracked case'] : act?.to === 'Closed' ? ['Checked and closed'] : act?.to === 'In transit' ? ['Company van pickup'] : []}
+      intro={act ? `${act.entries.length} ${act.entries.length === 1 ? 'battery' : 'batteries'} · ${act.entries.map(e => e.id).join(', ')}` : undefined}>
+      {act && needsPlant ? <>
+        {/* the plant is read off the label, so the label's number is right above the choice */}
+        {!act.whole && act.entries.length === 1 ? <Plate style={{ marginBottom: 13 }}><PlateLab>Number on the battery</PlateLab><PlateVal size={19}>{codesOf(act.entries[0]!) || '—'}</PlateVal></Plate> : null}
+        <Select label={act.whole ? 'Plant that made these batteries' : 'Plant that made this battery'} req value={plantName} ph="Choose the plant"
+          options={activePlants.map(p => ({ v: p.name }))} onChange={v => { setPlantName(v); setPlantErr(''); }} error={plantErr}
+          hint={act.whole ? 'Every battery arriving now is counted under this plant. If they come from different plants, confirm them one by one instead.' : 'Read it from the number on the battery’s label.'} />
+      </> : null}
+    </ReasonDialog>
+    <ReasonDialog open={!!retag} title={`Plant for ${retag ? codesOf(retag) : ''}`} confirm="Save plant" kind="blue" onClose={() => setRetag(null)}
+      suggestions={['Misread the label', 'Arrived before plants were tracked']}
+      intro="Changes which plant this battery is counted under. The old and the new plant both stay in the audit log."
+      onConfirm={r => {
+        if (!retag) return false;
+        const plant = pickedPlant();
+        if (!plant) { setPlantErr('Choose the plant that made this battery.'); return false; }
+        if (plant.id === plantOf(retag)?.id) { setPlantErr(`It is already counted under ${plant.name}.`); return false; }
+        saveRetag(retag, plant.id, r);
+      }}>
+      <Select label="Plant that made this battery" req value={plantName} ph="Choose the plant" options={activePlants.map(p => ({ v: p.name }))} onChange={v => { setPlantName(v); setPlantErr(''); }} error={plantErr} />
+    </ReasonDialog>
     <ReasonDialog open={decide?.kind === 'approve'} title={`Approve ${decide?.e.id || ''}`} confirm="Approve" kind="blue" onClose={() => setDecide(null)}
       suggestions={['Verified at the factory — manufacturing defect', 'Checked offline, warranty valid']} intro="The old battery is at the factory. Approving records the replacement with the original cover dates and issues the dealer's credit note."
       onConfirm={r => decide ? dec.approve(decide.e, r) : false} />

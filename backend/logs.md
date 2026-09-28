@@ -38,6 +38,24 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-28 · admin console: the plant is chosen on arrival, and plants are managed (Claude Code)
+**Worked on:** the admin-app half of D-19, so the client's request works end to end.
+**Done:**
+- Arrival form (`admin/src/Stock.tsx`): the battery's number on the dark plate, a required *Plant that made this battery* dropdown (active plants only), and just the one common reason; the "All batteries on the challan arrived" chip is gone.
+- *Confirm it arrived* on a battery now calls `POST /challans/lines/:lineId/receive`, so only that battery arrives. *Confirm all N arrived* asks for one plant and calls the whole-van confirm.
+- *At the company* is grouped by plant (plus *Plant not set* for batteries that arrived before plants existed), with a plant filter. Every arrived battery shows "made at …" and has *Change plant* / *Set plant*.
+- *Models & serial rules → Plants* (`admin/src/Batteries.tsx`): list with returned-battery counts, add, rename, switch off/on.
+- Shared: `Plant` type and `state.plants`, `plantId` on challan rows, `receiveLine` / `setLinePlant` / `createPlant` / `updatePlant` clients; `Select` takes an `error`.
+- Backend: `plantId` is now **required** on the whole-van confirm too (the app sends it).
+- Verified by driving the real console in a browser against the real backend and Neon: the audit log shows the per-battery confirm (Branch 1), the whole-van confirm tagging only the battery still on the way (Main plant), and the correction (Main plant → Branch 2). Plants tab: add, and switch off, after which the plant is no longer offered on arrival.
+**Found:**
+- The repo lives in OneDrive. OneDrive has turned untouched files into cloud placeholders (reparse tag `0x9000a01a`), and Metro misreads those as broken symlinks. Neither app bundles from this folder right now (`Unable to resolve "@felix/shared/store"`, `readlink … EINVAL`). The UI check ran from a copy outside OneDrive. Moving the repo out of OneDrive, or setting the folder to "Always keep on this device", is the fix.
+- Another backend running the **old** code shares this Neon database: arrivals at 11:51, 12:34, 12:40, 12:52 and 13:24 came from a real Chrome browser and were recorded without plants, while this machine's backend recorded plants. Almost certainly the deployed stack. Until it is redeployed with D-19, arrivals confirmed there get no plant (they show under *Plant not set*, with *Set plant*).
+- Pre-existing, not changed here: a returns row is a pressable that holds buttons, so React logs "button cannot be a descendant of button"; the "Arrived this month" figure stays 0 on live data.
+**Next:** real plant names from the client.
+
+---
+
 ### 2026-09-28 · returned batteries are tagged with the plant that made them (Claude Code)
 **Worked on:** client request: sort returned batteries by the plant that made them, chosen per battery on arrival, with head office able to add and edit plants.
 **Done:**

@@ -45,7 +45,7 @@ import * as claimsService from '../claims/claims.service';
 import * as entriesRepo from '../entries/entries.repository';
 import * as repo from './returns.repository';
 import { dispatch, receive, receiveLine, setLinePlant, stage } from './returns.service';
-import { LineReceiveBody } from './returns.validation';
+import { ChallanReceiveBody, LineReceiveBody } from './returns.validation';
 import type { Ctx } from '../../utils/context';
 
 const now = () => new Date('2026-09-19T06:00:00Z');
@@ -112,13 +112,14 @@ describe('dispatch — a dealer hands old batteries to the van', () => {
 
 describe('receive — head office confirms the van arrived', () => {
   it('marks every line received, flagging the ones missing from the van', async () => {
+    vi.mocked(mastersRepo.findPlantById).mockResolvedValue(MAIN as never);
     vi.mocked(repo.findChallanById).mockResolvedValue({ id: 'chl-1', no: 'CHL-26-09-0001', status: 'dispatched' } as never);
     vi.mocked(repo.findLinesByChallanId).mockResolvedValue([{ id: 'line-1', batteryCode: '26030777', stage: 'in_transit' }, { id: 'line-2', batteryCode: '26040101', stage: 'in_transit' }] as never);
     vi.mocked(repo.markReceived).mockResolvedValue({ id: 'chl-1', status: 'received' } as never);
     vi.mocked(repo.updateLineStage).mockImplementation(async (_tx, id, values) => ({ id, ...values }) as never);
 
     vi.mocked(entriesRepo.findItemsByEntryIds).mockResolvedValue([] as never);
-    const result = await receive(adminCtx, 'chl-1', { missingBatteryCodes: ['26040101'] });
+    const result = await receive(adminCtx, 'chl-1', { missingBatteryCodes: ['26040101'], plantId: MAIN.id });
     expect(result.status).toBe('received');
     expect(result.lines).toEqual([
       expect.objectContaining({ id: 'line-1', stage: 'received', shortage: false }),
@@ -129,16 +130,16 @@ describe('receive — head office confirms the van arrived', () => {
   it('refuses a code that is not on the challan', async () => {
     vi.mocked(repo.findChallanById).mockResolvedValue({ id: 'chl-1', no: 'CHL-26-09-0001', status: 'dispatched' } as never);
     vi.mocked(repo.findLinesByChallanId).mockResolvedValue([{ id: 'line-1', batteryCode: '26030777', stage: 'in_transit' }] as never);
-    await expect(receive(adminCtx, 'chl-1', { missingBatteryCodes: ['99999999'] })).rejects.toMatchObject({ code: 'line_not_on_challan' });
+    await expect(receive(adminCtx, 'chl-1', { missingBatteryCodes: ['99999999'], plantId: MAIN.id })).rejects.toMatchObject({ code: 'line_not_on_challan' });
   });
 
   it('cannot be received twice', async () => {
     vi.mocked(repo.findChallanById).mockResolvedValue({ id: 'chl-1', no: 'CHL-26-09-0001', status: 'received' } as never);
-    await expect(receive(adminCtx, 'chl-1', { missingBatteryCodes: [] })).rejects.toMatchObject({ code: 'challan_already_received' });
+    await expect(receive(adminCtx, 'chl-1', { missingBatteryCodes: [], plantId: MAIN.id })).rejects.toMatchObject({ code: 'challan_already_received' });
   });
 
   it('is head office only', async () => {
-    await expect(receive(dealerCtx, 'chl-1', { missingBatteryCodes: [] })).rejects.toMatchObject({ code: 'permission_denied' });
+    await expect(receive(dealerCtx, 'chl-1', { missingBatteryCodes: [], plantId: MAIN.id })).rejects.toMatchObject({ code: 'permission_denied' });
   });
 });
 
@@ -267,17 +268,13 @@ describe('receive (whole van) — with plants', () => {
     plantsExist();
     vi.mocked(repo.findChallanById).mockResolvedValue(challanOnTheWay as never);
     vi.mocked(repo.findLinesByChallanId).mockResolvedValue([{ ...lineOnTheWay, stage: 'received' }, secondLine] as never);
-    await expect(receive(adminCtx, 'chl-1', { missingBatteryCodes: ['G4002609452'] })).rejects.toMatchObject({ code: 'line_already_received' });
+    await expect(receive(adminCtx, 'chl-1', { missingBatteryCodes: ['G4002609452'], plantId: MAIN.id })).rejects.toMatchObject({ code: 'line_already_received' });
   });
 
-  it('without a plant (today\'s admin app) the batteries still arrive, untagged', async () => {
-    plantsExist();
-    vi.mocked(repo.findChallanById).mockResolvedValue(challanOnTheWay as never);
-    vi.mocked(repo.findLinesByChallanId).mockResolvedValue([lineOnTheWay] as never);
-    const r = await receive(adminCtx, 'chl-1', { missingBatteryCodes: [] });
-    expect(r.lines[0]).toMatchObject({ stage: 'received' });
-    expect(r.lines[0]).not.toHaveProperty('plantId');
-    expect(batteriesRepo.setBatteryPlant).not.toHaveBeenCalled();
+  it('the plant is required for the whole van too, now the admin app sends it', () => {
+    const r = ChallanReceiveBody.safeParse({ missingBatteryCodes: [], reason: 'Scanned in at Nashik warehouse' });
+    expect(r.success).toBe(false);
+    expect(r.error?.issues[0]?.message).toBe('Choose the plant that made this battery.');
   });
 
   it('refuses a switched-off plant before touching anything', async () => {

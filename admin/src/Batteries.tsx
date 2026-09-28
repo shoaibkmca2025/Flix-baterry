@@ -5,9 +5,12 @@ import { File } from 'expo-file-system';
 import * as XLSX from 'xlsx';
 import { useStore } from '@felix/shared/store';
 import { useLive } from '@felix/shared/api/sync';
+import { getAccessToken } from '@felix/shared/api/session';
+import { createPlant, updatePlant } from '@felix/shared/api/masters';
+import { errorMessage } from '@felix/shared/api/client';
 
 const NOT_IN_V1 = 'Not available in this version — warranty overrides, policies and the catalogue are managed on the server later.';
-import { Battery, Model, chainFor, deriveCode, expiryFrom, normalize, today, uid, warranty } from '@felix/shared/domain';
+import { Battery, Model, Plant, chainFor, deriveCode, expiryFrom, normalize, today, uid, warranty } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar, Plate, PlateLab, PlateVal, Meter } from '@felix/shared/ui/kit';
 import { coverChip, coverOf, dLong, dShort, monthLong, spanLong, spanShort } from '@felix/shared/data';
@@ -192,6 +195,29 @@ export function Catalogue() {
   const live = useLive();
   const a = useA(); const { state, setState, audit, canEdit } = useStore();
   const [tab, setTab] = useState('models'), [edit, setEdit] = useState<(Model & { isNew?: boolean }) | null>(null), [raw, setRaw] = useState<any[][]>([]), [filename, setFilename] = useState(''), [message, setMessage] = useState('');
+  // plants (memory.md D-19): head office's own list — add, rename, switch off; never deleted
+  const plants = state.plants ?? [];
+  const [plantEdit, setPlantEdit] = useState<{ name: string; active: boolean; was?: Plant } | null>(null), [plantErr, setPlantErr] = useState(''), [plantBusy, setPlantBusy] = useState(false);
+  const returnedFrom = (id: string) => state.challans.reduce((t, c) => t + c.rows.filter(r => r.plantId === id).length, 0);
+  const savePlant = async () => {
+    if (!plantEdit) return;
+    const name = plantEdit.name.trim(), was = plantEdit.was;
+    if (name.length < 2) { setPlantErr('Enter the plant name.'); return; }
+    const change = was ? { ...(name !== was.name ? { name } : {}), ...(plantEdit.active !== was.active ? { active: plantEdit.active } : {}) } : null;
+    if (change && !Object.keys(change).length) { setPlantEdit(null); return; }
+    const token = await getAccessToken();
+    if (!token) { setPlantErr('Plants are kept on the server. Sign in to change them.'); return; }
+    setPlantBusy(true);
+    try {
+      const saved = was ? await updatePlant(was.id, change!, token) : await createPlant({ name }, token);
+      const plant: Plant = { id: saved.id, name: saved.name, active: saved.active };
+      // shown straight from the server's answer: the masters list is cached for a few minutes
+      setState(s => ({ ...s, plants: was ? (s.plants ?? []).map(x => x.id === plant.id ? plant : x) : [...(s.plants ?? []), plant] }));
+      setPlantEdit(null);
+      a.toast(!was ? `${plant.name} added. It is in the arrival form now.` : change && 'active' in change ? (plant.active ? `${plant.name} is switched back on.` : `${plant.name} is switched off. Batteries already under it keep its name.`) : `Renamed to ${plant.name}.`);
+    } catch (err) { setPlantErr(errorMessage(err)); }
+    finally { setPlantBusy(false); }
+  };
   async function pick() {
     try {
       const r = await DocumentPicker.getDocumentAsync({ type: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv', 'application/vnd.ms-excel'], copyToCacheDirectory: true });
@@ -221,7 +247,7 @@ export function Catalogue() {
     setEdit(null); a.toast('Model saved.');
   };
   return <Page title="Models & serial rules" sub="What dealers can choose, and how every serial is checked"
-    tabs={<Tabs value={tab} onChange={setTab} items={[['models', 'Models'], ['rules', 'Serial rules'], ['import', 'Bulk import']]} />}>
+    tabs={<Tabs value={tab} onChange={setTab} items={[['models', 'Models'], ['plants', `Plants ${plants.filter(p => p.active).length}`], ['rules', 'Serial rules'], ['import', 'Bulk import']]} />}>
     {tab === 'models' && <Stack>
       <Box title={`${state.models.length} models`} right={canEdit ? <Btn kind="ghost" sm icon="plus" label="Add model" onPress={() => setEdit({ id: '', type: 'IT', capacity: '', months: 24, threshold: 5, active: true, isNew: true })} /> : undefined}>
         <Table rows={state.models} keyOf={m => m.id} onRow={canEdit ? m => setEdit({ ...m }) : undefined}
@@ -229,6 +255,14 @@ export function Catalogue() {
           mobile={{ av: () => <Avatar n="batt" tone="mute" />, title: m => m.id, sub: m => `${m.type} · ${m.capacity} · ${m.months} months`, right: m => m.active ? <Chip tone="live" label="Active" /> : <Chip tone="mute" label="Retired" /> }} />
       </Box>
       <Banner tone="info" icon="shield">Retiring a model hides it from new entries only. Every old record that used it still displays correctly.</Banner>
+    </Stack>}
+    {tab === 'plants' && <Stack>
+      <Box title={`${plants.length} ${plants.length === 1 ? 'plant' : 'plants'}`} right={canEdit ? <Btn kind="ghost" sm icon="plus" label="Add plant" onPress={() => { setPlantErr(''); setPlantEdit({ name: '', active: true }); }} /> : undefined}>
+        <Table rows={plants} keyOf={p => p.id} onRow={canEdit ? p => { setPlantErr(''); setPlantEdit({ name: p.name, active: p.active, was: p }); } : undefined} empty="No plants yet. Plants come from the server — sign in to see them."
+          cols={[{ h: 'Plant', w: 1.4, cell: p => <X s={14} w={7}>{p.name}</X> }, { h: 'Returned batteries', w: 0.9, cell: p => String(returnedFrom(p.id)) }, { h: 'In the arrival form', w: 1, cell: p => p.active ? <Chip tone="live" icon="check" label="Offered" /> : <Chip tone="mute" icon="clock" label="Switched off" /> }, { h: '', w: 0.5, cell: p => canEdit ? <Btn kind="ghost" sm label="Edit" onPress={() => { setPlantErr(''); setPlantEdit({ name: p.name, active: p.active, was: p }); }} /> : null }]}
+          mobile={{ av: () => <Avatar n="box" tone="mute" />, title: p => p.name, sub: p => `${returnedFrom(p.id)} returned ${returnedFrom(p.id) === 1 ? 'battery' : 'batteries'}`, right: p => p.active ? <Chip tone="live" label="Offered" /> : <Chip tone="mute" label="Switched off" /> }} />
+      </Box>
+      <Banner tone="info" icon="shield">When an old battery arrives, head office reads its label and chooses the plant that made it. A plant is switched off rather than deleted, so every battery already counted under it keeps its name.</Banner>
     </Stack>}
     {tab === 'rules' && <Cols>
       <Card><CardH title="How a serial is read" right={<Chip tone="live" label="All models" />} />
@@ -264,6 +298,12 @@ export function Catalogue() {
         <Banner tone="info" icon="shield" style={{ marginTop: 11 }}>Imported batteries start as available stock. Historic cover dates are left “not on record” rather than guessed.</Banner>
       </Card>
     </Cols>}
+    <Dialog open={!!plantEdit} title={plantEdit?.was ? `Edit ${plantEdit.was.name}` : 'Add a plant'} onClose={() => setPlantEdit(null)} width={460}>{plantEdit && <>
+      <Field label="Plant name" req value={plantEdit.name} onChange={name => { setPlantEdit({ ...plantEdit, name }); setPlantErr(''); }} ph="e.g. Sinnar plant" autoFocus />
+      {plantEdit.was ? <Card style={{ paddingVertical: 0, marginBottom: 13 }}><ToggleRow last label="Offer it in the arrival form" sub="Switch off a plant that no longer makes batteries" value={plantEdit.active} onChange={active => { setPlantEdit({ ...plantEdit, active }); setPlantErr(''); }} /></Card> : null}
+      {plantErr ? <Banner tone="bad" icon="alert" style={{ marginBottom: 13 }}>{plantErr}</Banner> : null}
+      <Btn kind="blue" icon="check" label={plantEdit.was ? 'Save plant' : 'Add plant'} disabled={plantBusy} onPress={savePlant} />
+    </>}</Dialog>
     <Dialog open={!!edit} title={edit?.isNew ? 'Add a model' : `Edit ${edit?.id}`} onClose={() => setEdit(null)} width={500}>{edit && <>
       <Field label="Model name" req value={edit.id} onChange={v => setEdit({ ...edit, id: v.toUpperCase() })} readonly={!edit.isNew} hint={edit.isNew ? undefined : 'A model name cannot change once batteries use it.'} hintIcon="lock" caps />
       <View style={{ flexDirection: 'row', gap: 9 }}><Field style={{ flex: 1 }} label="Type" value={edit.type} onChange={type => setEdit({ ...edit, type })} /><Field style={{ flex: 1 }} label="Capacity" req value={edit.capacity} onChange={capacity => setEdit({ ...edit, capacity })} ph="e.g. 150 Ah" /></View>

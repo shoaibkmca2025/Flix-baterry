@@ -109,7 +109,7 @@ async function carryArrived(ctx: Ctx, arrived: { entryId: string; entryItemId: s
 
 /**
  * "Confirm all arrived" — every battery still on the way arrives at once, all tagged with the
- * one plant given (if any). A battery already confirmed on its own (receiveLine) keeps its stage
+ * one plant given. A battery already confirmed on its own (receiveLine) keeps its stage
  * and its plant: this used to reset every line on the challan back to "received".
  */
 export async function receive(ctx: Ctx, id: string, input: ChallanReceiveBody) {
@@ -124,7 +124,7 @@ export async function receive(ctx: Ctx, id: string, input: ChallanReceiveBody) {
     if (!line) throw new AppError('line_not_on_challan', 422, `${code} is not on ${challan.no}.`);
     if (line.stage !== 'in_transit') throw new AppError('line_already_received', 422, `${code} was already confirmed as arrived, so it cannot be missing.`);
   }
-  const plant = input.plantId ? await activePlant(input.plantId) : null;
+  const plant = await activePlant(input.plantId);
   const pending = lines.filter((l) => l.stage === 'in_transit');
   const arriving = pending.filter((l) => !missing.has(l.batteryCode));
 
@@ -135,14 +135,14 @@ export async function receive(ctx: Ctx, id: string, input: ChallanReceiveBody) {
     for (const line of lines) {
       if (line.stage !== 'in_transit') { out.push(line); continue; }
       const short = missing.has(line.batteryCode);
-      const tag = !short && plant ? { plantId: plant.id } : {};
+      const tag = short ? {} : { plantId: plant.id };
       out.push(await repo.updateLineStage(tx, line.id, { stage: short ? 'in_transit' : 'received', shortage: short, stageNote: input.reason ?? null, stagedBy: user.id, stagedAt: now, ...tag }));
       if (tag.plantId) await batteriesRepo.setBatteryPlant(tx, line.batteryCode, tag.plantId, now);
     }
     await audit(tx, {
       ctx, action: 'challan.received', entityType: 'challan', entityId: id, entityRef: challan.no,
       before: { status: 'dispatched' },
-      after: { status: 'received', shortages: [...missing], arrived: arriving.map((l) => l.batteryCode), plantId: plant?.id ?? null, plant: plant?.name ?? null },
+      after: { status: 'received', shortages: [...missing], arrived: arriving.map((l) => l.batteryCode), plantId: plant.id, plant: plant.name },
       reason: input.reason, outcome: 'ok',
     });
     return { ...updated, lines: out };

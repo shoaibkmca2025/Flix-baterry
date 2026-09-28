@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './client';
+import { apiGet, apiPatch, apiPost } from './client';
 
 export type ReturnStage = 'in_transit' | 'received' | 'testing' | 'repaired' | 'scrapped' | 'closed';
 
@@ -15,6 +15,7 @@ export type ChallanLineResult = {
   stagedBy: string | null;
   stagedAt: string | null;
   shortage: boolean;
+  plantId: string | null; // the plant that made it, tagged on arrival (D-19)
 };
 
 export type ChallanResult = {
@@ -49,9 +50,22 @@ export function listChallans(query: { status?: ChallanResult['status']; limit?: 
   return apiGet<{ items: ChallanResult[]; nextCursor: string | null }>(`/challans${suffix}`, { accessToken });
 }
 
-/** Head office: the van arrived. Codes on the challan but not in the van are flagged as shortages. */
-export function receiveChallan(id: string, input: { reason?: string; missingBatteryCodes?: string[] }, accessToken: string) {
+/**
+ * Head office: the whole van arrived, every battery made at `plantId`. Codes on the challan but not
+ * in the van are flagged as shortages; batteries already confirmed one by one are left as they are.
+ */
+export function receiveChallan(id: string, input: { plantId: string; reason?: string; missingBatteryCodes?: string[] }, accessToken: string) {
   return apiPost<ChallanResult>(`/challans/${id}/receive`, { missingBatteryCodes: [], ...input }, { accessToken });
+}
+
+/** Head office: ONE battery arrived, and this is the plant that made it (read off its label). */
+export function receiveLine(lineId: string, input: { plantId: string; reason?: string }, accessToken: string) {
+  return apiPost<ChallanLineResult & { challanNo: string; stillOnTheWay: number }>(`/challans/lines/${lineId}/receive`, input, { accessToken });
+}
+
+/** Head office: correct the plant of a battery that has arrived (a misread label). */
+export function setLinePlant(lineId: string, input: { plantId: string; reason: string }, accessToken: string) {
+  return apiPatch<ChallanLineResult>(`/challans/lines/${lineId}/plant`, input, { accessToken });
 }
 
 /** Head office: move one old battery along received → testing → repaired/scrapped → closed. */
