@@ -22,8 +22,8 @@ export type ApiClaim = {
   updatedAt: string;
 };
 
-export function listClaims(accessToken: string) {
-  return apiGet<{ items: ApiClaim[]; nextCursor: string | null }>('/claims?limit=200', { accessToken });
+export function listClaims(accessToken: string, cursor?: string) {
+  return apiGet<{ items: ApiClaim[]; nextCursor: string | null }>(`/claims?limit=200${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { accessToken });
 }
 /** Dealer: the old battery has left the shop on the pickup vehicle. */
 export function dispatchClaim(id: string, accessToken: string) {

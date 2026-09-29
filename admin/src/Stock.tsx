@@ -226,7 +226,9 @@ export function Returns() {
    * A challan is finished once it has arrived and head office has approved or refused every
    * battery on it; until then it waits under "Pending challans" (client, 29 Sep 2026).
    */
-  const challanDone = (c: Challan) => !!c.receivedAt && c.entryIds.every(id => { const e = state.entries.find(x => x.id === id); return !e || ['Approved', 'Rejected'].includes(e.status); });
+  // An entry the store has not loaded is NOT treated as decided: filing a challan under
+  // "Completed" on a request nobody has seen would hide it from the queue for good.
+  const challanDone = (c: Challan) => !!c.receivedAt && c.entryIds.every(id => ['Approved', 'Rejected'].includes(state.entries.find(x => x.id === id)?.status ?? ''));
   const pendingChallans = state.challans.filter(c => !challanDone(c)), doneChallans = state.challans.filter(challanDone);
   /**
    * Challans by the day they were sent, newest first, each naming its dealer; opening one lists

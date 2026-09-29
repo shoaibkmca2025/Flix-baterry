@@ -11,6 +11,7 @@ import { listMovements } from './stock';
 import { listChallans, type ChallanResult } from './returns';
 import { listAdmins } from './users';
 import { getSnapshot } from './snapshot';
+import { allPages, type Page } from './pages';
 import { ApiError } from './client';
 
 /**
@@ -190,8 +191,8 @@ export async function fetchHydrated(session: Session, token: string): Promise<Hy
   // nine calls meant several new TLS connections per refresh. A server without /sync (an older
   // deployment) answers 404, and the app falls back to the individual lists.
   const snap = await getSnapshot(token).catch((e) => { if (e instanceof ApiError && e.status === 404) return null; throw e; });
-  const none = { items: [] as never[] };
-  const [masters, entriesPage, batteriesPage, claimsPage, movementsPage, dealersPage, auditPage, adminsPage, challanPage] = snap
+  const none = { items: [] as never[], nextCursor: null };
+  const [masters, entriesFirst, batteriesFirst, claimsFirst, movementsFirst, dealersFirst, auditFirst, adminsPage, challanFirst] = snap
     ? [snap.masters, snap.entries ?? none, snap.batteries ?? none, snap.claims ?? none, snap.movements ?? none,
        isAdmin ? snap.dealers : null, isAdmin ? snap.audit : null, isAdmin ? snap.admins : null, snap.challans ?? none] as const
     : await Promise.all([
@@ -205,6 +206,27 @@ export async function fetchHydrated(session: Session, token: string): Promise<Hy
         isAdmin && session.user.role === 'main_admin' ? listAdmins(token).catch(() => null) : Promise.resolve(null),
         listChallans({ limit: 200 }, token),
       ]);
+
+  // 200 rows is the FIRST page, not the list — /sync and the list routes both answer one page
+  // and a cursor. The screens count and classify off the whole store (queues, "still at
+  // dealers", whether a challan is finished), so stopping at 200 is silently wrong, and the
+  // audit log already passes 200 in production. Follow each cursor to the end (logs.md,
+  // 29 Sep 2026). Lists that came back complete cost nothing here.
+  const page = <T>(first: { items: T[]; nextCursor?: string | null } | null | undefined, more: (cursor: string) => Promise<Page<T>>) =>
+    first ? allPages({ items: first.items, nextCursor: first.nextCursor ?? null }, more) : Promise.resolve(null);
+
+  const [entriesAll, batteriesAll, claimsAll, movementsAll, dealersPage, auditPage, challansAll] = await Promise.all([
+    page(entriesFirst, (cursor) => listEntries(token, { cursor })),
+    page(batteriesFirst, (cursor) => listBatteries(token, cursor)),
+    page(claimsFirst, (cursor) => listClaims(token, cursor)),
+    page(movementsFirst, (cursor) => listMovements(token, cursor)),
+    page(dealersFirst, (cursor) => listDealers(token, undefined, cursor)),
+    page(auditFirst, (cursor) => listAudit(token, cursor)),
+    page(challanFirst, (cursor) => listChallans({ limit: 200, cursor }, token)),
+  ]);
+  // these four are readable by every signed-in caller, so they are never null here
+  const entriesPage = entriesAll ?? none, batteriesPage = batteriesAll ?? none, claimsPage = claimsAll ?? none;
+  const movementsPage = movementsAll ?? none, challanPage = challansAll ?? none;
 
   // A server a release behind may omit newer masters fields (plateTypes/grace arrived with D-11).
   // Default them rather than let one missing list abort the whole sync — that silently froze the

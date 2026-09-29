@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// `db` is the pool, `tx` the transaction — different objects, so a query that runs on the pool
+// inside a transaction (no read-your-writes, a second connection held) is visible to the tests.
 vi.mock('../../database/client', () => ({
-  db: {},
-  withTransaction: (fn: (tx: unknown) => unknown) => fn({}),
+  db: { handle: 'pool' },
+  withTransaction: (fn: (tx: unknown) => unknown) => fn({ handle: 'tx' }),
 }));
 
 vi.mock('../../utils/audit', () => ({ audit: vi.fn() }));
@@ -194,6 +196,26 @@ describe('approve — regular_sales (first sale, opens a new chain)', () => {
     // code 26041212 → made April 2026; M5 is 24 months + 2 grace → 2026-04-01 … 2028-05-31, whatever the sale date
     expect(batteriesRepo.insertChain).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ rootBatteryId: 'batt-1', warrantyStart: '2026-04-01', warrantyExpiry: '2028-05-31', termMonths: 24, graceMonths: 2 }));
     expect(result.entry.status).toBe('approved');
+  });
+
+  it('reads through the TRANSACTION, not the pool — an approval must see its own writes', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue({ id: 'entry-1', ref: 'ENT-26-09-0001', status: 'submitted', dealerId: 'dealer-1', entryType: 'regular_sales', entryDate: '2026-09-17' } as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([
+      { id: 'item-1', seq: 0, modelId: 'M5', batteryCode: '26041212', batteryCodeEntered: '26041212', oldBatteryCode: null },
+    ] as never);
+    vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValue(undefined);
+    vi.mocked(batteriesRepo.findModelById).mockResolvedValue({ id: 'M5', warrantyMonths: 24 } as never);
+    vi.mocked(batteriesRepo.insertBattery).mockResolvedValue({ id: 'batt-1' } as never);
+    vi.mocked(batteriesRepo.insertChain).mockResolvedValue({ id: 'chain-1' } as never);
+    vi.mocked(batteriesRepo.updateBatteryChainId).mockResolvedValue({ id: 'batt-1', chainId: 'chain-1' } as never);
+    vi.mocked(repo.updateEntryStatus).mockResolvedValue({ id: 'entry-1', status: 'approved' } as never);
+
+    await approve(adminCtx, 'entry-1', 'Looks good');
+
+    const handles = [...vi.mocked(batteriesRepo.findBatteryByCode).mock.calls, ...vi.mocked(batteriesRepo.findModelById).mock.calls]
+      .map((call) => (call[0] as { handle?: string })?.handle);
+    expect(handles.length).toBeGreaterThan(0);
+    expect(handles).not.toContain('pool');
   });
 
   it('refuses a battery code that is already registered', async () => {

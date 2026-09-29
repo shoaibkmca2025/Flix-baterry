@@ -69,10 +69,11 @@ export type EntryItemResult = {
 };
 export type EntryWithItems = EntryResult & { items: EntryItemResult[] };
 
-export function listEntries(accessToken: string, opts: { status?: EntryResult['status']; dealerId?: string } = {}) {
+export function listEntries(accessToken: string, opts: { status?: EntryResult['status']; dealerId?: string; cursor?: string } = {}) {
   const q = new URLSearchParams({ limit: '200' });
   if (opts.status) q.set('status', opts.status);
   if (opts.dealerId) q.set('dealerId', opts.dealerId);
+  if (opts.cursor) q.set('cursor', opts.cursor);
   return apiGet<{ items: EntryWithItems[]; nextCursor: string | null }>(`/entries?${q}`, { accessToken });
 }
 export function approveEntry(id: string, reason: string, accessToken: string) {

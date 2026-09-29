@@ -127,7 +127,7 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
 async function approveReplacementItem(tx: Tx, ctx: Ctx, entry: { id: string; dealerId: string; entryDate: string }, item: Awaited<ReturnType<typeof repo.findItemsByEntryId>>[number]) {
   if (!item.oldBatteryCode) throw new AppError('old_serial_required', 422, 'Old battery code is required for a replacement.', { field: `items.${item.seq}.oldBatteryCode` });
 
-  let old = await batteriesRepo.findBatteryByCode(db, item.oldBatteryCode);
+  let old = await batteriesRepo.findBatteryByCode(tx, item.oldBatteryCode);
   if (!old || !old.chainId) {
     // Not on record (sold before the app, or a legacy import without dates): since 22 Sep 2026
     // (memory.md D-11) the cover is counted from the MANUFACTURE month in the code for the
@@ -150,7 +150,7 @@ async function approveReplacementItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
     });
   }
 
-  const existingNew = await batteriesRepo.findBatteryByCode(db, item.batteryCode);
+  const existingNew = await batteriesRepo.findBatteryByCode(tx, item.batteryCode);
   if (existingNew) throw new AppError('duplicate_serial', 409, 'This new battery code is already registered.', { field: `items.${item.seq}.batteryCode` });
 
   const newDerived = readStored(digitsOfFull(item.batteryCode, item.modelId));
@@ -218,11 +218,11 @@ async function putOldBatteryOnRecord(
 }
 
 async function approveRegularSaleItem(tx: Tx, ctx: Ctx, entry: { id: string; dealerId: string; entryDate: string }, item: Awaited<ReturnType<typeof repo.findItemsByEntryId>>[number]) {
-  const existing = await batteriesRepo.findBatteryByCode(db, item.batteryCode);
+  const existing = await batteriesRepo.findBatteryByCode(tx, item.batteryCode);
   if (existing) throw new AppError('duplicate_serial', 409, 'This battery code is already registered.', { field: `items.${item.seq}.batteryCode` });
 
   const derived = readStored(digitsOfFull(item.batteryCode, item.modelId));
-  const model = await batteriesRepo.findModelById(db, item.modelId);
+  const model = await batteriesRepo.findModelById(tx, item.modelId);
   const cover = coverFromMfg(derived.mfgMonth!, model?.warrantyMonths ?? 24, await graceMonths(tx));
 
   const battery = await batteriesRepo.insertBattery(tx, {
@@ -250,7 +250,7 @@ async function approveRegularSaleItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
 }
 
 async function approveSalesReturnItem(tx: Tx, ctx: Ctx, entry: { id: string; dealerId: string }, item: Awaited<ReturnType<typeof repo.findItemsByEntryId>>[number]) {
-  const existing = await batteriesRepo.findBatteryByCode(db, item.batteryCode);
+  const existing = await batteriesRepo.findBatteryByCode(tx, item.batteryCode);
   let battery;
   if (existing) {
     battery = (await postMovementInTx(tx, ctx, { battery: existing, toState: 'returned', toCustodian: 'dealer', toDealerId: entry.dealerId, entryId: entry.id, reasonCode: 'entry_approved' })).battery!;

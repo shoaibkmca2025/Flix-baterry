@@ -42,8 +42,8 @@ export function getMe(accessToken: string) {
 }
 
 // --- head office (dealers.read / dealers.approve etc.)
-export function listDealers(accessToken: string, status?: DealerStatus) {
-  return apiGet<Page<ApiDealer>>(`/dealers?limit=200${status ? `&status=${status}` : ''}`, { accessToken });
+export function listDealers(accessToken: string, status?: DealerStatus, cursor?: string) {
+  return apiGet<Page<ApiDealer>>(`/dealers?limit=200${status ? `&status=${status}` : ''}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { accessToken });
 }
 export function approveDealer(id: string, dealerCode: string, reason: string, accessToken: string) {
   return apiPost<ApiDealer>(`/dealers/${id}/approve`, { dealerCode, reason }, { accessToken });

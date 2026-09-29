@@ -14,8 +14,8 @@ export type ApiCreditNote = {
   reversedReason: string | null;
 };
 
-export function listCreditNotes(accessToken: string, dealerId?: string) {
-  return apiGet<{ items: ApiCreditNote[]; nextCursor: string | null }>(`/credit-notes?limit=200${dealerId ? `&dealerId=${dealerId}` : ''}`, { accessToken });
+export function listCreditNotes(accessToken: string, dealerId?: string, cursor?: string) {
+  return apiGet<{ items: ApiCreditNote[]; nextCursor: string | null }>(`/credit-notes?limit=200${dealerId ? `&dealerId=${dealerId}` : ''}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { accessToken });
 }
 export function creditSummary(accessToken: string, dealerId?: string) {
   return apiGet<{ monthTotal: number; totalCredited: number; creditedCount: number; checkingCount: number; refusedCount: number }>(`/credit-notes/summary${dealerId ? `?dealerId=${dealerId}` : ''}`, { accessToken });

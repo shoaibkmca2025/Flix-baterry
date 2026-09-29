@@ -73,6 +73,6 @@ export type ApiBattery = {
   createdAt: string;
 };
 
-export function listBatteries(accessToken: string) {
-  return apiGet<{ items: ApiBattery[]; nextCursor: string | null }>('/batteries?limit=200', { accessToken });
+export function listBatteries(accessToken: string, cursor?: string) {
+  return apiGet<{ items: ApiBattery[]; nextCursor: string | null }>(`/batteries?limit=200${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { accessToken });
 }

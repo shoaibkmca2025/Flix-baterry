@@ -14,8 +14,8 @@ export type ApiAuditEvent = {
   outcome: 'ok' | 'denied' | 'failed';
 };
 
-export function listAudit(accessToken: string) {
-  return apiGet<{ items: ApiAuditEvent[]; nextCursor: string | null }>('/audit?limit=200', { accessToken });
+export function listAudit(accessToken: string, cursor?: string) {
+  return apiGet<{ items: ApiAuditEvent[]; nextCursor: string | null }>(`/audit?limit=200${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { accessToken });
 }
 
 /** One entry's history. Dealers see their own entries; head-office actors are reduced to "Head office". */

@@ -22,8 +22,8 @@ export type ApiMovement = {
   postedAt: string;
 };
 
-export function listMovements(accessToken: string) {
-  return apiGet<{ items: ApiMovement[]; nextCursor: string | null }>('/stock/movements?limit=200', { accessToken });
+export function listMovements(accessToken: string, cursor?: string) {
+  return apiGet<{ items: ApiMovement[]; nextCursor: string | null }>(`/stock/movements?limit=200${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { accessToken });
 }
 /** Head office posts a movement by hand (stock.post). The server validates the §9.6 transition. */
 export function postMovement(input: { batteryCode: string; toState: BatteryState; toCustodian?: Custodian; toDealerId?: string | null; reasonText: string }, accessToken: string) {

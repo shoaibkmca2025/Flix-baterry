@@ -38,6 +38,18 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-29 · backend test pass: lists stopped at 200 rows, approvals read off the pool (Claude Code)
+**Worked on:** testing the whole backend against the live deployment (read-only), and the three commits from the client's list.
+**Found and fixed:**
+- **A page was being treated as the whole list.** `/sync` and every list route answer 200 rows and a `nextCursor`; the apps kept the first page and dropped the cursor. The audit log is already past it — **996 rows in production, of which the console showed 200** — so the Audit log page understated itself and an older entry's or dealer's history came up empty. The screens also count and classify off the store, so this was heading for wrong queues: `challanDone` read a not-loaded entry as decided, which would have filed pending challans under "Completed" and hidden them. `shared/api/pages.ts` (`allPages`) now follows each cursor to the end (cap 25 pages); hydration uses it for entries, batteries, claims, movements, challans, credit notes, dealers and audit, and every list client takes a `cursor`. `challanDone` now treats an unknown entry as *not* decided.
+- **Approvals read through the pool, not their own transaction.** Five reads in `entries.service.ts` (`approveReplacementItem`, `approveRegularSaleItem`, `approveSalesReturnItem`) passed `db` where the surrounding transaction's `tx` was in scope — Drizzle runs those on a second pooled connection, outside the transaction: no read-your-writes on a multi-item entry, and a connection held while the transaction holds another (`DATABASE_POOL_MAX=5` per isolate). Now on `tx`. The test mock made `db` and `tx` the same `{}`, so nothing could catch it; they are now distinct handles and a test asserts no approval query runs on the pool (it fails with the bug put back).
+- **No graceful shutdown.** `server.ts` died mid-request on SIGTERM/SIGINT; it now closes the server and lets the requests in flight finish. (The Neon Function entry needs none — the runtime evicts the isolate.)
+**Checked and correct, no change:** product + digits identity end to end (`fullCode`, unique `battery_code`, lookup scoped by product — 26090008 is found under SE1800 and is a different battery under ME2000); dealer scoping (a dealer's lists hold only their own rows; another dealer's entry is 404, not 403); permissions (dealer refused on /dealers, /audit, /admins); validation (limit 0 / over max, unknown status, broken cursor, non-uuid id, unknown route — all 422/404 in the one envelope); JWT pinned to HS256 with `sub`/`exp` required; `/sync` matches the list routes row for row and hides head-office sections from a dealer; cursor paging serves no row twice.
+**Open:** the deployed function is behind this repo — it still answers `otherProductsWithTheseDigits` (removed in 7d88c3f), so the three client commits are not live yet. Needs `neon deploy`.
+**Verified:** backend 266 tests (1 new), shared 21, dealer + admin typecheck, admin web build, and a 38-check read-only sweep of the live API (37 pass; the one failure is the stale deployment above).
+
+---
+
 ### 2026-09-29 · client's list: full-code matching, customer name, add-battery placement, challans, entry names (Claude Code)
 **Worked on:** client feedback on 28–29 Sep (five points).
 **Done:**
