@@ -38,6 +38,14 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-29 · a replacement cannot go past the new battery without its photo (Claude Code)
+**Worked on:** client request: the new battery's photo is compulsory in a replacement; without it the dealer is stopped, the request waits as a draft with both serial numbers, and a warning asks for the photo.
+**Done (dealer app only):** `needsNewBatteryPhoto` / `newPhotoTag` in `shared/data.ts` (tag `New label`, per item). `dealerErrors` adds `items.N.newPhoto`, so *Next*, *Add another battery*, the items list and *Send* all stop on it. The new-battery screen shows a required-photo banner with a *Take the photo* link (red once the dealer has tried to go on), and pressing on without it saves the draft and says so. A draft waiting for that photo reopens straight on the new battery (old and new serials filled in) and is marked "Photo of new battery needed" in the lists. The old-battery photo stays a warning.
+**Not enforced on the server:** photos are not sent to the backend yet (evidence storage is still open, D-10), so the check lives in the dealer app until they are.
+**Verified:** shared 20 tests, dealer + admin typecheck, dealer web build.
+
+---
+
 ### 2026-09-29 · the same digits under another model are no longer flagged (Claude Code)
 **Worked on:** client complaint (screenshot): looking up `GP I 700 2609 0001` showed a red "These same digits belong to a MG2500 on record" line. Serials repeat across models by design, so that line read as an error for a perfectly valid battery.
 **Done:** removed the same-digits check from the lookup (`findBatteriesByDigits`, `otherProductsWithTheseDigits`) and its red hint on the dealer's old-battery card. Identity was already product + digits everywhere (unique `battery_code`, submit, approve); only the message changes. The "label says X, but Y is chosen" hint stays.

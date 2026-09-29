@@ -8,7 +8,7 @@ import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banne
 import { Screen, AppBar, Sheet, useD } from './shell';
 import { PickList } from '@felix/shared/ui/pick';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
-import { coverChip, dLong, findBattery, monYear, monthLong, monthShort, nextEntryId, span, spanLong, spanShort, tShort } from '@felix/shared/data';
+import { coverChip, dLong, findBattery, monYear, monthLong, monthShort, needsNewBatteryPhoto, newPhotoTag, nextEntryId, span, spanLong, spanShort, tShort } from '@felix/shared/data';
 import { useAccessToken } from '@felix/shared/api/session';
 import { lookupBattery, type BatteryLookupResult } from '@felix/shared/api/batteries';
 import { createEntry } from '@felix/shared/api/entries';
@@ -42,6 +42,7 @@ function dealerErrors(e: Entry, state: State) {
       if (!it.fault) errs[`items.${i}.fault`] = 'Choose what is wrong with the old battery.';
       const dupOld = it.oldSerial && others.find(x => x.type === 'Replacement' && x.items.some(y => normalize(y.oldSerial) === normalize(it.oldSerial)));
       if (dupOld && !errs[`items.${i}.oldSerial`]) errs[`items.${i}.oldSerial`] = `This old battery is already on request ${dupOld.id}.`;
+      if (needsNewBatteryPhoto(e, i)) errs[`items.${i}.newPhoto`] = 'Take a photo of the new battery. The replacement cannot go ahead without it.';
     }
     const dupNew = it.code && others.find(x => x.items.some(y => normalize(y.code) === normalize(it.code)));
     if (dupNew && !errs[`items.${i}.code`]) errs[`items.${i}.code`] = `This battery is already on request ${dupNew.id}.`;
@@ -58,7 +59,7 @@ function dealerWarnings(e: Entry, state: State): { key: string; text: string }[]
   e.items.forEach((it, i) => {
     if (isValidDigits(it.code, lengths)) { const near = recent.find(c => c.length === it.code.length && Math.abs(Number(c) - Number(it.code)) === 1); if (near) out.push({ key: `items.${i}.code`, text: `Serial ${it.code} is close to ${near} already recorded this month.` }); }
     if (e.type === 'Replacement' && isValidDigits(it.oldSerial, lengths) && !findBattery(state, it.oldSerial)) out.push({ key: `items.${i}.oldSerial`, text: `Old battery ${it.oldSerial} is not on record — head office will check it.` });
-    if (e.type === 'Replacement' && (!photoOf(e, tagFor('Old battery', i)) || !photoOf(e, tagFor('New label', i)))) out.push({ key: `photos.${i}`, text: `Item ${i + 1} is missing the old battery or new label photo.` });
+    if (e.type === 'Replacement' && !photoOf(e, tagFor('Old battery', i))) out.push({ key: `photos.${i}`, text: `Item ${i + 1} has no photo of the old battery.` });
   });
   if (!e.customer.trim()) out.push({ key: 'items.0.customer', text: 'No dealer or customer name is on this entry.' });
   return out;
@@ -434,11 +435,25 @@ export function D13() {
   if (!f) return null;
   const e = f.entry, i = f.cur, it = e.items[i], rep = e.type === 'Replacement';
   const { lookup, looking } = useLiveLookup(it.code, token, it.model, lengths);
-  const labelTag = tagFor(rep ? 'New label' : 'Label', i);
+  const labelTag = rep ? newPhotoTag(i) : tagFor('Label', i);
+  const photoMissing = rep && !photoOf(e, labelTag);
+  const takeLabelPhoto = async () => {
+    const u = await takePhoto(d.toast);
+    if (!u) return;
+    upd(withPhoto(e, labelTag, u)); setErrs(x => ({ ...x, newPhoto: '' }));
+    d.toast(rep ? 'Photo of the new battery saved. Check the serial below matches it.' : 'Label photo saved. Check the values below match it.');
+  };
   const check = () => {
-    const mineErrs = itemErrors(dealerErrors(e, state), i, ['code', 'serial', 'model']);
+    const mineErrs = itemErrors(dealerErrors(e, state), i, ['code', 'serial', 'model', 'newPhoto']);
     setErrs(mineErrs);
-    if (Object.keys(mineErrs).length) { saveDraft(); d.toast('Saved as a draft. Fix the marked field now, or come back to it from My requests.'); return false; }
+    if (Object.keys(mineErrs).length) {
+      // Everything typed so far — both serial numbers included — waits in the draft.
+      saveDraft();
+      d.toast(Object.keys(mineErrs).length === 1 && mineErrs.newPhoto
+        ? 'Saved as a draft with both serial numbers. Take a photo of the new battery to go ahead.'
+        : 'Saved as a draft. Fix the marked field now, or come back to it from My requests.');
+      return false;
+    }
     return true;
   };
   // A replacement's NEW battery must be a fresh code (the server rejects a duplicate); a sales
@@ -457,13 +472,15 @@ export function D13() {
     <ScanBox code={it.code} active={sc.active} onCode={sc.handle} />
     <View style={{ flexDirection: 'row', gap: 9, marginTop: 12 }}>
       <Btn kind="blue" sm icon="scan" label={sc.active ? 'Stop camera' : 'Scan code'} style={{ flex: 1, alignSelf: 'stretch' }} onPress={sc.start} />
-      <Btn kind="ghost" sm icon="cam" label="Photo of label" style={{ flex: 1, alignSelf: 'stretch' }} onPress={async () => { const u = await takePhoto(d.toast); if (u) { upd(withPhoto(e, labelTag, u)); d.toast('Label photo saved. Check the values below match it.'); } }} />
+      <Btn kind={photoMissing ? 'primary' : 'ghost'} sm icon="cam" label={rep ? (photoMissing ? 'Photo of new battery' : 'Retake photo') : 'Photo of label'} style={{ flex: 1, alignSelf: 'stretch' }} onPress={takeLabelPhoto} />
     </View>
+    {photoMissing && <Banner tone={errs.newPhoto ? 'bad' : 'warn'} icon="cam" style={{ marginTop: 14 }}><B>Photo of the new battery is required.</B> Photograph the new battery with its serial label showing. You cannot go ahead without it — if you leave now, both serial numbers wait in the draft. <B u onPress={takeLabelPhoto}>Take the photo</B></Banner>}
+    {rep && !photoMissing && <Banner tone="ok" icon="check" style={{ marginTop: 14 }}><B>Photo of the new battery added.</B></Banner>}
     {f.scanned[`new-${i}`] ? <Banner tone="ok" icon="check" style={{ marginVertical: 14 }}><B>Read from the label.</B> Check each line. You can change any of them, and typing it all by hand is always allowed.</Banner>
       : <Banner tone="info" icon="scan" style={{ marginVertical: 14 }}><B>Scan the code on the label.</B> Or type the serial below — typing it all by hand is always allowed.</Banner>}
     <PlateModelPicker value={it.model} onChange={v => { item({ model: v }); setErrs(x => ({ ...x, model: '' })); }} error={errs.model} />
     <Field label={`Serial number (${lengthsLabel(lengths)})`} req mr="सिरीयल" mono numeric maxLength={maxLen} value={it.code} onChange={v => setCode(v)} ph={`${lengthsLabel(lengths)} on the label`} error={errs.code || errs.serial}
-      tail={<CapBtn n="cam" tone={photoOf(e, labelTag) ? 'done' : 'dark'} label="Photograph the serial" onPress={async () => { const u = await takePhoto(d.toast); if (u) { upd(withPhoto(e, labelTag, u)); d.toast('Photo of the serial saved.'); } }} />}
+      tail={<CapBtn n="cam" tone={photoOf(e, labelTag) ? 'done' : 'dark'} label={rep ? 'Photograph the new battery' : 'Photograph the serial'} onPress={takeLabelPhoto} />}
       hint={serialHint.t} hintTone={serialHint.ok ? 'ok' : serialHint.bad ? 'err' : undefined} hintIcon={serialHint.ok ? 'check' : serialHint.bad ? 'alert' : undefined} />
     <Field label="Made in" value={it.mfg ? monthLong(it.mfg) : ''} ph="Worked out from the serial" readonly hint="Worked out from the serial. Nothing to fill in." hintIcon="lock" />
     <FullCodeLine modelId={it.model} code={it.code} lengths={lengths} />
@@ -574,7 +591,7 @@ export function D15() {
   const tiles = rep ? ['Old battery', 'New label', 'New battery', 'Fitted in vehicle'] : ['Returned battery', 'Label', 'Condition', 'Other'];
   const g = parseGps(e.gps);
   return <Screen top={<AppBar title="Photos and proof" back={rep ? 'd31' : 'd13'} right={<Chip tone="mute" label="Step 3 of 3" />} />}>
-    <Banner tone="info" icon="cam" style={{ marginBottom: 13 }}>{rep ? 'Photos settle warranty arguments later. For a replacement, the old battery and the new label are required.' : 'Photos settle arguments later. Add the returned battery and its label.'}</Banner>
+    <Banner tone="info" icon="cam" style={{ marginBottom: 13 }}>{rep ? 'Photos settle warranty arguments later. For a replacement, the photo of the new battery (its label) is required; add the old battery too.' : 'Photos settle arguments later. Add the returned battery and its label.'}</Banner>
     {[0, 2].map(r => <View key={r} style={{ flexDirection: 'row', gap: 9, marginTop: r ? 9 : 0 }}>{tiles.slice(r, r + 2).map(t => {
       const tag = tagFor(t, i), uri = photoOf(e, tag);
       return <Photo key={t} label={uri ? `${t} ✓` : t} uri={uri} onPress={async () => { const u = await takePhoto(d.toast); if (u) upd(withPhoto(e, tag, u)); }} />;

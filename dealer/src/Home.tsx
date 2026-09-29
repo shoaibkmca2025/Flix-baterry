@@ -10,7 +10,7 @@ import { Entry, today, validateEntry } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, Mono, Btn, BtnRow, Card, Chip, StatusChip, Kpis, SecT, Line, Avatar, Gap, AvTone } from '@felix/shared/ui/kit';
 import { Screen, AppBar, useD, useTr } from './shell';
-import { attention, avatarTone, refunds, dealerEntries, dShort, toSendBack, ageDays } from '@felix/shared/data';
+import { attention, avatarTone, refunds, dealerEntries, dShort, toSendBack, ageDays, needsNewBatteryPhoto } from '@felix/shared/data';
 
 /** Sends everything saved on this phone; invalid entries come back as serial exceptions. */
 export function useSyncNow() {
@@ -52,11 +52,15 @@ export const EntryLine = ({ e, last, onPress, showType }: { e: Entry; last?: boo
   const it = e.items[0];
   return <Line last={last} onPress={onPress} label={`Open ${e.id}`} av={<Avatar n="batt" tone={avatarTone(e.status) as AvTone} />}
     title={<>{it?.model || '—'} · <Mono>{it?.serial || it?.oldSerial?.slice(-4) || '····'}</Mono>{showType && <X s={12.5} w={5} c={T.slate}>{'  '}{e.type}</X>}</>}
-    sub={<Mono>{e.id} · {dShort(e.date)}{showType ? ` · qty ${e.items.length}` : ''}</Mono>} right={<StatusChip status={e.status} />} />;
+    sub={<><Mono>{e.id} · {dShort(e.date)}{showType ? ` · qty ${e.items.length}` : ''}</Mono>{e.status === 'Draft' && e.items.some((x, i) => !!x.code && needsNewBatteryPhoto(e, i)) && <X s={12.5} w={6} c="#7A5406">{'  '}Photo of new battery needed</X>}</>} right={<StatusChip status={e.status} />} />;
 };
 export const openEntry = (d: ReturnType<typeof useD>, setFlow: ReturnType<typeof useD>['setFlow'], e: Entry) => {
-  if (e.status === 'Draft') { setFlow({ entry: e, cur: 0, scanned: {} }); d.go(e.type === 'Replacement' ? 'd11' : 'd13'); }
-  else d.go('d19', e.id);
+  if (e.status !== 'Draft') { d.go('d19', e.id); return; }
+  // A replacement put aside because the new battery had no photo reopens right on that
+  // battery, with both serial numbers filled in and the warning to take the photo.
+  const waiting = e.type === 'Replacement' ? e.items.findIndex((it, i) => !!it.code && needsNewBatteryPhoto(e, i)) : -1;
+  setFlow({ entry: e, cur: Math.max(0, waiting), scanned: {} });
+  d.go(e.type === 'Replacement' && waiting < 0 ? 'd11' : 'd13');
 };
 
 /* d07 · dealer home */

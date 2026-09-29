@@ -110,6 +110,18 @@ export const attention = (entries: Entry[]) => entries.filter(e => ['Conflict', 
  * reason head office gave when it refused the send — otherwise a rejected entry would sit in
  * My requests with no explanation, since the app cannot re-derive the server's decision.
  */
+/**
+ * A replacement cannot go past the new battery until that battery has been photographed
+ * (client, 29 Sep 2026). The photo is kept under the tag 'New label' — ' · item N' for the
+ * second battery on a request onwards.
+ */
+export const newPhotoTag = (i: number) => i === 0 ? 'New label' : `New label · item ${i + 1}`;
+export const needsNewBatteryPhoto = (e: Entry, i: number) => {
+  if (e.type !== 'Replacement') return false;
+  const k = (e.evidenceTags ?? []).indexOf(newPhotoTag(i));
+  return k < 0 || !e.evidence[k];
+};
+
 export const firstProblem = (e: Entry, state: State) =>
   Object.values(validateEntry(e, state))[0] ?? e.items.find(i => i.exception)?.exception;
 
