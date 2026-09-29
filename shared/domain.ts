@@ -83,6 +83,24 @@ export const digitsOf = (batteryCode: string, modelId = '') => {
   const m = /(\d{5,})$/.exec(v);          // no product given: take the trailing digits
   return m ? m[1] : v;
 };
+/**
+ * Whether two codes name the same battery: code + model + YY + MM + serial must ALL match
+ * (client, 29 Sep 2026). A code is either typed digits with its model chosen apart (a phone
+ * draft) or the whole label (the server's copy); both are brought to the whole label first.
+ * Only when a side has no model at all can the digits alone be compared.
+ */
+export const batteryId = (code: string, modelId = '') => { const c = normalize(code||''); return modelId && c ? fullCode(modelId, digitsOf(c, modelId)) : c; };
+export const sameBattery = (a: string, aModel: string | undefined, b: string, bModel: string | undefined) => {
+  const x = batteryId(a, aModel), y = batteryId(b, bModel);
+  if (!x || !y) return false;
+  const bareX = /^\d+$/.test(x), bareY = /^\d+$/.test(y);
+  if (bareX && bareY) return x === y;
+  // one side's model is unknown: its digits can only be matched against the end of the other
+  // (a model may itself end in a digit, e.g. M5, so the other's digits cannot be cut out)
+  if (bareX) return y.endsWith(x);
+  if (bareY) return x.endsWith(y);
+  return x === y;
+};
 export const isValidDigits = (code: string, lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS) =>
   lengthsDesc(lengths).includes(code.length) && !!monthOf(code);
 /** "7 or 8 digits" — so a message names what is actually accepted. */
@@ -129,17 +147,18 @@ export function validateEntry(e: Entry, state: State): Record<string,string> {
     // 7-digit code, 4 on an 8-digit one). It is derived, never typed — a mismatch means the two
     // fields have drifted apart, not that the dealer typed it wrong.
     else if(item.serial!==digits.slice(4)) errors[key+'serial']='The serial does not match the number entered above.';
-    if(e.items.some((x,j)=>j!==i&&normalize(x.code)===code)) errors[key+'code']='This battery is already in this entry.';
-    const existing=state.batteries.find(b=>normalize(b.code)===code);
+    // the same battery means code + model + YY + MM + serial all match — never the digits alone
+    if(e.items.some((x,j)=>j!==i&&sameBattery(x.code,x.model,item.code,item.model))) errors[key+'code']='This battery is already in this entry.';
+    const existing=state.batteries.find(b=>sameBattery(b.code,b.model,item.code,item.model));
     if(existing&&['Replacement','Regular Sales'].includes(e.type)&&existing.state!=='Available') errors[key+'code']='This serial is already active. Choose an available battery.';
     if(existing&&existing.dealerId!==e.dealerId) errors[key+'code']='This battery belongs to another dealer.';
     if(e.type==='Replacement') {
       if(!item.oldSerial.trim()) errors[key+'oldSerial']='An old battery code is required for replacement.';
-      if(normalize(item.oldSerial)===code) errors[key+'oldSerial']='Old and new batteries must be different.';
-      if(e.items.some((x,j)=>j!==i&&normalize(x.oldSerial)===normalize(item.oldSerial))) errors[key+'oldSerial']='This old battery is already used in another item.';
-      const old=state.batteries.find(b=>normalize(b.code)===normalize(item.oldSerial));
+      if(sameBattery(item.oldSerial,item.oldModel,item.code,item.model)) errors[key+'oldSerial']='Old and new batteries must be different.';
+      if(e.items.some((x,j)=>j!==i&&sameBattery(x.oldSerial,x.oldModel,item.oldSerial,item.oldModel))) errors[key+'oldSerial']='This old battery is already used in another item.';
+      const old=state.batteries.find(b=>sameBattery(b.code,b.model,item.oldSerial,item.oldModel));
       if(old&&old.dealerId!==e.dealerId) errors[key+'oldSerial']='Old battery custody belongs to another dealer.';
-      if(state.batteries.some(b=>b.oldSerial===item.oldSerial)) errors[key+'oldSerial']='This battery has already been replaced. Use the current battery in the chain.';
+      if(state.batteries.some(b=>!!b.oldSerial&&sameBattery(b.oldSerial,undefined,item.oldSerial,item.oldModel))) errors[key+'oldSerial']='This battery has already been replaced. Use the current battery in the chain.';
       const override=state.overrides.some(o=>o.code===item.oldSerial&&o.status==='Approved');
       if(old&&warranty(old).status==='Expired'&&!override) errors[key+'oldSerial']='Warranty expired. Request an admin override before submitting.';
     }

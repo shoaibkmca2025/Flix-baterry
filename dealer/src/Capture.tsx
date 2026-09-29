@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useStore } from '@felix/shared/store';
-import { Entry, Item, State, DEFAULT_DIGIT_LENGTHS, NEW_BATTERY_DIGIT_LENGTHS, deriveCode, digitsOf, expiryFrom, fullCode, isValidDigits, lengthsLabel, newEntry, newItem, normalize, splitLabel, today, validateEntry } from '@felix/shared/domain';
+import { Entry, Item, State, DEFAULT_DIGIT_LENGTHS, NEW_BATTERY_DIGIT_LENGTHS, deriveCode, digitsOf, expiryFrom, fullCode, isValidDigits, lengthsLabel, newEntry, newItem, normalize, sameBattery, splitLabel, today, validateEntry } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, BigTile, ChipRow, CapBtn, IconBtn, Plate, PlateLab, PlateVal, Meter, Gap } from '@felix/shared/ui/kit';
 import { Screen, AppBar, Sheet, useD } from './shell';
@@ -40,11 +40,12 @@ function dealerErrors(e: Entry, state: State) {
   e.items.forEach((it, i) => {
     if (e.type === 'Replacement') {
       if (!it.fault) errs[`items.${i}.fault`] = 'Choose what is wrong with the old battery.';
-      const dupOld = it.oldSerial && others.find(x => x.type === 'Replacement' && x.items.some(y => normalize(y.oldSerial) === normalize(it.oldSerial)));
+      const dupOld = it.oldSerial && others.find(x => x.type === 'Replacement' && x.items.some(y => sameBattery(y.oldSerial, y.oldModel, it.oldSerial, it.oldModel)));
       if (dupOld && !errs[`items.${i}.oldSerial`]) errs[`items.${i}.oldSerial`] = `This old battery is already on request ${dupOld.id}.`;
+      if (i === 0 && !e.customer.trim()) errs['items.0.customer'] = 'Enter the dealer or customer name.'; // compulsory (client, 29 Sep 2026)
       if (needsNewBatteryPhoto(e, i)) errs[`items.${i}.newPhoto`] = 'Take a photo of the new battery. The replacement cannot go ahead without it.';
     }
-    const dupNew = it.code && others.find(x => x.items.some(y => normalize(y.code) === normalize(it.code)));
+    const dupNew = it.code && others.find(x => x.items.some(y => sameBattery(y.code, y.model, it.code, it.model)));
     if (dupNew && !errs[`items.${i}.code`]) errs[`items.${i}.code`] = `This battery is already on request ${dupNew.id}.`;
   });
   return errs;
@@ -55,13 +56,14 @@ function dealerWarnings(e: Entry, state: State): { key: string; text: string }[]
   const out: { key: string; text: string }[] = [];
   const lengths = state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS;
   const month = today().slice(0, 7);
-  const recent = state.entries.filter(x => x.id !== e.id && x.status !== 'Draft' && x.date.startsWith(month)).flatMap(x => x.items.map(y => y.code));
+  // the dealer's other batteries this month, as digits under their own model
+  const recent = state.entries.filter(x => x.id !== e.id && x.status !== 'Draft' && x.date.startsWith(month)).flatMap(x => x.items.map(y => ({ model: y.model, digits: digitsOf(y.code, y.model) })));
   e.items.forEach((it, i) => {
-    if (isValidDigits(it.code, lengths)) { const near = recent.find(c => c.length === it.code.length && Math.abs(Number(c) - Number(it.code)) === 1); if (near) out.push({ key: `items.${i}.code`, text: `Serial ${it.code} is close to ${near} already recorded this month.` }); }
-    if (e.type === 'Replacement' && isValidDigits(it.oldSerial, lengths) && !findBattery(state, it.oldSerial)) out.push({ key: `items.${i}.oldSerial`, text: `Old battery ${it.oldSerial} is not on record — head office will check it.` });
+    if (isValidDigits(it.code, lengths)) { const near = recent.find(c => c.model === it.model && c.digits.length === it.code.length && Math.abs(Number(c.digits) - Number(it.code)) === 1); if (near) out.push({ key: `items.${i}.code`, text: `Serial ${it.code} is close to ${it.model} ${near.digits} already recorded this month.` }); }
+    if (e.type === 'Replacement' && isValidDigits(it.oldSerial, lengths) && !state.batteries.some(b => sameBattery(b.code, b.model, it.oldSerial, it.oldModel))) out.push({ key: `items.${i}.oldSerial`, text: `Old battery ${it.oldSerial} is not on record — head office will check it.` });
     if (e.type === 'Replacement' && !photoOf(e, tagFor('Old battery', i))) out.push({ key: `photos.${i}`, text: `Item ${i + 1} has no photo of the old battery.` });
   });
-  if (!e.customer.trim()) out.push({ key: 'items.0.customer', text: 'No dealer or customer name is on this entry.' });
+  if (e.type !== 'Replacement' && !e.customer.trim()) out.push({ key: 'items.0.customer', text: 'No dealer or customer name is on this entry.' });
   return out;
 }
 
@@ -382,6 +384,7 @@ export function D11() {
   const next = () => {
     const all = dealerErrors(e, state), mine = itemErrors(all, i, ['oldSerial', 'fault']);
     if (!it.oldModel) mine.oldModel = 'Choose the model and code printed on the old battery.';
+    if (all['items.0.customer']) mine.customer = all['items.0.customer'];
     setErrs(mine);
     if (Object.keys(mine).length) { saveDraft(); d.toast('Saved as a draft. Fix the marked field now, or come back to it from My requests.'); return; }
     saveDraft(); d.go('d13');
@@ -406,7 +409,7 @@ export function D11() {
     <ChipRow options={FAULTS} value={it.fault || ''} onChange={v => { item({ fault: v }); setErrs(x => ({ ...x, fault: '' })); }} />
     {errs.fault && <Hint tone="err" style={{ marginTop: -9, marginBottom: 13 }}>{errs.fault}</Hint>}
     <Field label="Remarks" mr="शेरा" multiline value={it.remarks} onChange={v => item({ remarks: v })} ph="Anything head office should know" />
-    <Field label="Dealer / customer name" mr="डीलर / ग्राहकाचे नाव" value={e.customer} onChange={v => upd({ customer: v })} ph="Name of the dealer or customer" />
+    <Field label="Dealer / customer name" req mr="डीलर / ग्राहकाचे नाव" value={e.customer} onChange={v => { upd({ customer: v }); setErrs(x => ({ ...x, customer: '' })); }} ph="Name of the dealer or customer" error={errs.customer} />
     <Btn kind="primary" big iconAfter="chev" label="Next: the new battery" style={{ marginTop: 4 }} onPress={next} />
     {del.button}
     <Hint icon="lock" center style={{ marginTop: 10 }}>Your shop, city and dealer code are added automatically.</Hint>
@@ -485,7 +488,8 @@ export function D13() {
     <Field label="Made in" value={it.mfg ? monthLong(it.mfg) : ''} ph="Worked out from the serial" readonly hint="Worked out from the serial. Nothing to fill in." hintIcon="lock" />
     <FullCodeLine modelId={it.model} code={it.code} lengths={lengths} />
     <Btn kind="primary" big iconAfter="chev" label={rep ? 'Next: check the warranty' : 'Next: photos and proof'} style={{ marginTop: 14 }} onPress={() => { if (!check()) return; saveDraft(); d.go(rep ? 'd31' : 'd15'); }} />
-    <Btn kind="ghost" icon="plus" label="Add another battery to this request" style={{ marginTop: 9 }} onPress={() => { if (!check()) return; saveDraft(); d.go('d12'); }} />
+    {/* a replacement offers another battery only after its warranty check (d31) — client, 29 Sep 2026 */}
+    {!rep && <Btn kind="ghost" icon="plus" label="Add another battery to this request" style={{ marginTop: 9 }} onPress={() => { if (!check()) return; saveDraft(); d.go('d12'); }} />}
     {del.button}
   </Screen>;
 }
@@ -523,7 +527,7 @@ export function D12() {
 
 /* d31 · warranty carry-over */
 export function D31() {
-  const { f, d, upd } = useFlow();
+  const { f, d, upd, saveDraft } = useFlow();
   const token = useAccessToken();
   if (!f) return null;
   const e = f.entry, it = e.items[f.cur];
@@ -570,6 +574,11 @@ export function D31() {
     </> : <Banner tone="warn" icon="alert"><B>No cover dates on record for this battery.</B> Head office will look up the first sale and set the dates. Nothing is guessed, and a replacement never starts a new term.</Banner>}
     <Hint icon="lock" style={{ marginTop: 11 }}>There is no field anywhere in this app where an end date can be typed. It is always worked out from the policy and the first sale.</Hint>
     <Btn kind="primary" big icon="check" label="Next: send for approval" style={{ marginTop: 13 }} onPress={() => d.go('d16')} />
+    <Btn kind="ghost" icon="plus" label="Add another battery to this request" style={{ marginTop: 9 }} onPress={() => {
+      // the next pair starts on the old battery, like the first; this one waits in the draft
+      const items = [...e.items, { ...newItem(), model: e.items[e.items.length - 1]?.model || newItem().model }];
+      saveDraft(); d.setFlow(x => x && { ...x, cur: items.length - 1, entry: { ...x.entry, items } }); d.go('d11');
+    }} />
     <Btn kind="ghost" icon="cam" label="Add photos before sending" style={{ marginTop: 9 }} onPress={() => d.go('d15')} />
   </Screen>;
 }

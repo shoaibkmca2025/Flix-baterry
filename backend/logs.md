@@ -38,6 +38,18 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-29 · client's list: full-code matching, customer name, add-battery placement, challans, entry names (Claude Code)
+**Worked on:** client feedback on 28–29 Sep (five points).
+**Done:**
+- **Same battery = code + model + YY + MM + serial.** `sameBattery`/`batteryId` in `shared/domain.ts` bring a typed code (digits + chosen model) and a server code (whole label) to the same form. `validateEntry` and the dealer's `dealerErrors`/`dealerWarnings` use it everywhere they used to compare digits: old vs new, twice on one request, already on another request, custody, already replaced, "not on record", "close to a serial". Before, an old MG2500 26090001 with a new GP I 700 26090001 was refused, and a real duplicate against a sent request (stored as the whole label) was missed. With no model on one side, its digits are matched against the end of the other.
+- **Dealer / customer name is compulsory** on a replacement (old-battery screen; Send also stops on it). Sales returns keep the warning (no field there).
+- **"Add another battery"** on a replacement moved from the new-battery screen to the warranty screen (d31), after the check; it starts the next pair on the old battery. Sales returns unchanged.
+- **Admin → Old battery returns:** the Challans tab is now **Pending challans** (not yet arrived, or a battery on it still undecided) and a new **Completed challans** tab (arrived, every battery approved or refused). Both list by the day sent, newest first, the dealer named on each line; the dealer filter stays. Claimed / Rejected use the same date-wise list.
+- **Dealer → My entries / home:** each row leads with the dealer / customer name, then the first battery "+ N more", then the number and date.
+**Verified:** shared 21 tests (new: full-code matching incl. the MG2500/GP I 700 case), backend 265, dealer + admin typecheck, both web builds.
+
+---
+
 ### 2026-09-29 · a replacement cannot go past the new battery without its photo (Claude Code)
 **Worked on:** client request: the new battery's photo is compulsory in a replacement; without it the dealer is stopped, the request waits as a draft with both serial numbers, and a warning asks for the photo.
 **Done (dealer app only):** `needsNewBatteryPhoto` / `newPhotoTag` in `shared/data.ts` (tag `New label`, per item). `dealerErrors` adds `items.N.newPhoto`, so *Next*, *Add another battery*, the items list and *Send* all stop on it. The new-battery screen shows a required-photo banner with a *Take the photo* link (red once the dealer has tried to go on), and pressing on without it saves the draft and says so. A draft waiting for that photo reopens straight on the new battery (old and new serials filled in) and is marked "Photo of new battery needed" in the lists. The old-battery photo stays a warning.

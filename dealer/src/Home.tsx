@@ -49,10 +49,14 @@ export function useSyncNow() {
 }
 
 export const EntryLine = ({ e, last, onPress, showType }: { e: Entry; last?: boolean; onPress: () => void; showType?: boolean }) => {
-  const it = e.items[0];
-  return <Line last={last} onPress={onPress} label={`Open ${e.id}`} av={<Avatar n="batt" tone={avatarTone(e.status) as AvTone} />}
-    title={<>{it?.model || '—'} · <Mono>{it?.serial || it?.oldSerial?.slice(-4) || '····'}</Mono>{showType && <X s={12.5} w={5} c={T.slate}>{'  '}{e.type}</X>}</>}
-    sub={<><Mono>{e.id} · {dShort(e.date)}{showType ? ` · qty ${e.items.length}` : ''}</Mono>{e.status === 'Draft' && e.items.some((x, i) => !!x.code && needsNewBatteryPhoto(e, i)) && <X s={12.5} w={6} c="#7A5406">{'  '}Photo of new battery needed</X>}</>} right={<StatusChip status={e.status} />} />;
+  const it = e.items[0], name = e.customer.trim();
+  // The dealer knows a request by who it was for, so the name leads (client, 29 Sep 2026);
+  // the batteries follow — the first one, and how many more on the same request.
+  const battery = <>{it?.model || '—'} · <Mono>{it?.serial || it?.oldSerial?.slice(-4) || '····'}</Mono>{e.items.length > 1 ? ` + ${e.items.length - 1} more` : ''}</>;
+  const ref = <><Mono>{e.id} · {dShort(e.date)}{showType ? ` · qty ${e.items.length}` : ''}</Mono>{e.status === 'Draft' && e.items.some((x, i) => !!x.code && needsNewBatteryPhoto(e, i)) && <X s={12.5} w={6} c="#7A5406">{'  '}Photo of new battery needed</X>}</>;
+  return <Line last={last} onPress={onPress} label={`Open ${e.id}${name ? `, ${name}` : ''}`} av={<Avatar n="batt" tone={avatarTone(e.status) as AvTone} />}
+    title={<>{name || battery}{showType && <X s={12.5} w={5} c={T.slate}>{'  '}{e.type}</X>}</>}
+    sub={name ? battery : ref} sub2={name ? ref : undefined} right={<StatusChip status={e.status} />} />;
 };
 export const openEntry = (d: ReturnType<typeof useD>, setFlow: ReturnType<typeof useD>['setFlow'], e: Entry) => {
   if (e.status !== 'Draft') { d.go('d19', e.id); return; }

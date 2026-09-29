@@ -223,33 +223,39 @@ export function Returns() {
       </View>} />;
   };
   /**
-   * Challans grouped under the dealer who sent them; opening one lists its batteries. `only` narrows
-   * it to some entries (the claimed, or the rejected): only challans holding one of them are listed,
-   * a challan shows only those batteries, and any that came without a challan are listed apart.
+   * A challan is finished once it has arrived and head office has approved or refused every
+   * battery on it; until then it waits under "Pending challans" (client, 29 Sep 2026).
    */
-  const challanView = (only?: Entry[], empty: { icon: IconName; title: string; text: string } = { icon: 'truck', title: 'No challans yet', text: "When a dealer dispatches old batteries, their challan appears here under the dealer's name." }) => {
+  const challanDone = (c: Challan) => !!c.receivedAt && c.entryIds.every(id => { const e = state.entries.find(x => x.id === id); return !e || ['Approved', 'Rejected'].includes(e.status); });
+  const pendingChallans = state.challans.filter(c => !challanDone(c)), doneChallans = state.challans.filter(challanDone);
+  /**
+   * Challans by the day they were sent, newest first, each naming its dealer; opening one lists
+   * its batteries. `pick` chooses which challans (pending or completed). `only` narrows it to some
+   * entries (the claimed, or the rejected): only challans holding one of them are listed, a
+   * challan shows only those batteries, and any that came without a challan are listed apart.
+   */
+  const challanView = (only?: Entry[], empty: { icon: IconName; title: string; text: string } = { icon: 'truck', title: 'No challans yet', text: 'When a dealer dispatches old batteries, their challan appears here.' }, pick: (c: Challan) => boolean = () => true) => {
     const inView = (ref: string) => !only || only.some(e => e.id === ref);
-    const pool = only ? state.challans.filter(c => c.entryIds.some(inView)) : state.challans;
+    const pool = (only ? state.challans.filter(c => c.entryIds.some(inView)) : state.challans).filter(pick);
     const withChallans = state.dealers.filter(d => pool.some(c => c.dealerId === d.id) || only?.some(e => e.dealerId === d.id && !challanOf(e)));
-    const groups = withChallans.filter(d => dealerF === 'All' || d.name === dealerF)
-      .map(d => ({ d, list: pool.filter(c => c.dealerId === d.id).sort((x, y) => y.at.localeCompare(x.at)) })).filter(g => g.list.length)
-      .sort((x, y) => y.list[0]!.at.localeCompare(x.list[0]!.at));
+    const cs = pool.filter(c => dealerF === 'All' || dealerName(c.dealerId) === dealerF).sort((x, y) => y.at.localeCompare(x.at));
+    const days = [...new Set(cs.map(c => dLong(c.at)))].map(day => ({ day, list: cs.filter(c => dLong(c.at) === day) })); // the local day, as the page shows it
     const loose = (only ?? []).filter(e => !challanOf(e) && (dealerF === 'All' || dealerName(e.dealerId) === dealerF));
     const sel = pool.find(c => c.no === selChallan);
     const count = (n: number) => `${n} ${n === 1 ? 'battery' : 'batteries'}`;
     const shown = (c: Challan) => only ? `${c.rows.filter(r => inView(r.ref)).length} of ${count(c.rows.length)}` : count(c.rows.length);
     const chip = (c: Challan) => c.receivedAt ? <Chip tone="live" icon="box" label={`Arrived ${dShort(c.receivedAt)}`} /> : <Chip tone="vio" icon="truck" label="On the way" />;
-    const total = groups.reduce((t, g) => t + g.list.length, 0);
+    const dealerCount = new Set(cs.map(c => c.dealerId)).size;
     const list = <Stack>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
         <FilterPick label="Dealer" value={dealerF} options={withChallans.map(d => d.name)} onChange={v => { setDealerF(v); setSelChallan(null); }} />
-        <X s={12.5} c={T.slate}>{only ? `${count(only.length)} · ` : ''}{total} {total === 1 ? 'challan' : 'challans'} · {groups.length} {groups.length === 1 ? 'dealer' : 'dealers'}</X>
+        <X s={12.5} c={T.slate}>{only ? `${count(only.length)} · ` : ''}{cs.length} {cs.length === 1 ? 'challan' : 'challans'} · {dealerCount} {dealerCount === 1 ? 'dealer' : 'dealers'}</X>
       </View>
-      {!groups.length && !loose.length ? <Box><Empty icon={empty.icon} title={empty.title} text={empty.text} /></Box>
-        : groups.map(({ d, list: cs }) => <Box key={d.id} title={d.name} right={<X s={12} c={T.slate}>{d.city} · {cs.length} {cs.length === 1 ? 'challan' : 'challans'}</X>}>
-          <View style={{ paddingHorizontal: 14 }}>{cs.map((c, i) => <Line key={c.no} last={i === cs.length - 1} onPress={() => setSelChallan(c.no)}
+      {!cs.length && !loose.length ? <Box><Empty icon={empty.icon} title={empty.title} text={empty.text} /></Box>
+        : days.map(({ day, list: dayList }) => <Box key={day} title={`Sent ${day}`} right={<X s={12} c={T.slate}>{dayList.length} {dayList.length === 1 ? 'challan' : 'challans'}</X>}>
+          <View style={{ paddingHorizontal: 14 }}>{dayList.map((c, i) => <Line key={c.no} last={i === dayList.length - 1} onPress={() => setSelChallan(c.no)}
             av={<Avatar n={c.receivedAt ? 'box' : 'truck'} tone={c.no === selChallan ? 'amber' : c.receivedAt ? 'green' : 'vio'} />}
-            title={<Mono>{c.no}</Mono>} sub={`Sent ${dLong(c.at)} · ${shown(c)}${c.vehicle ? ` · ${c.vehicle}` : ''}`} right={chip(c)} />)}</View>
+            title={<Mono>{c.no}</Mono>} sub={`${dealerName(c.dealerId)} · ${shown(c)}${c.vehicle ? ` · ${c.vehicle}` : ''}`} right={chip(c)} />)}</View>
         </Box>)}
       {loose.length > 0 && <Box title="Not on a challan" right={<X s={12} c={T.slate}>{count(loose.length)}</X>}><View style={{ paddingHorizontal: 14 }}>{loose.map((e, i, arr) => row(e, i, arr, false))}</View></Box>}
     </Stack>;
@@ -278,12 +284,13 @@ export function Returns() {
       : <Stack><Btn kind="ghost" sm label={only ? '← Back to the list' : '← All challans'} style={{ alignSelf: 'flex-start' }} onPress={() => setSelChallan(null)} />{detail}</Stack>;
   };
   return <Page title="Old battery returns" sub="Every replaced battery, from the dealer’s shop to claimed or rejected"
-    tabs={<Tabs value={tab} onChange={t => { setTab(t); setSelChallan(null); }} items={[['challans', `Challans ${state.challans.length}`], ['way', `On the way ${onWay.length}`], ['dealers', `At dealers ${atDealer.length}`], ['company', `At the company ${atCompany.length}`], ['claimed', `Claimed ${claimed.length}`], ['rejected', `Rejected ${rejected.length}`]]} />}>
+    tabs={<Tabs value={tab} onChange={t => { setTab(t); setSelChallan(null); }} items={[['challans', `Pending challans ${pendingChallans.length}`], ['done', `Completed challans ${doneChallans.length}`], ['way', `On the way ${onWay.length}`], ['dealers', `At dealers ${atDealer.length}`], ['company', `At the company ${atCompany.length}`], ['claimed', `Claimed ${claimed.length}`], ['rejected', `Rejected ${rejected.length}`]]} />}>
     <Kpis cols={a.wide ? 4 : 2} items={[{ v: String(atDealer.length), l: 'Still at dealers', tone: 'flag', onPress: () => setTab('dealers') }, { v: String(onWay.length), l: 'On the way', onPress: () => setTab('way') }, { v: String(receivedThisMonth), l: 'Arrived this month' }, { v: String(atDealer.filter(e => ageDays(e.date) > 30).length), l: 'At a dealer over 30 days', tone: 'bad', onPress: () => setTab('dealers') }]} />
     <View style={{ height: 14 }} />
-    {tab === 'challans' && challanView()}
-    {tab === 'claimed' && challanView(claimed, { icon: 'check', title: 'Nothing claimed yet', text: 'A battery shows here, under its dealer and challan, once you approve it at the factory.' })}
-    {tab === 'rejected' && challanView(rejected, { icon: 'x', title: 'Nothing rejected', text: 'A battery you refuse shows here, under its dealer and challan, with the reason the dealer sees.' })}
+    {tab === 'challans' && challanView(undefined, { icon: 'truck', title: 'Nothing pending', text: 'Every challan has arrived and every battery on it is approved or refused. New challans appear here when a dealer dispatches old batteries.' }, c => !challanDone(c))}
+    {tab === 'done' && challanView(undefined, { icon: 'check', title: 'No completed challans yet', text: 'A challan moves here once it has arrived and every battery on it is approved or refused.' }, challanDone)}
+    {tab === 'claimed' && challanView(claimed, { icon: 'check', title: 'Nothing claimed yet', text: 'A battery shows here, under its challan, once you approve it at the factory.' })}
+    {tab === 'rejected' && challanView(rejected, { icon: 'x', title: 'Nothing rejected', text: 'A battery you refuse shows here, under its challan, with the reason the dealer sees.' })}
     {tab === 'way' && <Stack>
       <Banner tone="info" icon="truck"><B>Scanning in is not approving.</B> Confirm each battery as it comes off the van and choose the plant that made it, then approve or reject it once it has been checked.</Banner>
       {!openChallans.length && !looseOnWay.length && <Box><Empty icon="truck" title="Nothing on the way" text="When a dealer dispatches old batteries, their challan appears here." /></Box>}

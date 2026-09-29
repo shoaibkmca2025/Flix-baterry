@@ -71,3 +71,23 @@ test('a 7-digit code validates: the serial is 3 digits, not 4 (client, 27 Sep)',
  assert.ok(validateEntry(entryWith('M1000','260953'),state)['items.0.code']); // 6 digits still refused
  assert.ok(validateEntry(entryWith('M1000','26135320'),state)['items.0.code']); // month 13 still refused
 });
+
+test('the same battery means code + model + YY + MM + serial all match, never the digits alone', async () => {
+ const { sameBattery } = await import('../domain');
+ assert.equal(sameBattery('26090001','GPI700','26090001','MG2500'),false);        // same digits, different model
+ assert.equal(sameBattery('26090001','GPI700','GPI70026090001',undefined),true);  // typed digits vs the server's whole label
+ assert.equal(sameBattery('GPI70026090001','GPI700','GPI70026090001','GPI700'),true);
+ assert.equal(sameBattery('26090001','GPI700','26100001','GPI700'),false);        // different month
+ assert.equal(sameBattery('26090001','GPI700','25090001','GPI700'),false);        // different year
+ assert.equal(sameBattery('26090001','GPI700','26090002','GPI700'),false);        // different serial
+ assert.equal(sameBattery('','GPI700','','GPI700'),false);
+ const state=fresh(), models=['GPI700','MG2500'].map(id=>({...state.models[0]!,id,active:true}));
+ const s={...state,models:[...state.models,...models]};
+ const rep=(items:any[])=>({...newEntry('dealer-1','Replacement'),place:'Nashik',items:items.map(x=>({...newItem(),serial:x.code.slice(4),mfg:'2026-09',fault:'Low backup',...x}))});
+ // an old MG2500 and a new GP I 700 with the same digits are two different batteries
+ assert.equal(validateEntry(rep([{model:'GPI700',code:'26090001',oldSerial:'26090001',oldModel:'MG2500'}]),s)['items.0.oldSerial'],undefined);
+ assert.ok(validateEntry(rep([{model:'GPI700',code:'26090001',oldSerial:'26090001',oldModel:'GPI700'}]),s)['items.0.oldSerial']);
+ // two batteries on one request: same digits under different models are fine, the same battery twice is not
+ assert.equal(validateEntry(rep([{model:'GPI700',code:'26090001',oldSerial:'25010001',oldModel:'GPI700'},{model:'MG2500',code:'26090001',oldSerial:'25010002',oldModel:'MG2500'}]),s)['items.1.code'],undefined);
+ assert.ok(validateEntry(rep([{model:'GPI700',code:'26090001',oldSerial:'25010001',oldModel:'GPI700'},{model:'GPI700',code:'26090001',oldSerial:'25010002',oldModel:'GPI700'}]),s)['items.1.code']);
+});
