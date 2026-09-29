@@ -69,16 +69,14 @@ export async function lookup(ctx: Ctx, code: string, modelIdHint?: string) {
     // alone — manufacture month + the product's term + grace.
     const hinted = productId ? await repo.findModelById(db, productId) : undefined;
     const cover = checkWarranty(derived.mfgMonth!, todayIso(ctx), hinted?.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS, grace);
-    // These same digits may belong to a battery of a DIFFERENT product — the serial repeats
-    // across products — so say so rather than silently treating this as a new battery.
-    const sameDigits = await repo.findBatteriesByDigits(db, derived.normalised);
+    // The same digits under a DIFFERENT product are a different battery — serials repeat
+    // across products by design — so they are not mentioned here.
     return {
       found: false as const,
       mfgMonth: derived.mfgMonth,
       serialNo: derived.serialNo,
       labelModelId: derived.modelId, // what the printed label says, if it carried a prefix
       model: hinted ? { id: hinted.id, plate: hinted.plate, modelNo: hinted.modelNo, family: hinted.family, type: hinted.type, capacity: hinted.capacity, warrantyMonths: hinted.warrantyMonths, brand: hinted.brand } : null,
-      otherProductsWithTheseDigits: sameDigits.filter((b) => b.modelId !== productId).map((b) => b.modelId),
       custody: null,
       chain: null,
       cover,
@@ -119,7 +117,6 @@ export async function lookup(ctx: Ctx, code: string, modelIdHint?: string) {
     },
     labelModelId: derived.modelId,
     model: model ? { id: model.id, plate: model.plate, modelNo: model.modelNo, family: model.family, type: model.type, capacity: model.capacity, warrantyMonths: model.warrantyMonths, brand: model.brand } : null,
-    otherProductsWithTheseDigits: [] as string[],
     chain: chain
       ? {
           id: chain.id,

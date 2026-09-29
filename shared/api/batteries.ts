@@ -25,7 +25,7 @@ export type BatteryChainInfo = {
 };
 
 export type BatteryLookupResult =
-  | { found: false; mfgMonth: string | null; serialNo: string; labelModelId: string | null; otherProductsWithTheseDigits?: string[]; model: LookupModel | null; custody: null; chain: null; cover: BatteryCover }
+  | { found: false; mfgMonth: string | null; serialNo: string; labelModelId: string | null; model: LookupModel | null; custody: null; chain: null; cover: BatteryCover }
   | {
       found: true;
       mfgMonth: string | null;

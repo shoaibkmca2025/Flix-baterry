@@ -38,6 +38,13 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-09-29 · the same digits under another model are no longer flagged (Claude Code)
+**Worked on:** client complaint (screenshot): looking up `GP I 700 2609 0001` showed a red "These same digits belong to a MG2500 on record" line. Serials repeat across models by design, so that line read as an error for a perfectly valid battery.
+**Done:** removed the same-digits check from the lookup (`findBatteriesByDigits`, `otherProductsWithTheseDigits`) and its red hint on the dealer's old-battery card. Identity was already product + digits everywhere (unique `battery_code`, submit, approve); only the message changes. The "label says X, but Y is chosen" hint stays.
+**Verified:** backend 265 tests, shared 19, dealer + admin typecheck.
+
+---
+
 ### 2026-09-28 · head office signs in with a password alone; the code stays for dealers (Claude Code)
 **Worked on:** client request: no sign-in code for admins, keep it for the dealer app.
 **Done:** `loginWithPassword` issues the session directly (lockout and the `auth.signed_in` audit row unchanged); `POST /auth/login` answers 200 with tokens. Admin sign-in screen: email + password → console; the two-step code card and "Use a different account" are gone. Dealer sign-in and *Forgot password* unchanged.

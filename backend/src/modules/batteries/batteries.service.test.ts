@@ -5,7 +5,6 @@ vi.mock('../../utils/settings', () => ({ graceMonths: vi.fn(async () => 2), seri
 
 vi.mock('./batteries.repository', () => ({
   findBatteryByCode: vi.fn(),
-  findBatteriesByDigits: vi.fn(async () => []),
   listModels: vi.fn(async () => [{ id: 'M1000' }, { id: 'GPM1000' }, { id: 'S1000' }, { id: 'M2200' }, { id: 'N2200' }, { id: 'SG2200' }, { id: 'M5' }, { id: 'OLD1' }]),
   findModelById: vi.fn(),
   findChainById: vi.fn(),
@@ -34,15 +33,15 @@ describe('lookup', () => {
     await expect(lookup(anonCtx, '26041212')).rejects.toMatchObject({ code: 'unauthenticated' });
   });
 
-  it('a battery is found by product + digits, and the same digits under another product are called out', async () => {
+  it('a battery is found by product + digits; the same digits under another product are a different battery', async () => {
     vi.mocked(repo.findBatteryByCode).mockResolvedValue(undefined);
-    vi.mocked(repo.findBatteriesByDigits).mockResolvedValue([{ id: 'other', modelId: 'S1000', batteryCode: 'S100026090001' }] as never);
     vi.mocked(repo.findModelById).mockResolvedValue({ id: 'M1000', plate: 'M', modelNo: '1000', warrantyMonths: 12, brand: 'felix' } as never);
 
     const result = await lookup(dealerCtx, 'M1000 2609 0001');
 
     expect(repo.findBatteryByCode).toHaveBeenCalledWith(expect.anything(), 'M100026090001');
-    expect(result).toMatchObject({ found: false, labelModelId: 'M1000', otherProductsWithTheseDigits: ['S1000'] });
+    expect(result).toMatchObject({ found: false, labelModelId: 'M1000' });
+    expect(result).not.toHaveProperty('otherProductsWithTheseDigits');
   });
 
   it('rejects a malformed code before touching the database', async () => {
