@@ -232,7 +232,11 @@ export async function list(ctx: Ctx, query: ChallanListQuery) {
   const user = requireUser(ctx);
   const dealerId = user.scope === 'dealer' ? user.dealerId : undefined;
   const page = await repo.listChallans(db, { status: query.status, dealerId, limit: query.limit, cursor: decodeCursor(query.cursor) });
-  const allLines = await repo.findLinesByChallanIds(db, page.items.map((c) => c.id));
+  // The outcome has to be on the LIST too, not just on one challan: the console and the dealer
+  // app both build their whole store from this endpoint, and without it every battery read as
+  // "still travelling" — so the Approved and Rejected groups were always empty however many
+  // batteries had been decided (client, 2 Oct 2026). One extra query for the whole page.
+  const allLines = await withOutcomes(await repo.findLinesByChallanIds(db, page.items.map((c) => c.id)));
   const byChallan = new Map<string, typeof allLines>();
   for (const line of allLines) byChallan.set(line.challanId, [...(byChallan.get(line.challanId) ?? []), line]);
   return { items: page.items.map((c) => ({ ...c, lines: byChallan.get(c.id) ?? [] })), nextCursor: page.nextCursor };

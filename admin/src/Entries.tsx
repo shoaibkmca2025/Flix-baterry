@@ -387,7 +387,8 @@ export function EntryDetail({ id }: { id?: string }) {
           const decided = u.status === 'Approved' || u.status === 'Rejected';
           return <Card key={it.id} style={i === focusIdx ? { borderColor: T.steel, borderWidth: 2 } : undefined}>
             <CardH title={`Battery ${i + 1} · ${it.model}`} right={<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              {perBattery && <Chip tone={u.status === 'Approved' ? 'live' : u.status === 'Rejected' ? 'bad' : 'warn'} icon={u.status === 'Approved' ? 'check' : u.status === 'Rejected' ? 'x' : 'clock'} label={u.status === 'Approved' ? 'Approved' : u.status === 'Rejected' ? 'Rejected' : 'To decide'} />}
+              {perBattery && <Chip tone={u.status === 'Approved' ? 'live' : u.status === 'Rejected' ? 'bad' : 'warn'} icon={u.status === 'Approved' ? 'check' : u.status === 'Rejected' ? 'x' : 'clock'}
+                label={u.status === 'Rejected' ? 'Rejected' : u.status !== 'Approved' ? 'To decide' : u.claimStatus === 'checked' ? 'Approved · to settle' : 'Approved · settled'} />}
               {/* this battery's own working state — it says nothing about the others */}
               {it.reviewStartedAt && <Chip tone="vio" icon="eye" label="Being checked" />}
               {it.correctedAt && <Chip tone="info" icon="pen" label="Corrected" />}
@@ -415,7 +416,9 @@ export function EntryDetail({ id }: { id?: string }) {
               : photoError ? <Banner tone="bad" icon="alert">The photos could not be loaded — {photoError}. This is not the dealer’s doing; try again, and tell the developer if it keeps happening.</Banner>
               : <X s={13} c={T.slate}>No photos for this battery{e.type === 'Replacement' ? ' — ask the dealer to send the new battery’s photo' : ''}.</X>}
             {perBattery && pending && <View style={{ marginTop: 13, paddingTop: 12, borderTopWidth: 1, borderTopColor: T.zinc2 }}>
-              {decided ? <X s={13} c={T.slate}>{u.status === 'Approved' ? 'Approved for refund.' : `Rejected${u.decisionReason ? ` — ${u.decisionReason}` : '.'}`}</X>
+              {decided ? <X s={13} c={T.slate}>{u.status !== 'Approved' ? `Rejected${u.decisionReason ? ` — ${u.decisionReason}` : '.'}`
+                : u.claimStatus === 'checked' ? 'Approved — waiting to be settled. Settle it with the rest of its challan in Old battery returns.'
+                : 'Approved and settled — the claim is done.'}</X>
                 : awaitingOldBattery(u) ? <Chip tone="warn" icon={u.returnState === 'In transit' ? 'truck' : 'shop'} label={`${whereIsOld(u)} — decide once it arrives`} />
                 : canEdit ? <View style={{ flexDirection: 'row', gap: 9, flexWrap: 'wrap' }}>
                   <Btn kind="blue" sm icon="check" label="Approve this battery" onPress={() => setOne({ u, kind: 'approve' })} />

@@ -45,7 +45,7 @@ import { audit } from '../../utils/audit';
 import * as claimsService from '../claims/claims.service';
 import * as entriesRepo from '../entries/entries.repository';
 import * as repo from './returns.repository';
-import { claimChecked, dispatch, getById, receive, receiveLine, setLinePlant, stage } from './returns.service';
+import { claimChecked, dispatch, getById, list, receive, receiveLine, setLinePlant, stage } from './returns.service';
 import { ChallanReceiveBody, LineReceiveBody } from './returns.validation';
 import type { Ctx } from '../../utils/context';
 
@@ -390,5 +390,22 @@ describe('the Claim button — one challan, every battery that passed', () => {
     expect(r.lines.map(l => l.outcome)).toEqual(['passed', 'passed', 'rejected', 'travelling']);
     // the refusal reason travels with the line, so the dealer is told why
     expect(r.lines[2]!.outcomeReason).toBe('Physical damage');
+  });
+});
+
+describe('every challan read carries each battery outcome', () => {
+  it('the LIST carries them too — the console builds its whole store from it', async () => {
+    // without this the groups were always empty: no outcome means "still travelling"
+    vi.mocked(repo.listChallans).mockResolvedValue({ items: [{ id: 'ch-1', no: 'CHL-26-10-0005', dealerId: 'dealer-1' }], nextCursor: null } as never);
+    vi.mocked(repo.findLinesByChallanIds).mockResolvedValue([
+      { id: 'l1', challanId: 'ch-1', entryItemId: 'it-1', batteryCode: 'K800260923154' },
+      { id: 'l2', challanId: 'ch-1', entryItemId: 'it-2', batteryCode: 'K80026091280' },
+    ] as never);
+    vi.mocked(repo.findClaimStateByEntryItemIds).mockResolvedValue([
+      { entryItemId: 'it-1', claimId: 'cl-1', status: 'checked', decisionReason: null, conditionNote: null },
+      { entryItemId: 'it-2', claimId: 'cl-2', status: 'raised', decisionReason: null, conditionNote: null },
+    ] as never);
+    const r = await list(adminCtx, { limit: 50 } as never);
+    expect(r.items[0]!.lines.map(l => l.outcome)).toEqual(['passed', 'travelling']);
   });
 });

@@ -322,7 +322,7 @@ export function Returns() {
       : <Stack><Btn kind="ghost" sm label={only ? '← Back to the list' : '← All challans'} style={{ alignSelf: 'flex-start' }} onPress={() => setSelChallan(null)} />{detail}</Stack>;
   };
   return <Page title="Old battery returns" sub="Every replaced battery, from the dealer’s shop to claimed or rejected"
-    tabs={<Tabs value={tab} onChange={t => { setTab(t); setSelChallan(null); }} items={[['challans', `Pending challans ${pendingChallans.length}`], ['done', `Completed challans ${doneChallans.length}`], ['way', `On the way ${onWay.length}`], ['dealers', `At dealers ${atDealer.length}`], ['company', `At the company ${atCompany.length}`], ['claimed', `Claimed ${claimed.length}`], ['rejected', `Rejected ${rejected.length}`]]} />}>
+    tabs={<Tabs value={tab} onChange={t => { setTab(t); setSelChallan(null); }} items={[['challans', `Pending challans ${pendingChallans.length}`], ['done', `Completed challans ${doneChallans.length}`], ['way', `On the way ${onWay.length}`], ['dealers', `At dealers ${atDealer.length}`], ['claimed', `Claimed ${claimed.length}`], ['rejected', `Rejected ${rejected.length}`]]} />}>
     <Kpis cols={a.wide ? 4 : 2} items={[{ v: String(atDealer.length), l: 'Still at dealers', tone: 'flag', onPress: () => setTab('dealers') }, { v: String(onWay.length), l: 'On the way', onPress: () => setTab('way') }, { v: String(receivedThisMonth), l: 'Arrived this month' }, { v: String(atDealer.filter(e => ageDays(e.date) > 30).length), l: 'At a dealer over 30 days', tone: 'bad', onPress: () => setTab('dealers') }]} />
     <View style={{ height: 14 }} />
     {tab === 'challans' && challanView(undefined, { icon: 'truck', title: 'Nothing pending', text: 'Every challan has arrived and every battery on it is approved or refused. New challans appear here when a dealer dispatches old batteries.' }, c => !challanDone(c))}
@@ -350,24 +350,6 @@ export function Returns() {
           <Btn kind="ghost" sm icon="truck" label="Record dispatch" onPress={() => openAct({ entries: [e], to: 'In transit', label: 'Record dispatch (challan or transport details)' })} /></View> : undefined} />)}</View>
         : <X s={13.5} c={T.slate} style={{ padding: 14 }}>No old batteries waiting at dealers.</X>}</Box>
     </Cols>}
-    {tab === 'company' && (() => {
-      if (!plants.length) return <Box title="At the company">{atCompany.length ? <View style={{ paddingHorizontal: 14 }}>{atCompany.map((e, i, arr) => row(e, i, arr))}</View> : <Empty icon="box" title="Nothing at the company" text="Batteries appear here once a challan is confirmed." />}</Box>;
-      // one box per plant that made the batteries (D-19); switched-off plants still hold their old batteries
-      const NOT_SET = 'Plant not set';
-      const groups = [...plants.map(p => ({ key: p.id, name: p.name, off: !p.active, list: atCompany.filter(e => plantOf(e)?.id === p.id) })),
-        { key: 'none', name: NOT_SET, off: false, list: atCompany.filter(e => !plantOf(e)) }]
-        .filter(g => g.list.length && (plantF === 'All' || plantF === g.name));
-      return <Stack>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
-          <FilterPick label="Plant" value={plantF} options={[...plants.map(p => p.name), NOT_SET]} onChange={setPlantF} />
-          <X s={12.5} c={T.slate}>{groups.reduce((t, g) => t + g.list.length, 0)} {groups.reduce((t, g) => t + g.list.length, 0) === 1 ? 'battery' : 'batteries'} · sorted by the plant that made them</X>
-        </View>
-        {!groups.length ? <Box><Empty icon="box" title={atCompany.length ? 'None from this plant' : 'Nothing at the company'} text="Batteries appear here once they are confirmed as arrived." /></Box>
-          : groups.map(g => <Box key={g.key} title={g.name} right={<View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>{g.off ? <Chip tone="mute" label="Switched off" /> : null}<X s={12} c={T.slate}>{g.list.length} {g.list.length === 1 ? 'battery' : 'batteries'}</X></View>}>
-            <View style={{ paddingHorizontal: 14 }}>{g.list.map((e, i, arr) => row(e, i, arr))}</View>
-          </Box>)}
-      </Stack>;
-    })()}
     <ReasonDialog open={!!act} title={act?.label || ''} confirm={act?.to === 'Scrapped' ? 'Mark scrapped' : 'Confirm'} kind={act?.to === 'Scrapped' ? 'danger' : 'blue'} onClose={() => setAct(null)}
       onConfirm={r => {
         if (!act) return false;

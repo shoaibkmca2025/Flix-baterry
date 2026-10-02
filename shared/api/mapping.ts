@@ -71,7 +71,11 @@ export function entryStatusOf(e: EntryWithItems, claim: ApiClaim | undefined): E
   if (e.status === 'submitted') return 'Submitted';
   if (e.status === 'rejected') return 'Rejected';
   if (e.entryType !== 'replacement' || !claim) return 'Approved';
-  if (claim.status === 'approved') return 'Approved';
+  // 'checked' is head office having approved THIS battery — the engineer verified it and it is
+  // waiting for the Settle button on its challan. It is approved; only the settlement is pending.
+  // Reading it as "Under Review" left the card showing Approve again after an approval, so the
+  // same battery could be approved twice over (client, 2 Oct 2026).
+  if (claim.status === 'approved' || claim.status === 'checked') return 'Approved';
   if (claim.status === 'refused') return 'Rejected';
   return 'Under Review';
 }
