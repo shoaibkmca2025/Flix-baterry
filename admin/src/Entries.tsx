@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
-import { View, Image, Pressable } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Image, Pressable, Linking } from 'react-native';
 import { useStore } from '@felix/shared/store';
 import { Entry, Item, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approveEntry, deriveCode, isValidDigits, lengthsLabel, filterEntries, newEntry, newItem, normalize, uid, validateEntry, warranty } from '@felix/shared/domain';
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
-import { approvedForRefund, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, tShort, monthShort } from '@felix/shared/data';
+import { approvedForRefund, batteryUnits, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, tShort, monthShort } from '@felix/shared/data';
+import { listPhotos, splitTag, uploadEntryPhotos } from '@felix/shared/api/photos';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
 import { getAccessToken } from '@felix/shared/api/session';
@@ -256,10 +257,27 @@ function ApplyCorrection({ e, onClose }: { e: Entry; onClose: () => void }) {
 }
 
 /* ---------- entry detail ---------- */
+/** A photo as the review page shows it: the dealer's, from the server — or, for a request recorded here, from this device. */
+type ShownPhoto = { key: string; uri: string; tag: string; itemSeq: number | null };
+
 export function EntryDetail({ id }: { id?: string }) {
   const a = useA(); const { state, canEdit } = useStore(); const dec = useDecisions();
   const [act, setAct] = useState(''), [askFix, setAskFix] = useState(false), [fixValue, setFixValue] = useState(''), [apply, setApply] = useState(false);
-  const e = state.entries.find(x => x.id === id);
+  // "ENT-26-09-0114#<item id>" opens the request on one battery (from Old battery returns)
+  const [ref, focusItem] = (id || '').split('#');
+  const e = state.entries.find(x => x.id === ref);
+  // the dealer's photos, read from the server with signed links (D-10)
+  const [serverPhotos, setServerPhotos] = useState<ShownPhoto[] | null>(null);
+  const [one, setOne] = useState<{ u: Entry; kind: 'approve' | 'reject' } | null>(null);
+  useEffect(() => {
+    if (!e?.apiId) { setServerPhotos(null); return; }
+    let alive = true;
+    setServerPhotos(null);
+    getAccessToken().then(t => (t ? listPhotos(e.apiId!, t) : null))
+      .then(r => { if (alive) setServerPhotos(r ? r.items.map(p => ({ key: p.id, uri: p.url, tag: p.tag, itemSeq: p.itemSeq })) : []); })
+      .catch(() => { if (alive) setServerPhotos([]); });
+    return () => { alive = false; };
+  }, [e?.apiId]);
   if (!e) return <Page title="Entry" back><Empty icon="alert" title="Entry not found" text="It may have been opened from an old link." /></Page>;
   if (e.status === 'Draft') return <NewEntry id={e.id} />;
   const dealer = state.dealers.find(d => d.id === e.dealerId);
@@ -268,6 +286,14 @@ export function EntryDetail({ id }: { id?: string }) {
   const history = state.audits.filter(x => x.ref === e.id || x.ref === e.linkedTo || state.challans.some(c => c.no === x.ref && c.entryIds.includes(e.id))).sort((x, y) => y.at.localeCompare(x.at));
   const linked = state.entries.filter(x => x.linkedTo === e.id || x.id === e.linkedTo);
   const tags = e.evidenceTags && e.evidenceTags.length === e.evidence.length ? e.evidenceTags : e.evidence.map((_, i) => `Photo ${i + 1}`);
+  const photos: ShownPhoto[] | null = e.apiId ? serverPhotos : e.evidence.map((uri, i) => ({ key: String(i), uri, ...splitTag(tags[i]!) }));
+  // A replacement with several batteries is decided battery by battery, on each card below.
+  const units = e.type === 'Replacement' ? batteryUnits(e) : [e];
+  const perBattery = units.length > 1;
+  // the battery opened from Old battery returns comes first, marked
+  const focusIdx = focusItem ? e.items.findIndex(it => it.id === focusItem) : -1;
+  const order = e.items.map((_, i) => i).sort((x, y) => Number(y === focusIdx) - Number(x === focusIdx));
+  const open = (uri: string) => { Linking.openURL(uri).catch(() => a.toast('The photo could not be opened here.')); };
   const g = parseGps(e.gps);
   const banner = e.status === 'Conflict' ? <Banner tone="bad" icon="alert"><B>Serial exception — this cannot be approved yet.</B> {problems[0] || 'A serial needs checking.'} Ask the dealer for a correction, or correct it yourself.</Banner>
     : e.status === 'Submitted' ? <Banner tone="warn" icon="clock"><B>Waiting for your decision.</B> {e.type === 'Replacement' ? 'The customer already has the new battery. Approving approves it for refund.' : 'Approving updates stock and battery history.'}</Banner>
@@ -280,23 +306,43 @@ export function EntryDetail({ id }: { id?: string }) {
   return <Page back title={e.id} sub={`${dealer?.name || e.dealerId} · ${e.type} · ${dLong(e.date)}`}
     actions={<>
       {canEdit && pending && awaitingOldBattery(e) && <Chip tone="warn" icon={e.returnState === 'In transit' ? 'truck' : 'shop'} label={`${whereIsOld(e)} — decide once it arrives`} />}
-      {canEdit && pending && !awaitingOldBattery(e) && e.status !== 'Conflict' && <Btn kind="blue" sm icon="check" label="Approve" onPress={() => setAct('approve')} />}
+      {canEdit && pending && !perBattery && !awaitingOldBattery(e) && e.status !== 'Conflict' && <Btn kind="blue" sm icon="check" label="Approve" onPress={() => setAct('approve')} />}
       {canEdit && pending && e.status !== 'Under Review' && <Btn kind="ghost" sm icon="eye" label="Start review" onPress={() => setAct('review')} />}
-      {canEdit && pending && !awaitingOldBattery(e) && <Btn kind="ghost" sm icon="x" label="Refuse" color={T.terminal} borderColor="#F0C7BC" onPress={() => setAct('reject')} />}
+      {canEdit && pending && !perBattery && !awaitingOldBattery(e) && <Btn kind="ghost" sm icon="x" label="Refuse" color={T.terminal} borderColor="#F0C7BC" onPress={() => setAct('reject')} />}
       {canEdit && !['Cancelled', 'Corrected'].includes(e.status) && <Btn kind="ghost" sm icon="pen" label="Correct it" onPress={() => setApply(true)} />}
       <Btn kind="ghost" sm icon="down" label="Print acknowledgement" onPress={() => { if (dealer) printEntry(e, dealer).catch(() => a.toast('Printing is not available on this device.')); }} />
     </>}>
     <View style={{ marginBottom: 14 }}>{banner}</View>
+    {perBattery && pending && <Banner tone="info" icon="batt" style={{ marginBottom: 14 }}><B>Each battery is decided on its own.</B> Check its photos and the battery itself, then approve or reject it on its card below.</Banner>}
     <Cols weights={[1.55, 1]}>
       <Stack>
-        {e.items.map((it, i) => {
+        {order.map(i => {
+          const it = e.items[i]!, u = units[perBattery ? i : 0]!;
           const old = it.oldSerial ? findBattery(state, it.oldSerial) : undefined, cover = coverOf(old || findBattery(state, it.code), state);
           const [cl, ct] = coverChip(cover?.status || '');
-          return <Card key={it.id}>
-            <CardH title={`Battery ${i + 1} · ${it.model}`} right={<Chip tone={ct} icon="shield" label={cl} />} />
+          const mine = photos?.filter(p => (p.itemSeq ?? 0) === i) ?? [];
+          const decided = u.status === 'Approved' || u.status === 'Rejected';
+          return <Card key={it.id} style={i === focusIdx ? { borderColor: T.steel, borderWidth: 2 } : undefined}>
+            <CardH title={`Battery ${i + 1} · ${it.model}`} right={<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              {perBattery && <Chip tone={u.status === 'Approved' ? 'live' : u.status === 'Rejected' ? 'bad' : 'warn'} icon={u.status === 'Approved' ? 'check' : u.status === 'Rejected' ? 'x' : 'clock'} label={u.status === 'Approved' ? 'Approved' : u.status === 'Rejected' ? 'Rejected' : 'To decide'} />}
+              <Chip tone={ct} icon="shield" label={cl} /></View>} />
             <Plate style={{ marginBottom: 11 }}>{it.oldSerial ? <><PlateLab>OLD BATTERY OUT</PlateLab><PlateVal>{it.oldSerial}</PlateVal><X s={19} c={T.volt} style={{ textAlign: 'center', marginVertical: 4 }}>↓</X><PlateLab>NEW BATTERY IN</PlateLab><PlateVal color="#7FD3A9">{it.code}</PlateVal></> : <><PlateLab>BATTERY</PlateLab><PlateVal>{it.code}</PlateVal></>}</Plate>
             <KV cols={a.wide ? 3 : 2} pairs={[['Short serial', it.serial, 'mono'], ['Made', monthShort(it.mfg)], ['Cover ends', cover ? dLong(cover.expiry) : 'Not on record'], ['Replacement month', it.rpl || '—'], ['Return month', it.rtn || '—'], ['WR reference', it.wr || '—', 'mono'], ['Reported fault', it.fault || '—'], ['Remarks', it.remarks || '—']]} />
             {it.oldSerial && !old && <Banner tone="warn" icon="eye" style={{ marginTop: 11 }}>Old serial {it.oldSerial} is not on record — check it against the paper register. No cover dates are guessed.</Banner>}
+            {/* the dealer's photos of THIS battery — what head office reviews before deciding */}
+            <X s={12} w={7} c={T.slate} style={{ marginTop: 13, marginBottom: 7, letterSpacing: 0.4 }}>PHOTOS FROM THE DEALER</X>
+            {photos === null ? <X s={13} c={T.slate}>Loading photos…</X>
+              : mine.length ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9 }}>{mine.map(p => <Pressable key={p.key} accessibilityRole="imagebutton" accessibilityLabel={`Open photo: ${p.tag}`} onPress={() => open(p.uri)} style={{ width: 150 }}>
+                  <Image source={{ uri: p.uri }} style={{ width: 150, height: 112, borderRadius: 9, backgroundColor: T.zinc2 }} resizeMode="cover" />
+                  <X s={12} w={6} c={T.slate} style={{ marginTop: 4 }}>{p.tag === 'New label' ? 'New battery' : p.tag}</X></Pressable>)}</View>
+              : <X s={13} c={T.slate}>No photos for this battery{e.type === 'Replacement' ? ' — ask the dealer to send the new battery’s photo' : ''}.</X>}
+            {perBattery && pending && <View style={{ marginTop: 13, paddingTop: 12, borderTopWidth: 1, borderTopColor: T.zinc2 }}>
+              {decided ? <X s={13} c={T.slate}>{u.status === 'Approved' ? 'Approved for refund.' : `Rejected${u.decisionReason ? ` — ${u.decisionReason}` : '.'}`}</X>
+                : awaitingOldBattery(u) ? <Chip tone="warn" icon={u.returnState === 'In transit' ? 'truck' : 'shop'} label={`${whereIsOld(u)} — decide once it arrives`} />
+                : canEdit ? <View style={{ flexDirection: 'row', gap: 9, flexWrap: 'wrap' }}>
+                  <Btn kind="blue" sm icon="check" label="Approve this battery" onPress={() => setOne({ u, kind: 'approve' })} />
+                  <Btn kind="ghost" sm icon="x" label="Reject this battery" color={T.terminal} borderColor="#F0C7BC" onPress={() => setOne({ u, kind: 'reject' })} /></View> : null}
+            </View>}
             <View style={{ flexDirection: 'row', gap: 9, marginTop: 11, flexWrap: 'wrap' }}>
               <Btn kind="ghost" sm icon="link" label="Battery & chain" onPress={() => a.go('battery', it.code)} />
               {it.oldSerial && old && <Btn kind="ghost" sm icon="batt" label="Old battery" onPress={() => a.go('battery', it.oldSerial)} />}
@@ -304,7 +350,7 @@ export function EntryDetail({ id }: { id?: string }) {
           </Card>;
         })}
         <Box title="Photos and proof" pad>
-          {e.evidence.length ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9 }}>{e.evidence.map((uri, i) => <View key={i} style={{ width: 150 }}><Image source={{ uri }} style={{ width: 150, height: 112, borderRadius: 9, backgroundColor: T.zinc2 }} /><X s={12} w={6} c={T.slate} style={{ marginTop: 4 }}>{tags[i]}</X></View>)}</View> : <X s={13.5} c={T.slate}>No photos attached.</X>}
+          <X s={13} c={T.slate}>{photos === null ? 'Loading photos…' : photos.length ? `${photos.length} ${photos.length === 1 ? 'photo' : 'photos'} from the dealer — shown on each battery above.` : 'The dealer attached no photos.'}</X>
           <View style={{ height: 12 }} />
           <KV pairs={[['Location', g ? `${g.place || g.coords} · ±${g.accuracy}` : 'Not added'], ['Customer signature', e.signature ? 'Captured' : 'Not captured'], ['Customer told cover end', e.coverTold ? `${dShort(e.coverTold)}, ${tShort(e.coverTold)}` : '—'], ['Handover', e.handover || '—']]} />
         </Box>
@@ -336,6 +382,10 @@ export function EntryDetail({ id }: { id?: string }) {
       </Stack>
     </Cols>
     <ReasonDialog open={act === 'approve'} title={`Approve ${e.id}`} confirm="Approve" suggestions={APPROVE_REASONS} onClose={() => setAct('')} onConfirm={r => dec.approve(e, r)} intro={e.type === 'Replacement' ? 'The dealer is shown it is approved for refund. Cover dates carry over from the first sale.' : 'Stock and battery history are updated.'} />
+    <ReasonDialog open={one?.kind === 'approve'} title={`Approve ${one ? one.u.items[0]?.oldSerial || one.u.id : ''}`} confirm="Approve" suggestions={APPROVE_REASONS} onClose={() => setOne(null)} onConfirm={r => one ? dec.approve(one.u, r) : false}
+      intro={`Only this battery (${one?.u.part || ''}) is approved for refund. Cover dates carry over from the first sale.`} />
+    <ReasonDialog open={one?.kind === 'reject'} title={`Reject ${one ? one.u.items[0]?.oldSerial || one.u.id : ''}`} confirm="Reject" kind="danger" suggestions={REJECT_REASONS} onClose={() => setOne(null)} onConfirm={r => one ? dec.reject(one.u, r) : false}
+      intro={`Only this battery (${one?.u.part || ''}) is rejected. The dealer sees this reason in their app.`} />
     <ReasonDialog open={act === 'review'} title="Start a review" confirm="Mark under review" suggestions={['Waiting for the old battery to arrive', 'Checking the label photo', 'Calling the dealer']} onClose={() => setAct('')} onConfirm={r => dec.review(e, r)} />
     <ReasonDialog open={act === 'reject'} title={`Refuse ${e.id}`} confirm="Refuse" kind="danger" suggestions={REJECT_REASONS} onClose={() => setAct('')} onConfirm={r => dec.reject(e, r)} intro="The dealer sees this reason in their app." />
     <ReasonDialog open={act === 'void'} title="Void / archive this entry" confirm="Void entry" kind="danger" onClose={() => setAct('')} onConfirm={r => dec.voidEntry(e, r)} intro="It leaves live totals and reports, but stays fully readable in search, history and the audit log." />
@@ -381,6 +431,9 @@ export function NewEntry({ id }: { id?: string }) {
     setBusy(true);
     try {
       const r = await apiCreateEntry({ ...buildEntryBody({ ...entry, type: entry.type }), entryType, dealerId: entry.dealerId, entryDate: entry.date }, token);
+      // the photos taken here go to the server too, so the review page shows them (D-10)
+      const up = entry.evidence.length ? await uploadEntryPhotos(entry, r.id, token) : { failed: 0 };
+      if (up.failed) a.toast(`${up.failed} ${up.failed === 1 ? 'photo' : 'photos'} could not be saved. The entry itself is recorded.`);
       const data: Entry = { ...entry, id: r.ref, apiId: r.id, status: 'Submitted', createdAt: r.createdAt };
       setState(s => ({ ...s, entries: [data, ...s.entries.filter(e => e.id !== entry.id)] }));
       setDone(data); sync(true);

@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, lt, or } from 'drizzle-orm';
 import { db, type Tx } from '../../database/client';
 import { entries, entryItems, entryStatus, entryType } from '../../models/entries.model';
+import { entryPhotos } from '../../models/evidence.model';
 
 type DbOrTx = typeof db | Tx;
 
@@ -102,4 +103,25 @@ export async function listEntries(dbh: DbOrTx, filter: EntryListFilter) {
   const allItems = page.length ? await dbh.select().from(entryItems).where(inArray(entryItems.entryId, page.map((e) => e.id))).orderBy(entryItems.seq) : [];
   const items = page.map((e) => ({ ...e, items: allItems.filter((i) => i.entryId === e.id) }));
   return { items, nextCursor };
+}
+
+/* ---------- photos the dealer attached (entry_photos, D-10) ---------- */
+
+export type NewPhoto = typeof entryPhotos.$inferInsert;
+
+/** One photo per tile: the same request + battery + tag again replaces the earlier one. */
+export function upsertPhoto(dbh: DbOrTx, row: NewPhoto) {
+  return dbh
+    .insert(entryPhotos)
+    .values(row)
+    .onConflictDoUpdate({
+      target: [entryPhotos.entryId, entryPhotos.entryItemId, entryPhotos.tag],
+      set: { objectKey: row.objectKey, contentType: row.contentType, sizeBytes: row.sizeBytes, uploadedBy: row.uploadedBy, createdAt: new Date() },
+    })
+    .returning()
+    .then((r) => r[0]!);
+}
+
+export function findPhotosByEntryId(dbh: DbOrTx, entryId: string) {
+  return dbh.select().from(entryPhotos).where(eq(entryPhotos.entryId, entryId)).orderBy(asc(entryPhotos.createdAt));
 }

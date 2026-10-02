@@ -6,6 +6,7 @@ import { createEntry } from '@felix/shared/api/entries';
 import { errorMessage } from '@felix/shared/api/client';
 import { useSync } from '@felix/shared/api/sync';
 import { buildEntryBody } from '@felix/shared/api/entry-body';
+import { uploadEntryPhotos } from '@felix/shared/api/photos';
 import { Entry, today, validateEntry } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, Mono, Btn, BtnRow, Card, Chip, StatusChip, Kpis, SecT, Line, Avatar, Gap, AvTone } from '@felix/shared/ui/kit';
@@ -16,11 +17,13 @@ import { attention, avatarTone, refunds, dealerEntries, dShort, toSendBack, ageD
 export function useSyncNow() {
   const { state, setState, dealerId, audit } = useStore(); const d = useD(); const { sync } = useSync();
   const sendLive = async (rows: Entry[], token: string) => {
-    let sent = 0, bad = 0;
+    let sent = 0, bad = 0, photosFailed = 0;
     for (const e of rows) {
       try {
-        await createEntry(buildEntryBody(e), token);
+        const result = await createEntry(buildEntryBody(e), token);
         sent++;
+        // then its photos (D-10); a photo that fails never undoes the request
+        if (e.evidence.length) photosFailed += (await uploadEntryPhotos(e, result.id, token)).failed;
         setState(s => ({ ...s, entries: s.entries.filter(x => x.id !== e.id) })); // the server's copy replaces it on refresh
       } catch (err) {
         bad++;
@@ -28,7 +31,7 @@ export function useSyncNow() {
       }
     }
     await sync(true);
-    d.toast(bad ? `${sent} sent. ${bad} need a fix — see My requests.` : `${sent} ${sent === 1 ? 'entry' : 'entries'} sent to head office.`);
+    d.toast((bad ? `${sent} sent. ${bad} need a fix — see My requests.` : `${sent} ${sent === 1 ? 'entry' : 'entries'} sent to head office.`) + (photosFailed ? ` ${photosFailed} ${photosFailed === 1 ? 'photo' : 'photos'} could not be sent.` : ''));
   };
   return async () => {
     const rows = state.entries.filter(e => e.dealerId === dealerId && e.status === 'Pending sync');

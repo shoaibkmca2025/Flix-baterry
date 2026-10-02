@@ -4,6 +4,12 @@ import { defineConfig } from "@neon/config/v1";
 // Deploy with:  neon deploy --env backend/.env
 // DATABASE_URL is injected by Neon at runtime; everything else comes from backend/.env.
 export default defineConfig({
+  // The dealers' photos (memory.md D-10, 2 Oct 2026). Private: head office reads them through
+  // signed links from the API. Declaring it makes Neon inject the AWS_* storage variables into
+  // the function below (backend/src/utils/storage.ts).
+  buckets: {
+    evidence: {},
+  },
   functions: {
     api: {
       name: "Felix API",
