@@ -298,7 +298,10 @@ export function Returns() {
     const detail = <Box title={`${sel.no} · ${dealerName(sel.dealerId)}`}
       right={<View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
         <Btn kind="ghost" sm icon="down" label="Download challan" onPress={download} />
-        {canEdit && passed.length > 0 && <Btn kind="primary" sm icon="check" label={`Settle ${passed.length} approved ${passed.length === 1 ? 'battery' : 'batteries'}`} onPress={() => setClaimOn(sel)} />}
+        {/* Settling belongs in its own tab: on Pending challans the job is to get batteries
+            checked and decided, and a Settle button there invites finishing a challan that is
+            still half-undecided (client, 2 Oct 2026). */}
+        {canEdit && tab === 'settle' && passed.length > 0 && <Btn kind="primary" sm icon="check" label={`Settle ${passed.length} approved ${passed.length === 1 ? 'battery' : 'batteries'}`} onPress={() => setClaimOn(sel)} />}
         {canEdit && !sel.receivedAt && stillOnWay.length ? <Btn kind="blue" sm icon="box" label={`Confirm all ${stillOnWay.length} arrived`} onPress={() => openAct({ entries: stillOnWay, to: 'Received', label: `Confirm challan ${sel.no} arrived`, whole: sel.serverId })} /> : chip(sel)}</View>}>
       <View style={{ paddingHorizontal: 14, paddingTop: 11 }}><KV cols={a.wide ? 3 : 2} pairs={[['Dealer', dealerName(sel.dealerId)], ['Sent', dLong(sel.at)], ['Arrived', sel.receivedAt ? dLong(sel.receivedAt) : 'Not yet'], ['Vehicle', sel.vehicle || '—'], ['Collected by', sel.driver || '—'], [only ? (tab === 'rejected' ? 'Rejected' : 'Claimed') : 'Batteries', only ? `${entries.length} of ${sel.rows.length}` : String(sel.rows.length)]]} /></View>
       {!only && (passed.length + claimedRows.length + rejectedRows.length > 0) && <View style={{ paddingHorizontal: 14, paddingTop: 11 }}>
@@ -308,7 +311,9 @@ export function Returns() {
           { v: String(waiting.length), l: 'Not checked yet', tone: waiting.length ? 'flag' : undefined },
         ]} />
         {passed.length > 0 && <Banner tone="ok" icon="check" style={{ marginTop: 11 }}>
-          <B>{passed.length} approved {passed.length === 1 ? 'battery is' : 'batteries are'} waiting to be settled.</B> Settling marks {passed.length === 1 ? 'it' : 'them all'} claimed in one go. {passed.length === 1 ? 'It stays' : 'They stay'} under Approved — settling records that the claim is done, it does not move {passed.length === 1 ? 'it' : 'them'} anywhere. Anything refused, or still to check, is left alone.</Banner>}
+          <B>{passed.length} approved {passed.length === 1 ? 'battery is' : 'batteries are'} waiting to be settled.</B> {tab === 'settle'
+            ? `Settling marks ${passed.length === 1 ? 'it' : 'them all'} claimed in one go. ${passed.length === 1 ? 'It stays' : 'They stay'} under Approved — settling records that the claim is done, it does not move ${passed.length === 1 ? 'it' : 'them'} anywhere. Anything refused, or still to check, is left alone.`
+            : 'Settle them from the Settle tab.'}</Banner>}
         {[['Approved', [...claimedRows, ...passed], 'live'], ['Rejected', rejectedRows, 'bad'], ['Not checked yet', waiting, 'mute']].filter(([, g]) => (g as typeof sel.rows).length).map(([title, g, tone]) => <View key={title as string} style={{ marginTop: 11 }}>
           <X s={12} w={7} c={T.slate} style={{ letterSpacing: 0.4, marginBottom: 6 }}>{(title as string).toUpperCase()} · {(g as typeof sel.rows).length}</X>
           {(g as typeof sel.rows).map(r => <View key={r.lineId || r.serial} style={{ flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 5, flexWrap: 'wrap' }}>

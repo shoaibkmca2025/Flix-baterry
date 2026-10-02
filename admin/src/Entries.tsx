@@ -188,7 +188,7 @@ export function Approvals({ id }: { id?: string }) {
   const n = q.trim().toLowerCase();
   const rows = pending.filter(groups[f]).filter(e => !n || [e.id, e.customer, dealer(e.dealerId)?.name || '', ...e.items.flatMap(i => [i.code, i.oldSerial])].some(v => v.toLowerCase().includes(n)));
   return <Page title="Requests to approve" sub={`${pending.length} waiting · the battery is already with the customer`}>
-    <Banner tone="info" icon="shield" style={{ marginBottom: 14 }}><B>Replacements are decided at the factory.</B> Approve or refuse appears once the old battery has arrived and been checked (Old battery returns). Approving moves the new battery into the register with the original cover dates and approves it for refund. A serial exception cannot be approved until it is fixed.</Banner>
+    <Banner tone="info" icon="shield" style={{ marginBottom: 14 }}><B>Replacements are decided at the factory.</B> Open a request to decide it: each battery on it is approved or refused on its own card, once its old battery has arrived (Old battery returns). Approving moves the new battery into the register with the original cover dates and approves it for refund. A serial exception cannot be approved until it is fixed.</Banner>
     <Box filters={<><Pills value={f} onChange={setF} items={[['waiting', `Waiting ${pending.filter(groups.waiting).length}`], ['conflict', `Serial exceptions ${pending.filter(groups.conflict).length}`], ['review', `Under review ${pending.filter(groups.review).length}`], ['all', `All ${pending.length}`]]} /><SearchBox value={q} onChange={setQ} ph="Dealer, serial or request" /></>}>
       <Table rows={rows} keyOf={e => e.id} onRow={e => a.go('entry', e.id)} empty={f === 'conflict' ? 'No serial exceptions.' : 'Nothing waiting here.'}
         cols={[
@@ -199,6 +199,11 @@ export function Approvals({ id }: { id?: string }) {
           { h: 'Raised', w: 0.7, cell: e => dShort(e.createdAt) },
           { h: 'Decision', w: 1.6, cell: e => e.status === 'Conflict' ? <View style={{ gap: 5 }}><StatusChip status="Conflict" /><Btn kind="ghost" sm label="Open to fix" onPress={() => a.go('entry', e.id)} /></View>
             : awaitingOldBattery(e) ? <Chip tone="warn" icon={e.returnState === 'In transit' ? 'truck' : 'shop'} label={whereIsOld(e)} />
+            // A replacement is decided battery by battery, on the request's own page — one button
+            // here would approve every battery on it at once, which is the thing we moved away
+            // from (client, 2 Oct 2026). A sales return has no old battery and no claim, so it is
+            // still a single yes/no and keeps its buttons.
+            : e.type === 'Replacement' ? <Btn kind="ghost" sm icon="eye" label="Open to decide" onPress={() => a.go('entry', e.id)} />
             : canEdit ? <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}><Btn kind="ghost" sm label="Refuse" color={T.terminal} borderColor="#F0C7BC" onPress={() => setAct({ kind: 'reject', e })} /><Btn kind="blue" sm label="Approve" onPress={() => setAct({ kind: 'approve', e })} /></View> : <StatusChip status={e.status} /> },
         ]}
         mobile={{ title: e => dealer(e.dealerId)?.name, sub: e => <><Mono>{e.id}</Mono> · {e.type} · {dShort(e.createdAt)}</>, right: e => <StatusChip status={e.status} /> }} />
