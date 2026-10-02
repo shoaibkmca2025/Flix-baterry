@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, Image, StyleSheet } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useStore } from '@felix/shared/store';
 import { Entry, Item, State, DEFAULT_DIGIT_LENGTHS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, deriveCode, digitsOf, expiryFrom, fullCode, isValidDigits, lengthsLabel, newEntry, newItem, normalize, sameBattery, splitLabel, today, validateEntry } from '@felix/shared/domain';
@@ -234,16 +234,36 @@ function FullCodeLine({ modelId, code, lengths }: { modelId?: string; code: stri
 }
 
 /* ---------- scanner ---------- */
-function ScanBox({ code, active, onCode, height = 212, label = 'Hold the label inside the box' }: { code?: string; active: boolean; onCode: (c: string) => void; height?: number; label?: string }) {
+/** A dark pill behind text that sits on a photo, so a bright label does not swallow it. */
+const OnPhoto = ({ children, top, bottom }: { children: React.ReactNode; top?: number; bottom?: number }) =>
+  <View style={{ position: 'absolute', top, bottom, maxWidth: '88%', backgroundColor: 'rgba(12,16,22,0.72)', borderRadius: 8, paddingVertical: 4, paddingHorizontal: 10 }}>{children}</View>;
+
+function ScanBox({ code, active, onCode, photo, photoLabel = 'Photo you took', height = 212, label = 'Hold the label inside the box' }: { code?: string; active: boolean; onCode: (c: string) => void; photo?: string; photoLabel?: string; height?: number; label?: string }) {
   const fired = useRef(false);
   useEffect(() => { if (active) fired.current = false; }, [active]);
-  return <View style={{ backgroundColor: T.ink, borderRadius: 12, height, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+  // Once the photo is taken it fills this box whenever the camera is not running. It is the proof
+  // the dealer is about to send, and the number below is meant to be checked against it — so it
+  // belongs on screen next to that number, not behind a button. The scanner frame and its laser
+  // are hidden while it shows: there is nothing to line up, and leaving them on top reads as a
+  // live camera. Starting the camera again puts the scanner back (CameraView covers the photo).
+  const showPhoto = !!photo && !active;
+  // "contain", not "cover": the dealer is checking the serial in this photo against the number
+  // they typed below, so the whole label has to be visible — a crop can cut the serial off the
+  // top or bottom. Letterboxing is invisible anyway, the box behind it is already this dark.
+  // It also gets a taller box, because a portrait photo shown whole is narrow.
+  const boxHeight = showPhoto ? Math.max(height, 270) : height;
+  return <View style={{ backgroundColor: T.ink, borderRadius: 12, height: boxHeight, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+    {showPhoto && <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} resizeMode="contain" accessible accessibilityLabel={photoLabel} />}
     {active && <CameraView style={StyleSheet.absoluteFill} facing="back" barcodeScannerSettings={{ barcodeTypes: ['qr', 'code128', 'code39', 'ean13', 'ean8', 'upc_a', 'datamatrix'] }}
       onBarcodeScanned={({ data }) => { if (fired.current) return; fired.current = true; onCode(data); }} />}
-    {!!code && <X s={13} f="m" w={5} c={T.white} style={{ position: 'absolute', top: 14 }}>{code}</X>}
-    <View style={{ width: 196, height: height < 180 ? 84 : 118, borderWidth: 3, borderColor: T.volt, borderRadius: 8 }}>
-      <View style={{ position: 'absolute', left: 8, right: 8, top: '50%', height: 2, backgroundColor: T.terminal, shadowColor: T.terminal, shadowOpacity: 1, shadowRadius: 12, shadowOffset: { width: 0, height: 0 } }} /></View>
-    <X s={12.5} c="#A8B6C7" style={{ position: 'absolute', bottom: 12 }}>{active ? label : label}</X>
+    {!!code && (showPhoto
+      ? <OnPhoto top={12}><X s={13} f="m" w={5} c={T.white} numberOfLines={1}>{code}</X></OnPhoto>
+      : <X s={13} f="m" w={5} c={T.white} style={{ position: 'absolute', top: 14 }}>{code}</X>)}
+    {!showPhoto && <View style={{ width: 196, height: height < 180 ? 84 : 118, borderWidth: 3, borderColor: T.volt, borderRadius: 8 }}>
+      <View style={{ position: 'absolute', left: 8, right: 8, top: '50%', height: 2, backgroundColor: T.terminal, shadowColor: T.terminal, shadowOpacity: 1, shadowRadius: 12, shadowOffset: { width: 0, height: 0 } }} /></View>}
+    {showPhoto
+      ? <OnPhoto bottom={10}><X s={12.5} w={6} c={T.white} numberOfLines={1}>{photoLabel}</X></OnPhoto>
+      : <X s={12.5} c="#A8B6C7" style={{ position: 'absolute', bottom: 12 }}>{label}</X>}
   </View>;
 }
 function useScanner(onCode: (code: string) => void) {
@@ -476,7 +496,8 @@ export function D13() {
     overlay={del.sheet}>
     <Steps labels={rep ? REP_STEPS : RET_STEPS} now={rep ? 2 : 1} />
     <Gap h={14} />
-    <ScanBox code={it.code} active={sc.active} onCode={sc.handle} />
+    <ScanBox code={it.code} active={sc.active} onCode={sc.handle} photo={photoOf(e, labelTag)}
+      photoLabel={rep ? 'Photo of the new battery' : 'Photo of the label'} />
     <View style={{ flexDirection: 'row', gap: 9, marginTop: 12 }}>
       <Btn kind="blue" sm icon="scan" label={sc.active ? 'Stop camera' : 'Scan code'} style={{ flex: 1, alignSelf: 'stretch' }} onPress={sc.start} />
       <Btn kind={photoMissing ? 'primary' : 'ghost'} sm icon="cam" label={rep ? (photoMissing ? 'Photo of new battery' : 'Retake photo') : 'Photo of label'} style={{ flex: 1, alignSelf: 'stretch' }} onPress={takeLabelPhoto} />
