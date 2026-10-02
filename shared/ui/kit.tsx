@@ -204,7 +204,11 @@ export function Field(p: FieldProps) {
 export function OtpBoxes({ value, onChange, count = 6, autoFocus }: { value: string; onChange: (v: string) => void; count?: number; autoFocus?: boolean }) {
   const ref = useRef<TextInput>(null); const [focus, setFocus] = useState(false);
   const at = Math.min(value.length, count - 1);
-  return <Pressable accessibilityLabel={`Enter the ${count}-digit code`} onPress={() => ref.current?.focus()} style={{ flexDirection: 'row', gap: 7 }}>
+  // The wrapper only exists to put focus in the hidden input when the boxes are tapped. It must
+  // not announce itself as a control of its own: a screen reader (and anything else reading the
+  // accessibility tree) then meets two things called "…6-digit code", and the div shadows the real
+  // input — so the field looks present but cannot be typed into (client, 2 Oct 2026).
+  return <Pressable accessible={false} importantForAccessibility="no" onPress={() => ref.current?.focus()} style={{ flexDirection: 'row', gap: 7 }}>
     {Array.from({ length: count }, (_, i) => <View key={i} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 13, minHeight: 50, backgroundColor: T.white, borderWidth: 1.5, borderColor: focus && i === at ? T.steel : value[i] ? T.ink3 : T.line, borderRadius: 9 }}>
       <X s={16} f={value[i] ? 'm' : 'b'} w={value[i] ? 5 : 4} c={value[i] ? T.ink : T.hint}>{value[i] || '·'}</X></View>)}
     <TextInput ref={ref} value={value} autoFocus={autoFocus} onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} accessibilityLabel={`${count}-digit code`} onChangeText={t => onChange(t.replace(/\D/g, '').slice(0, count))} keyboardType="number-pad" maxLength={count} textContentType="oneTimeCode" autoComplete="sms-otp" caretHidden
