@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { View, Image, Pressable, Linking } from 'react-native';
 import { useStore } from '@felix/shared/store';
-import { Entry, Item, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approveEntry, deriveCode, isValidDigits, lengthsLabel, filterEntries, newEntry, newItem, normalize, uid, validateEntry, warranty } from '@felix/shared/domain';
+import { Entry, Item, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approveEntry, deriveCode, expiryFrom, today, isValidDigits, lengthsLabel, filterEntries, newEntry, newItem, normalize, uid, validateEntry, warranty } from '@felix/shared/domain';
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
-import { approvedForRefund, batteryUnits, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, tShort, monthShort } from '@felix/shared/data';
+import { approvedForRefund, batteryUnits, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanShort, tShort, monthShort } from '@felix/shared/data';
 import { listPhotos, splitTag, uploadEntryPhotos } from '@felix/shared/api/photos';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
@@ -29,6 +29,11 @@ const REJECT_REASONS = ['Outside warranty cover', 'Physical damage — not cover
 /** Every head office decision on an entry, with the same checks wherever it is taken. */
 export function useDecisions() {
   const { state, setState, audit, canEdit } = useStore(); const a = useA(); const { sync } = useSync();
+  // A refusal from the server is the whole reason the decision did not happen, and a toast takes
+  // it away after a few seconds — so it is also kept here and shown on the page until the next
+  // attempt (client, 2 Oct 2026). `problem` is the last thing that went wrong, verbatim.
+  const [problem, setProblem] = useState('');
+  const failed = (msg: string) => { setProblem(msg); a.toast(msg); return false; };
   const guard = () => {
     if (!canEdit) { a.toast('Read-only access — records cannot be changed.'); return false; }
     if (state.offline) { a.toast('Go online before making a head office decision.'); return false; }
@@ -65,16 +70,18 @@ export function useDecisions() {
         a.toast(e.claimStatus === 'raised' ? 'The old battery is still at the dealer. It must reach the company (Stock → Old battery returns) before the claim can be approved.' : 'The old battery is on its way. Confirm it arrived (Stock → Old battery returns), then approve.');
         return false;
       } else return notInV1();
-    } catch (err) { a.toast(errorMessage(err)); return false; }
+    } catch (err) { return failed(errorMessage(err)); }
     finally { sync(true); }
   };
   /** Replacements: one call approves for refund (entry + claim) or refuses, once the old battery is in. */
-  const settleLive = async (e: Entry, decision: 'approved' | 'refused', reason: string) => {
+  const settleLive = async (e: Entry, decision: 'approved' | 'passed' | 'refused', reason: string) => {
     const token = await getAccessToken(); if (!token) return notInV1();
     try {
       await settleEntry(e.apiId!, decision, reason, token, e.itemId); // e.itemId: one battery of several
-      a.toast(decision === 'refused' ? 'Refused. The dealer sees the reason in their app.' : 'Approved for refund. The dealer sees it in their app.');
-    } catch (err) { a.toast(errorMessage(err)); return false; }
+      a.toast(decision === 'refused' ? 'Refused. The dealer sees the reason in their app.'
+        : decision === 'passed' ? 'Approved. It joins the Approved group on its challan — press Claim there when you are ready.'
+        : 'Approved for refund. The dealer sees it in their app.');
+    } catch (err) { return failed(errorMessage(err)); }
     finally { sync(true); }
   };
   const rejectLive = async (e: Entry, reason: string) => {
@@ -86,17 +93,22 @@ export function useDecisions() {
       else if (e.claimId) { a.toast('The old battery has not reached the company yet. Confirm it arrived first, then refuse with the finding.'); return false; }
       else return notInV1();
       a.toast('Refused. The dealer sees the reason in their app.');
-    } catch (err) { a.toast(errorMessage(err)); return false; }
+    } catch (err) { return failed(errorMessage(err)); }
     finally { sync(true); }
   };
 
   return {
+    /** the last refusal from the server, kept on screen until the next attempt */
+    problem, clearProblem: () => setProblem(''),
     guard,
     approve: (e: Entry, reason: string) => {
       if (!guard()) return false;
       if (live(e) && e.type === 'Replacement') {
         if (awaitingOldBattery(e)) { a.toast(`${whereIsOld(e)}. Approve it from Old battery returns once it reaches the factory.`); return false; }
-        settleLive(e, 'approved', reason); return;
+        // Approving a battery is the verdict, not the refund: it joins the Approved group on its
+        // challan and the Claim button there approves the whole group for refund at once
+        // (client, 2 Oct 2026). That is why this sends 'passed' and not 'approved'.
+        void settleLive(e, 'passed', reason); return;
       }
       if (live(e)) { approveLive(e, reason); return; }
       const errs = validateEntry(e, state);
@@ -124,7 +136,7 @@ export function useDecisions() {
       if (!live(e)) return notInV1();
       const token = await getAccessToken(); if (!token) return notInV1();
       try { await reviewEntryItem(e.apiId!, itemId, note, token); a.toast('Marked as being looked at. Only this battery.'); }
-      catch (err) { a.toast(errorMessage(err)); return false; }
+      catch (err) { return failed(errorMessage(err)); }
       finally { sync(true); }
     },
     correctOne: async (e: Entry, itemId: string, change: { code?: string; oldCode?: string }, reason: string) => {
@@ -132,7 +144,7 @@ export function useDecisions() {
       if (!live(e)) return notInV1();
       const token = await getAccessToken(); if (!token) return notInV1();
       try { await correctEntryItem(e.apiId!, itemId, { ...change, reason }, token); a.toast('Corrected. Only this battery changed.'); }
-      catch (err) { a.toast(errorMessage(err)); return false; }
+      catch (err) { return failed(errorMessage(err)); }
       finally { sync(true); }
     },
     voidEntry: (e: Entry, reason: string) => live(e) ? notInV1() : status(e, 'Cancelled', 'Void / archive entry', reason, 'Voided. It stays searchable and in the audit log.'),
@@ -345,12 +357,24 @@ export function EntryDetail({ id }: { id?: string }) {
       <Btn kind="ghost" sm icon="down" label="Print acknowledgement" onPress={() => { if (dealer) printEntry(e, dealer).catch(() => a.toast('Printing is not available on this device.')); }} />
     </>}>
     <View style={{ marginBottom: 14 }}>{banner}</View>
+    {/* why the last decision did not go through — stays put, unlike the toast (client, 2 Oct 2026) */}
+    {dec.problem ? <Banner tone="bad" icon="alert" style={{ marginBottom: 14 }}>
+      <B>This could not be done.</B> {dec.problem} <B u onPress={dec.clearProblem}>Dismiss</B></Banner> : null}
     {perBattery && pending && <Banner tone="info" icon="batt" style={{ marginBottom: 14 }}><B>Each battery is decided on its own.</B> Check its photos and the battery itself, then approve or reject it on its card below.</Banner>}
     <Cols weights={[1.55, 1]}>
       <Stack>
         {order.map(i => {
           const it = e.items[i]!, u = units[perBattery ? i : 0]!;
           const old = it.oldSerial ? findBattery(state, it.oldSerial) : undefined, cover = coverOf(old || findBattery(state, it.code), state);
+          // Most old batteries were sold before this system, so there is no cover on record — but
+          // the server still works one out from the label when it approves, which is where
+          // "cover ran out on …" comes from. The same sum here keeps the console and the server
+          // from disagreeing, and shows the reviewer the remaining cover the dealer already sees.
+          const oldMfg = it.oldSerial ? deriveCode(it.oldSerial, state.models.map(m => m.id), anyDigitLengths(state.serialDigitLengths)).mfg : '';
+          const oldTerm = (state.models.find(m => m.id === (it.oldModel || it.model))?.months ?? 24) + (state.graceMonths ?? 2);
+          const derivedExpiry = !cover && oldMfg ? expiryFrom(`${oldMfg}-01`, oldTerm) : '';
+          const expiry = cover?.expiry || derivedExpiry;
+          const daysLeft = expiry ? Math.ceil((Date.parse(expiry) - Date.parse(today())) / 86400000) : null;
           const [cl, ct] = coverChip(cover?.status || '');
           const mine = photos?.filter(p => (p.itemSeq ?? 0) === i) ?? [];
           const decided = u.status === 'Approved' || u.status === 'Rejected';
@@ -361,7 +385,15 @@ export function EntryDetail({ id }: { id?: string }) {
               {it.reviewStartedAt && <Chip tone="vio" icon="eye" label="Being checked" />}
               {it.correctedAt && <Chip tone="info" icon="pen" label="Corrected" />}
               <Chip tone={ct} icon="shield" label={cl} /></View>} />
-            <Plate style={{ marginBottom: 11 }}>{it.oldSerial ? <><PlateLab>OLD BATTERY OUT</PlateLab><PlateVal>{it.oldSerial}</PlateVal><X s={19} c={T.volt} style={{ textAlign: 'center', marginVertical: 4 }}>↓</X><PlateLab>NEW BATTERY IN</PlateLab><PlateVal color="#7FD3A9">{it.code}</PlateVal></> : <><PlateLab>BATTERY</PlateLab><PlateVal>{it.code}</PlateVal></>}</Plate>
+            <Plate style={{ marginBottom: 11 }}>{it.oldSerial ? <><PlateLab>OLD BATTERY OUT</PlateLab><PlateVal>{it.oldSerial}</PlateVal><X s={19} c={T.volt} style={{ textAlign: 'center', marginVertical: 4 }}>↓</X><PlateLab>NEW BATTERY IN</PlateLab><PlateVal color="#7FD3A9">{it.code}</PlateVal></> : <><PlateLab>BATTERY</PlateLab><PlateVal>{it.code}</PlateVal></>}
+              {/* the old battery's remaining cover, right where the decision is made */}
+              {it.oldSerial && expiry ? <View style={{ marginTop: 9, paddingTop: 9, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.14)' }}>
+                <PlateLab>{daysLeft !== null && daysLeft < 0 ? 'WARRANTY EXPIRED' : 'WARRANTY LEFT'}</PlateLab>
+                <X s={15} w={7} c={daysLeft !== null && daysLeft < 0 ? '#FFB3A3' : '#7FD3A9'}>
+                  {daysLeft !== null && daysLeft < 0 ? `Ran out ${dLong(expiry)}` : `${spanShort(span(today(), expiry))} left · to ${dLong(expiry)}`}
+                </X>
+                <X s={11.5} c={T.deepText} style={{ marginTop: 2 }}>{cover ? 'From the warranty record.' : `Worked out from the label — made ${monthShort(oldMfg)}, ${oldTerm} months cover. Not on record.`}</X>
+              </View> : null}</Plate>
             <KV cols={a.wide ? 3 : 2} pairs={[['Short serial', it.serial, 'mono'], ['Made', monthShort(it.mfg)], ['Cover ends', cover ? dLong(cover.expiry) : 'Not on record'], ['Replacement month', it.rpl || '—'], ['Return month', it.rtn || '—'], ['WR reference', it.wr || '—', 'mono'], ['Reported fault', it.fault || '—'], ['Remarks', it.remarks || '—']]} />
             {it.oldSerial && !old && <Banner tone="warn" icon="eye" style={{ marginTop: 11 }}>Old serial {it.oldSerial} is not on record — check it against the paper register. No cover dates are guessed.</Banner>}
             {/* the dealer's photos of THIS battery — what head office reviews before deciding */}

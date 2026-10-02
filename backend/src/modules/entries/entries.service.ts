@@ -149,7 +149,11 @@ async function approveReplacementItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
   const chain = await batteriesRepo.findChainById(tx, old.chainId!);
   if (!chain) throw new AppError('chain_missing', 500, 'This battery is missing its warranty record.');
   if (Date.parse(chain.warrantyExpiry) < Date.parse(entry.entryDate)) {
-    throw new AppError('warranty_expired', 422, `Warranty expired on ${chain.warrantyExpiry}. Request an admin override before submitting.`, {
+    // Head office is the only one who ever reaches this — it runs on approval, not on the
+    // dealer's submit — so it says what THEY can do about it, not "ask an admin" (client, 2 Oct
+    // 2026). The dates are in the message because the console often has no cover on record for a
+    // battery that was sold before this system: the server works it out from the label.
+    throw new AppError('warranty_expired', 422, `This battery's cover ran out on ${chain.warrantyExpiry}, before the replacement on ${entry.entryDate}, so it cannot be approved as a warranty claim. Record a warranty override if it should be covered anyway, or refuse it with the reason.`, {
       field: `items.${item.seq}.oldBatteryCode`,
       details: { warrantyStart: chain.warrantyStart, warrantyExpiry: chain.warrantyExpiry },
     });
@@ -382,6 +386,9 @@ export async function settle(ctx: Ctx, entryId: string, input: EntrySettleBody) 
       continue;
     }
     if (claim.status === 'received') claim = await claimsService.check(ctx, claim.id, { findingCode: 'verified_on_arrival', conditionNote: input.reason, disposition: 'hold', disqualify: false });
+    // 'passed' stops here: the battery has been checked and is good, and now sits in the challan's
+    // Approved group waiting for the Claim button. Approving for refund is a separate press.
+    if (input.decision === 'passed') continue;
     if (claim.status === 'checked') {
       const decided = await claimsService.decide(ctx, claim.id, { outcome: 'approved', reason: input.reason });
       if (decided.creditNote) creditNotes.push(decided.creditNote);
@@ -485,8 +492,12 @@ async function openItem(ctx: Ctx, entryId: string, itemId: string) {
   const item = await repo.findItemById(db, itemId);
   // belongs-to check, not just "exists": an id from another request must not reach through here
   if (!item || item.entryId !== entry.id) throw new AppError('item_not_found', 404, 'That battery is not on this request.');
-  if (entry.status !== 'submitted') {
-    throw new AppError('invalid_transition', 409, `This request is already ${entry.status} — a battery on it cannot be changed.`);
+  // Deliberately NOT gated on the entry's status. Approving one battery of a replacement flips
+  // the whole request to 'approved', and gating on that refused every other battery on it — which
+  // is exactly the case this feature exists for (client, 2 Oct 2026). What matters is this
+  // battery: see `correctItem`, which refuses once THIS one is on record.
+  if (entry.status === 'rejected') {
+    throw new AppError('invalid_transition', 409, 'This request was refused — there is nothing left to change on it.');
   }
   return { entry, item, user: ctx.user };
 }
@@ -521,6 +532,11 @@ export async function reviewItem(ctx: Ctx, entryId: string, itemId: string, inpu
  */
 export async function correctItem(ctx: Ctx, entryId: string, itemId: string, input: EntryItemCorrectBody) {
   const { entry, item, user } = await openItem(ctx, entryId, itemId);
+  // Once THIS battery is on record a warranty chain hangs off these codes, and rewriting them
+  // would silently re-point that history at a different battery. Its siblings are unaffected.
+  if (item.batteryId) {
+    throw new AppError('already_on_record', 409, 'This battery has been approved and put on record — its number cannot be changed now. Void the request and record it again if the number is wrong.');
+  }
 
   const [modelRows, setting, siblings] = await Promise.all([
     batteriesRepo.listModels(db), serialDigitLengths(db), repo.findItemsByEntryId(db, entry.id),

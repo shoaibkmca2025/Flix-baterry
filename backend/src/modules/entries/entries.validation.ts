@@ -45,7 +45,10 @@ export type EntryDecisionBody = z.infer<typeof EntryDecisionBody>;
 // `itemId` decides ONE battery of a multi-battery replacement on its own (client, 2 Oct 2026);
 // without it, every battery on the entry is decided together.
 export const EntrySettleBody = z.object({
-  decision: z.enum(['approved', 'refused']),
+  // 'passed' is the engineer's verdict: this battery is good, but it is NOT approved for refund
+  // yet — that is the Claim button on the challan (client, 2 Oct 2026). 'approved' still does
+  // both in one call, which is what a single battery decided on its own uses.
+  decision: z.enum(['approved', 'passed', 'refused']),
   reason,
   itemId: z.string().uuid().optional(),
 });

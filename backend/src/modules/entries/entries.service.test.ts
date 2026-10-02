@@ -587,9 +587,20 @@ describe('one battery at a time — review and correct', () => {
     await expect(reviewItem(adminCtx, 'entry-1', 'item-1', {})).rejects.toMatchObject({ code: 'item_not_found' });
   });
 
-  it('neither is allowed once the request has been decided', async () => {
+  it('approving ONE battery does not lock the others — that is the whole point', async () => {
+    // approving a battery flips the request to 'approved'; its siblings are still undecided
     vi.mocked(repo.findEntryById).mockResolvedValue({ ...entry, status: 'approved' } as never);
-    await expect(reviewItem(adminCtx, 'entry-1', 'item-1', {})).rejects.toMatchObject({ code: 'invalid_transition' });
+    await expect(reviewItem(adminCtx, 'entry-1', 'item-1', {})).resolves.toBeTruthy();
+    await expect(correctItem(adminCtx, 'entry-1', 'item-1', { code: '26090002', reason: 'typo' })).resolves.toBeTruthy();
+  });
+
+  it('a battery already put on record cannot have its number rewritten', async () => {
+    vi.mocked(repo.findItemById).mockResolvedValue({ ...item, batteryId: 'bat-1' } as never);
+    await expect(correctItem(adminCtx, 'entry-1', 'item-1', { code: '26090002', reason: 'typo' })).rejects.toMatchObject({ code: 'already_on_record' });
+  });
+
+  it('a refused request has nothing left to change', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...entry, status: 'rejected' } as never);
     await expect(correctItem(adminCtx, 'entry-1', 'item-1', { code: '26090002', reason: 'typo' })).rejects.toMatchObject({ code: 'invalid_transition' });
   });
 
@@ -627,5 +638,31 @@ describe('one battery at a time — review and correct', () => {
   it('a correction naming a model the factory does not make is refused', async () => {
     await expect(correctItem(adminCtx, 'entry-1', 'item-1', { code: '26090002', modelId: 'NOPE', reason: 'unknown model' }))
       .rejects.toMatchObject({ code: 'model_unknown' });
+  });
+});
+
+describe("approving a battery is the verdict, not the refund (client, 2 Oct 2026)", () => {
+  const entry = { id: 'entry-1', ref: 'ENT-26-10-0014', entryType: 'replacement', status: 'approved', dealerId: 'dealer-1' };
+  const items = [{ id: 'item-1', entryId: 'entry-1', seq: 0, claimId: 'cl-1', oldBatteryCode: 'M526040001' }];
+  beforeEach(() => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(entry as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue(items as never);
+    vi.mocked(returnsRepo.findLinesByEntryItemIds).mockResolvedValue([{ entryItemId: 'item-1', stage: 'received' }] as never);
+    vi.mocked(claimsRepo.findClaimById).mockResolvedValue({ id: 'cl-1', status: 'received' } as never);
+    vi.mocked(claimsService.check).mockResolvedValue({ id: 'cl-1', status: 'checked' } as never);
+    vi.mocked(claimsService.decide).mockResolvedValue({ claim: { id: 'cl-1' }, creditNote: { no: 'CN-1' } } as never);
+  });
+
+  it("'passed' checks the battery and stops — the Claim button does the rest", async () => {
+    const r = await settle(adminCtx, 'entry-1', { decision: 'passed', reason: 'Checked on the bench — defect confirmed', itemId: 'item-1' });
+    expect(claimsService.check).toHaveBeenCalled();
+    expect(claimsService.decide).not.toHaveBeenCalled(); // not approved for refund yet
+    expect(r.creditNotes).toEqual([]);
+  });
+
+  it("'approved' still does both, for a battery decided on its own", async () => {
+    await settle(adminCtx, 'entry-1', { decision: 'approved', reason: 'Checked and approved together', itemId: 'item-1' });
+    expect(claimsService.check).toHaveBeenCalled();
+    expect(claimsService.decide).toHaveBeenCalledWith(adminCtx, 'cl-1', expect.objectContaining({ outcome: 'approved' }));
   });
 });

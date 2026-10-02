@@ -106,7 +106,7 @@ export function correctEntryItem(
 
 /** Head office's one decision on a replacement once its old battery is at the factory (entries.settle). */
 /** Approving means "approved for refund" — there is no amount (memory.md D-20). */
-export function settleEntry(id: string, decision: 'approved' | 'refused', reason: string, accessToken: string, itemId?: string) {
+export function settleEntry(id: string, decision: 'approved' | 'passed' | 'refused', reason: string, accessToken: string, itemId?: string) {
   // `itemId`: decide one battery of a multi-battery replacement on its own
   return apiPost<{ entry: EntryResult; creditNotes: { no: string }[] }>(`/entries/${id}/settle`, { decision, reason, ...(itemId ? { itemId } : {}) }, { accessToken });
 }
