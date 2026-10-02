@@ -1,7 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { buildCtx } from '../../middleware/context';
 import * as service from './entries.service';
-import type { EntryCreateBody, EntryDecisionBody, EntryListQuery, EntrySettleBody } from './entries.validation';
+import type { EntryCreateBody, EntryDecisionBody, EntryListQuery, EntryPhotoBody, EntrySettleBody } from './entries.validation';
 
 export async function create(request: FastifyRequest<{ Body: EntryCreateBody }>, reply: FastifyReply) {
   const result = await service.create(buildCtx(request), request.body);
@@ -30,5 +30,15 @@ export async function list(request: FastifyRequest<{ Querystring: EntryListQuery
 
 export async function settle(request: FastifyRequest<{ Params: { id: string }; Body: EntrySettleBody }>, reply: FastifyReply) {
   const result = await service.settle(buildCtx(request), request.params.id, request.body);
+  reply.status(200).send(result);
+}
+
+export async function addPhoto(request: FastifyRequest<{ Params: { id: string }; Body: EntryPhotoBody }>, reply: FastifyReply) {
+  const result = await service.addPhoto(buildCtx(request), request.params.id, request.body);
+  reply.status(201).send(result);
+}
+
+export async function listPhotos(request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+  const result = await service.listPhotos(buildCtx(request), request.params.id);
   reply.status(200).send(result);
 }

@@ -38,6 +38,20 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-10-02 · dealer photos reach head office; each battery is decided on its review page (Claude Code)
+**Worked on:** client: (1) no Approve / Reject on the Old battery returns list — open the battery, review it with the dealer's photos, then decide; (2) "Old battery … is not on record" warning on every replacement, though there is no record of old batteries to check.
+**Found:** photos never left the phone (no server field or storage, D-10 open), so a review page could not show them.
+**Done:**
+- **Photo storage — Neon Object Storage (D-10, user's choice).** `neon.ts` declares a private bucket `evidence`; Neon injects the `AWS_*` variables into the function. New table `entry_photos` (migration 0015: request, battery, tile tag, object key; one photo per request + battery + tag, a retake replaces it). `POST /entries/:id/photos` (base64, 10 MB route limit, dealer: own requests only) and `GET /entries/:id/photos` (each with a 1-hour signed link). `backend/src/utils/storage.ts`.
+- **Dealer app:** after a request is accepted — on the send screen or later from the offline queue — its photos are uploaded (`shared/api/photos.ts`; a tile tag like "Old battery · item 2" → battery 2). The button shows "Sending N photos…"; a failed photo never undoes the request and is reported. Head office's own recorded entries upload their photos the same way.
+- **Admin → Old battery returns:** rows no longer carry Approve / Reject; an arrived, undecided battery shows **Review**, and every row opens its request on that battery.
+- **Admin → request page:** the opened battery comes first, outlined. Each battery card shows **Photos from the dealer** (tap to open full size) and, on a multi-battery replacement, its own status and **Approve this battery / Reject this battery** (once it has arrived); the request-wide Approve / Refuse stay for one-battery requests only.
+- **Dealer — no "not on record" warning.** Removed from the send screen's checks; the review card and the warranty screen (d31) now look the old battery up with its model and show the cover from the label ("In cover" / "Cover ended", "Cover from the label") instead of "Not on record / Set by head office". D-11 already made the label the source of cover for batteries sold before the app.
+**Verified:** backend 276 (new: photo stored with its battery, other dealer refused, unknown battery refused, list with signed links), shared 24, all typechecks, both web builds. **Live on a throwaway Neon branch** (since deleted): migration 0015 applied; upload → signed GET returned the same bytes; unsigned GET 403 (private); `addPhoto`/`listPhotos` on ENT-26-09-0114's copy put each photo on the right battery and a retake replaced the first.
+**Deploy:** `npm run deploy:all` — runs migration 0015 and creates the `evidence` bucket on production (`neon deploy`), then both apps. Photos taken before this deploy were never uploaded and stay on the phones.
+
+---
+
 ### 2026-10-02 · old batteries are handled one by one at the factory (Claude Code)
 **Worked on:** client: a replacement with several batteries arrived as one row ("K80025090025, K80025090026" in one *Confirm it arrived*, one plant for both); head office wants to check and decide each battery on its own.
 **Found:** the server already keeps one claim and one challan line per battery, but the console collapsed them — `toEntry` kept only the FIRST battery's claim, so the second claim's stage and decision were invisible, and `entries.settle` decided every battery together, refusing until all had arrived.

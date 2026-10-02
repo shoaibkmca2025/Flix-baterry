@@ -58,3 +58,16 @@ export const EntryListQuery = z.object({
   cursor: z.string().optional(),
 });
 export type EntryListQuery = z.infer<typeof EntryListQuery>;
+
+// A photo for a request (D-10). The dealer app sends it base64 right after the request is
+// accepted; `itemSeq` is the battery on the request it shows (0 = the first), absent for the
+// request as a whole. ~8 MB of base64 is ~6 MB of JPEG — far above what the app's 40% quality
+// camera produces.
+export const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+export const EntryPhotoBody = z.object({
+  tag: z.string().trim().min(1).max(60),
+  itemSeq: z.number().int().min(0).optional(),
+  contentType: z.enum(PHOTO_TYPES),
+  data: z.string().min(1).max(8_000_000).regex(/^[A-Za-z0-9+/=\r\n]+$/, 'The photo must be base64.'),
+});
+export type EntryPhotoBody = z.infer<typeof EntryPhotoBody>;

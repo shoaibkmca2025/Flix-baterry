@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { db, withTransaction, type Tx } from '../../database/client';
 import { anyDigitLengths, deriveCode, digitsOfFull, fullCode, lengthsSentence, readStored, NEW_BATTERY_DIGIT_LENGTHS } from '../../domain/serials';
 import { coverFromMfg } from '../../domain/warranty';
@@ -5,6 +6,7 @@ import { graceMonths, serialDigitLengths } from '../../utils/settings';
 import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
+import { putObject, signedUrl } from '../../utils/storage';
 import { monthKey, nextFormattedRef } from '../../utils/ids';
 import * as batteriesRepo from '../batteries/batteries.repository';
 import * as claimsRepo from '../claims/claims.repository';
@@ -13,7 +15,7 @@ import { findDealerById } from '../dealers/dealers.repository';
 import { postMovementInTx } from '../stock/stock.service';
 import * as returnsRepo from '../returns/returns.repository';
 import * as repo from './entries.repository';
-import type { EntryCreateBody, EntryListQuery, EntrySettleBody } from './entries.validation';
+import type { EntryCreateBody, EntryListQuery, EntryPhotoBody, EntrySettleBody } from './entries.validation';
 
 // This module is the real, permanent home for what three temporary endpoints used to do
 // separately (POST /batteries/sell, POST /batteries/replace, POST /claims) — see logs.md
@@ -429,4 +431,42 @@ function decodeCursor(cursor?: string) {
   } catch {
     throw new AppError('filter_invalid', 422, 'That page link is not valid — start from the first page again.');
   }
+}
+
+/* ---------- photos (D-10: Neon Object Storage) ---------- */
+
+/** The request, if this caller may see it: head office any, a dealer only their own (404 otherwise, I-3). */
+async function visibleEntry(ctx: Ctx, entryId: string) {
+  const user = requireDealer(ctx);
+  const entry = await repo.findEntryById(db, entryId);
+  if (!entry || (user.scope === 'dealer' && entry.dealerId !== user.dealerId)) throw new AppError('entry_not_found', 404, 'Entry not found.');
+  return { user, entry };
+}
+
+const EXT: Record<EntryPhotoBody['contentType'], string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+
+export async function addPhoto(ctx: Ctx, entryId: string, input: EntryPhotoBody) {
+  const { user, entry } = await visibleEntry(ctx, entryId);
+  const item = input.itemSeq === undefined ? undefined : (await repo.findItemsByEntryId(db, entryId)).find((it) => it.seq === input.itemSeq);
+  if (input.itemSeq !== undefined && !item) throw new AppError('item_not_found', 422, 'That battery is not on this request.', { field: 'itemSeq' });
+  const bytes = Buffer.from(input.data, 'base64');
+  if (!bytes.length) throw new AppError('photo_empty', 422, 'The photo is empty.', { field: 'data' });
+  // a fresh key every time, so a retake never serves the old picture from a cache
+  const objectKey = `entries/${entry.id}/${randomUUID()}.${EXT[input.contentType]}`;
+  await putObject(objectKey, bytes, input.contentType);
+  const row = await repo.upsertPhoto(db, { entryId: entry.id, entryItemId: item?.id ?? null, tag: input.tag, objectKey, contentType: input.contentType, sizeBytes: bytes.length, uploadedBy: user.id });
+  return { id: row.id, tag: row.tag, itemSeq: item?.seq ?? null, sizeBytes: row.sizeBytes, createdAt: row.createdAt };
+}
+
+/** Every photo on the request, each with a link that opens it for an hour. */
+export async function listPhotos(ctx: Ctx, entryId: string) {
+  await visibleEntry(ctx, entryId);
+  const [rows, items] = await Promise.all([repo.findPhotosByEntryId(db, entryId), repo.findItemsByEntryId(db, entryId)]);
+  const seqOf = new Map(items.map((it) => [it.id, it.seq]));
+  return {
+    items: await Promise.all(rows.map(async (r) => ({
+      id: r.id, tag: r.tag, itemId: r.entryItemId, itemSeq: r.entryItemId ? (seqOf.get(r.entryItemId) ?? null) : null,
+      contentType: r.contentType, sizeBytes: r.sizeBytes, createdAt: r.createdAt, url: await signedUrl(r.objectKey),
+    }))),
+  };
 }

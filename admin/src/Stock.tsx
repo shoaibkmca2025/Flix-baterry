@@ -13,7 +13,6 @@ import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV
 import { ageDays, batteryUnits, challanHtml, dLong, dShort, unitKey } from '@felix/shared/data';
 import { saveHtmlDocument } from '@felix/shared/reports';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, Tabs, Dialog, ReasonDialog, Select, Empty, useA } from './ui';
-import { useDecisions } from './Entries';
 import { usePlantManager, PlantCard } from './plants';
 
 const STATES = ['Available', 'Allocated', 'Sold', 'Returned', 'Replacement', 'Repair', 'Damaged', 'Scrap'];
@@ -114,7 +113,8 @@ export function Returns() {
   // the plant that made the battery (memory.md D-19) — chosen in the arrival form, or corrected later
   const [plantName, setPlantName] = useState(''), [plantErr, setPlantErr] = useState(''), [retag, setRetag] = useState<Entry | null>(null), [plantF, setPlantF] = useState('All');
   const [dealerF, setDealerF] = useState('All'), [selChallan, setSelChallan] = useState<string | null>(null);
-  const dec = useDecisions(); const [decide, setDecide] = useState<{ e: Entry; kind: 'approve' | 'reject' } | null>(null);
+  // a battery is reviewed — and approved or rejected — on its request's page, opened on that battery
+  const review = (e: Entry) => a.go('entry', e.itemId ? `${e.id}#${e.itemId}` : e.id);
   // at the factory and not yet decided: this is where head office approves or refuses (verified offline)
   const undecided = (e: Entry) => ['Submitted', 'Under Review'].includes(e.status);
   const dealerName = (d: string) => state.dealers.find(x => x.id === d)?.name || d;
@@ -219,16 +219,16 @@ export function Returns() {
   const row = (e: Entry, i: number, arr: Entry[], showActions = true) => {
     const [l, t, ic]: [string, Tone, IconName] = e.status === 'Rejected' ? ['Rejected', 'bad', 'x'] : stageChip(e.returnState);
     const arrived = !!e.returnState && !['At dealer', 'In transit'].includes(e.returnState) && linesOf(e).length > 0;
-    return <Line key={unitKey(e)} last={i === arr.length - 1} onPress={() => a.go('entry', e.id)} av={<Avatar n={ic} tone={t === 'vio' ? 'vio' : t === 'live' ? 'green' : t === 'mute' ? 'mute' : t === 'bad' ? 'red' : 'amber'} />}
+    return <Line key={unitKey(e)} last={i === arr.length - 1} onPress={() => review(e)} av={<Avatar n={ic} tone={t === 'vio' ? 'vio' : t === 'live' ? 'green' : t === 'mute' ? 'mute' : t === 'bad' ? 'red' : 'amber'} />}
       title={<Mono>{e.items.map(it => it.oldSerial).filter(Boolean).join(', ') || '—'}</Mono>}
       sub={`${e.items[0]?.model} · ${e.id}${e.part ? ` (${e.part})` : ''} · ${dealerName(e.dealerId)} · ${e.status === 'Approved' ? 'approved' : e.status === 'Rejected' ? 'refused' : e.status === 'Conflict' ? 'serial exception' : 'waiting for your decision'}${arrived && plants.length ? ` · ${plantOf(e) ? `made at ${plantOf(e)!.name}` : 'plant not set'}` : ''}`}
       right={<View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: a.wide ? 420 : 170 }}>
         <Chip tone={t} icon={ic} label={l} />
         {showActions && canEdit && (STAGE_NEXT[e.returnState || ''] || []).filter(([to]) => !(to === 'Closed' && undecided(e))).map(([to, label, kind]) => <Btn key={to} kind={kind === 'danger' ? 'ghost' : kind} sm label={label} color={kind === 'danger' ? T.terminal : undefined} borderColor={kind === 'danger' ? '#F0C7BC' : undefined} onPress={() => openAct({ entries: [e], to, label })} />)}
         {showActions && canEdit && arrived && e.apiId && plants.length > 0 && <Btn kind="ghost" sm label={plantOf(e) ? 'Change plant' : 'Set plant'} onPress={() => openRetag(e)} />}
-        {canEdit && e.returnState && e.returnState !== 'In transit' && e.returnState !== 'At dealer' && undecided(e) && <>
-          <Btn kind="ghost" sm icon="x" label="Reject" color={T.terminal} borderColor="#F0C7BC" onPress={() => setDecide({ e, kind: 'reject' })} />
-          <Btn kind="blue" sm icon="check" label="Approve" onPress={() => setDecide({ e, kind: 'approve' })} /></>}
+        {/* approve / reject happen on the battery's review page, after looking at it and its photos (client, 2 Oct 2026) */}
+        {canEdit && e.returnState && e.returnState !== 'In transit' && e.returnState !== 'At dealer' && undecided(e) &&
+          <Btn kind="blue" sm icon="eye" label="Review" onPress={() => review(e)} />}
       </View>} />;
   };
   /**
@@ -372,12 +372,6 @@ export function Returns() {
       }}>
       <Select label="Plant that made this battery" req value={plantName} ph="Choose the plant" options={activePlants.map(p => ({ v: p.name }))} onChange={v => { setPlantName(v); setPlantErr(''); }} error={plantErr} />
     </ReasonDialog>
-    <ReasonDialog open={decide?.kind === 'approve'} title={`Approve ${decide ? (decide.e.itemId ? codesOf(decide.e) : decide.e.id) : ''}`} confirm="Approve" kind="blue" onClose={() => setDecide(null)}
-      suggestions={['Verified at the factory — manufacturing defect', 'Checked offline, warranty valid']} intro="The old battery is at the factory. Approving records the replacement with the original cover dates, and the dealer is shown it is approved for refund."
-      onConfirm={r => decide ? dec.approve(decide.e, r) : false} />
-    <ReasonDialog open={decide?.kind === 'reject'} title={`Reject ${decide ? (decide.e.itemId ? codesOf(decide.e) : decide.e.id) : ''}`} confirm="Reject" kind="danger" onClose={() => setDecide(null)}
-      suggestions={['Physical damage — not covered', 'No fault found on testing', 'Serial does not match the label']} intro="The dealer sees this reason in their app."
-      onConfirm={r => decide ? dec.reject(decide.e, r) : false} />
     <ReasonDialog open={!!handover} title="Confirm customer handover" confirm="Confirm handover" onClose={() => setHandover(null)} suggestions={['Given to the customer at the counter']} intro="Records that the customer received the new battery."
       onConfirm={r => { if (!handover) return false; if (!canEdit) { a.toast('Read-only access.'); return false; } setState(s => audit({ ...s, entries: s.entries.map(e => e.id === handover.id ? { ...e, handover: `${r} · ${new Date().toLocaleString('en-IN')}` } : e) }, 'Confirm handover', handover.id, r)); a.toast('Handover recorded.'); }} />
   </Page>;

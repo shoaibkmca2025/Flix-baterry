@@ -57,7 +57,10 @@ vi.mock('./entries.repository', () => ({
   updateEntryItemLinks: vi.fn(),
   updateEntryStatus: vi.fn(),
   listEntries: vi.fn(),
+  upsertPhoto: vi.fn(),
+  findPhotosByEntryId: vi.fn(),
 }));
+vi.mock('../../utils/storage', () => ({ putObject: vi.fn(), signedUrl: vi.fn(async (key: string) => `https://storage.example/${key}?sig=1`) }));
 
 import * as batteriesRepo from '../batteries/batteries.repository';
 import * as claimsRepo from '../claims/claims.repository';
@@ -65,7 +68,8 @@ import * as claimsService from '../claims/claims.service';
 import * as returnsRepo from '../returns/returns.repository';
 import { postMovementInTx } from '../stock/stock.service';
 import * as repo from './entries.repository';
-import { approve, create, getById, list, reject, settle } from './entries.service';
+import { addPhoto, approve, create, getById, list, listPhotos, reject, settle } from './entries.service';
+import { putObject } from '../../utils/storage';
 import type { Ctx } from '../../utils/context';
 import type { EntryCreateBody } from './entries.validation';
 
@@ -503,5 +507,47 @@ describe('replacement decisions wait for the old battery to reach the factory', 
   it('settle only takes replacements', async () => {
     vi.mocked(repo.findEntryById).mockResolvedValue({ ...entry, entryType: 'sales_return' } as never);
     await expect(settle(adminCtx, 'entry-1', { decision: 'approved', reason: 'ok' })).rejects.toMatchObject({ code: 'not_a_replacement' });
+  });
+});
+
+describe('photos the dealer attached (D-10)', () => {
+  const entry = { id: 'entry-1', ref: 'ENT-26-10-0003', status: 'submitted', dealerId: 'dealer-1', entryType: 'replacement' };
+  const items = [{ id: 'item-1', seq: 0 }, { id: 'item-2', seq: 1 }];
+  const jpeg = Buffer.from('fake-jpeg-bytes').toString('base64');
+
+  it('stores the photo in the bucket and records which battery it shows', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(entry as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue(items as never);
+    vi.mocked(repo.upsertPhoto).mockImplementation(async (_db, row) => ({ id: 'photo-1', createdAt: new Date(), ...row }) as never);
+
+    const r = await addPhoto(dealerCtx, 'entry-1', { tag: 'New label', itemSeq: 1, contentType: 'image/jpeg', data: jpeg });
+
+    expect(putObject).toHaveBeenCalledWith(expect.stringMatching(/^entries\/entry-1\/[0-9a-f-]+\.jpg$/), expect.any(Uint8Array), 'image/jpeg');
+    expect(repo.upsertPhoto).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ entryId: 'entry-1', entryItemId: 'item-2', tag: 'New label', sizeBytes: 15, uploadedBy: 'user-1' }));
+    expect(r).toMatchObject({ id: 'photo-1', itemSeq: 1 });
+  });
+
+  it("a dealer cannot add to, or read, another dealer's request", async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(entry as never);
+    await expect(addPhoto(otherDealerCtx, 'entry-1', { tag: 'New label', contentType: 'image/jpeg', data: jpeg })).rejects.toMatchObject({ code: 'entry_not_found', status: 404 });
+    await expect(listPhotos(otherDealerCtx, 'entry-1')).rejects.toMatchObject({ code: 'entry_not_found' });
+    expect(putObject).not.toHaveBeenCalled();
+  });
+
+  it('a battery that is not on the request is refused before anything is stored', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(entry as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue(items as never);
+    await expect(addPhoto(dealerCtx, 'entry-1', { tag: 'New label', itemSeq: 5, contentType: 'image/jpeg', data: jpeg })).rejects.toMatchObject({ code: 'item_not_found' });
+    expect(putObject).not.toHaveBeenCalled();
+  });
+
+  it('head office gets every photo with its battery and a signed link', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(entry as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue(items as never);
+    vi.mocked(repo.findPhotosByEntryId).mockResolvedValue([{ id: 'photo-1', entryItemId: 'item-2', tag: 'New label', objectKey: 'entries/entry-1/a.jpg', contentType: 'image/jpeg', sizeBytes: 15, createdAt: new Date() }] as never);
+
+    const r = await listPhotos(adminCtx, 'entry-1');
+
+    expect(r.items).toEqual([expect.objectContaining({ id: 'photo-1', itemId: 'item-2', itemSeq: 1, tag: 'New label', url: 'https://storage.example/entries/entry-1/a.jpg?sig=1' })]);
   });
 });
