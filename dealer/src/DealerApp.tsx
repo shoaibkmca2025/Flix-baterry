@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, ScrollView, Platform, BackHandler, KeyboardAvoidingView, StatusBar, useWindowDimensions, ActivityIndicator } from 'react-native';
+import { View, ScrollView, Pressable, Platform, BackHandler, KeyboardAvoidingView, StatusBar, useWindowDimensions, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { useStore } from '@felix/shared/store';
@@ -35,7 +35,7 @@ export function DealerApp({ signedIn, onSignedIn, onSignOut }: { signedIn: boole
   const [recent, setRecent] = useState<string[]>([]);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const toast = useCallback((m: string) => { setToastMsg(m); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToastMsg(''), 2600); }, []);
+  const toast = useCallback((m: string) => { setToastMsg(m); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToastMsg(''), 10_000); }, []); // 10s (client, 2 Oct 2026)
   const go = (id: string, p?: string) => { setHistory(h => [...h, route]); setRoute({ id, p }); setToastMsg(''); };
   const back = (to: string, p?: string) => {
     const at = history.map(h => h.id).lastIndexOf(to);
@@ -66,8 +66,12 @@ export function DealerApp({ signedIn, onSignedIn, onSignOut }: { signedIn: boole
   const Current = SCREENS[guarded.id] || D02;
   const phone = <View style={{ flex: 1, backgroundColor: T.zinc, overflow: 'hidden', borderRadius: framed ? 28 : 0 }}>
     {ready && Current ? <Current key={`${guarded!.id}:${guarded!.p || ''}`} p={guarded!.p} /> : <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: T.deep }}><ActivityIndicator color={T.white} /></View>}
-    {!!toastMsg && <View accessibilityRole="alert" pointerEvents="none" style={{ position: 'absolute', left: 15, right: 15, bottom: 84, zIndex: 50, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: T.ink, paddingVertical: 13, paddingHorizontal: 15, borderRadius: 11, shadowColor: '#000', shadowOpacity: 0.6, shadowRadius: 30, shadowOffset: { width: 0, height: 12 }, elevation: 12 }}>
-      <Ic n="check" size={19} color="#5BD65B" /><X s={13.5} c={T.white} style={{ flex: 1 }}>{toastMsg}</X></View>}
+    {/* 10s, and tappable: a message that can only leave on a timer is hard for anyone who reads
+        slowly (HIG accessibility: "prefer dismissing views with an explicit action"). */}
+    {!!toastMsg && <Pressable accessibilityRole="button" accessibilityLabel={`${toastMsg}. Tap to dismiss.`} onPress={() => setToastMsg('')}
+      style={{ position: 'absolute', left: 15, right: 15, bottom: 84, zIndex: 50, flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, backgroundColor: T.ink, paddingVertical: 13, paddingHorizontal: 15, borderRadius: 11, shadowColor: '#000', shadowOpacity: 0.6, shadowRadius: 30, shadowOffset: { width: 0, height: 12 }, elevation: 12 }}>
+      <Ic n="check" size={19} color="#5BD65B" /><X s={13.5} c={T.white} style={{ flex: 1 }}>{toastMsg}</X>
+      <Ic n="x" size={16} color="#8B97A6" /></Pressable>}
   </View>;
 
   return <DCtx.Provider value={ctx}>

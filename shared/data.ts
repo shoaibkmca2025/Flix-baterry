@@ -126,8 +126,15 @@ export const needsNewBatteryPhoto = (e: Entry, i: number) => {
  * A replacement as head office handles it at the factory: one Entry per old battery, each with
  * its own claim, stage, plant and decision (client, 2 Oct 2026). A one-battery entry is itself.
  */
-export const batteryUnits = (e: Entry): Entry[] => e.type !== 'Replacement' || e.items.length < 2 ? [e] : e.items.map((it, i) => ({
-  ...e, items: [it], itemId: it.id, part: `battery ${i + 1} of ${e.items.length}`,
+/**
+ * A replacement as head office handles it: ONE unit per battery, always — even when the request
+ * carries a single battery. A dealer may send two batteries as one request or as two, and before
+ * this that choice silently changed the review screen: a one-battery request got a whole-request
+ * Approve/Refuse, a two-battery one got per-battery cards. Same challan, two different forms
+ * (client, 2 Oct 2026). Every battery is now reviewed and decided the same way.
+ */
+export const batteryUnits = (e: Entry): Entry[] => e.type !== 'Replacement' ? [e] : e.items.map((it, i) => ({
+  ...e, items: [it], itemId: it.id, part: e.items.length > 1 ? `battery ${i + 1} of ${e.items.length}` : undefined,
   claimId: it.claimId, claimStatus: it.claimStatus, status: it.status ?? e.status,
   returnState: it.returnState ?? e.returnState, returnNote: it.returnNote ?? e.returnNote,
   decidedAt: it.decidedAt ?? e.decidedAt, decisionReason: it.decisionReason ?? e.decisionReason,

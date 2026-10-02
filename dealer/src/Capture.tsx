@@ -43,6 +43,20 @@ function dealerErrors(e: Entry, state: State) {
       if (!it.fault) errs[`items.${i}.fault`] = 'Choose what is wrong with the old battery.';
       const dupOld = it.oldSerial && others.find(x => x.type === 'Replacement' && x.items.some(y => sameBattery(y.oldSerial, y.oldModel, it.oldSerial, it.oldModel)));
       if (dupOld && !errs[`items.${i}.oldSerial`]) errs[`items.${i}.oldSerial`] = `This old battery is already on request ${dupOld.id}.`;
+      // Out of cover: do not let the request be sent at all (client, 2 Oct 2026). Head office
+      // refuses these anyway, and a dealer who only finds out days later has already handed the
+      // customer a new battery. Worked out from the label — the same sum the server does on
+      // approval — because almost no old battery is on this system's records.
+      if (!errs[`items.${i}.oldSerial`] && it.oldSerial) {
+        const mfg = deriveCode(it.oldSerial, state.models.map(m => m.id), anyDigitLengths(state.serialDigitLengths)).mfg;
+        if (mfg) {
+          const months = (state.models.find(m => m.id === (it.oldModel || it.model))?.months ?? 24) + (state.graceMonths ?? 2);
+          const expiry = expiryFrom(`${mfg}-01`, months);
+          if (Date.parse(expiry) < Date.parse(e.date)) {
+            errs[`items.${i}.oldSerial`] = `This battery's warranty ran out on ${dLong(expiry)} — ${months} months from ${monthLong(mfg)}. A replacement cannot be claimed for it.`;
+          }
+        }
+      }
       if (i === 0 && !e.customer.trim()) errs['items.0.customer'] = 'Enter the dealer or customer name.'; // compulsory (client, 29 Sep 2026)
       if (needsNewBatteryPhoto(e, i)) errs[`items.${i}.newPhoto`] = 'Take a photo of the new battery. The replacement cannot go ahead without it.';
     }

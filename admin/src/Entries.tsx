@@ -332,7 +332,10 @@ export function EntryDetail({ id }: { id?: string }) {
   const photos: ShownPhoto[] | null = e.apiId ? serverPhotos : e.evidence.map((uri, i) => ({ key: String(i), uri, ...splitTag(tags[i]!) }));
   // A replacement with several batteries is decided battery by battery, on each card below.
   const units = e.type === 'Replacement' ? batteryUnits(e) : [e];
-  const perBattery = units.length > 1;
+  // Every battery of a replacement is decided on its own card, whether the request carries one or
+  // ten. It used to depend on the count, so the same challan showed two different review forms
+  // depending on how the dealer grouped the batteries (client, 2 Oct 2026).
+  const perBattery = e.type === 'Replacement';
   // the battery opened from Old battery returns comes first, marked
   const focusIdx = focusItem ? e.items.findIndex(it => it.id === focusItem) : -1;
   const order = e.items.map((_, i) => i).sort((x, y) => Number(y === focusIdx) - Number(x === focusIdx));
@@ -364,7 +367,7 @@ export function EntryDetail({ id }: { id?: string }) {
     {/* why the last decision did not go through — stays put, unlike the toast (client, 2 Oct 2026) */}
     {dec.problem ? <Banner tone="bad" icon="alert" style={{ marginBottom: 14 }}>
       <B>This could not be done.</B> {dec.problem} <B u onPress={dec.clearProblem}>Dismiss</B></Banner> : null}
-    {perBattery && pending && <Banner tone="info" icon="batt" style={{ marginBottom: 14 }}><B>Each battery is decided on its own.</B> Check its photos and the battery itself, then approve or reject it on its card below.</Banner>}
+    {perBattery && pending && units.length > 1 && <Banner tone="info" icon="batt" style={{ marginBottom: 14 }}><B>Each battery is decided on its own.</B> Check its photos and the battery itself, then approve or reject it on its card below.</Banner>}
     <Cols weights={[1.55, 1]}>
       <Stack>
         {order.map(i => {
@@ -399,7 +402,10 @@ export function EntryDetail({ id }: { id?: string }) {
                 <X s={11.5} c={T.deepText} style={{ marginTop: 2 }}>{`Cover to ${dLong(expiry)} · `}{cover ? 'from the warranty record.' : `worked out from the label — made ${monthShort(oldMfg)}, ${oldTerm} months cover. Not on record.`}</X>
               </View> : null}</Plate>
             <KV cols={a.wide ? 3 : 2} pairs={[['Short serial', it.serial, 'mono'], ['Made', monthShort(it.mfg)], ['Cover ends', cover ? dLong(cover.expiry) : 'Not on record'], ['Replacement month', it.rpl || '—'], ['Return month', it.rtn || '—'], ['WR reference', it.wr || '—', 'mono'], ['Reported fault', it.fault || '—'], ['Remarks', it.remarks || '—']]} />
-            {it.oldSerial && !old && <Banner tone="warn" icon="eye" style={{ marginTop: 11 }}>Old serial {it.oldSerial} is not on record — check it against the paper register. No cover dates are guessed.</Banner>}
+            {/* "not on record" is the NORMAL case, not a warning: the client keeps no register of
+                batteries sold before this system, so almost every old battery is new to us. Its
+                cover is read off the label instead, and that is shown in the panel above
+                (client, 2 Oct 2026). Nothing to flag — it was only ever noise. */}
             {/* the dealer's photos of THIS battery — what head office reviews before deciding */}
             <X s={12} w={7} c={T.slate} style={{ marginTop: 13, marginBottom: 7, letterSpacing: 0.4 }}>PHOTOS FROM THE DEALER</X>
             {photos === null ? <X s={13} c={T.slate}>Loading photos…</X>
@@ -467,7 +473,7 @@ export function EntryDetail({ id }: { id?: string }) {
     <ReasonDialog open={one?.kind === 'approve'} title={`Approve ${one ? one.u.items[0]?.oldSerial || one.u.id : ''}`} confirm="Approve" suggestions={APPROVE_REASONS} onClose={() => setOne(null)} onConfirm={r => one ? dec.approve(one.u, r) : false}
       intro={`Only this battery (${one?.u.part || ''}) is approved for refund. Cover dates carry over from the first sale.`} />
     <ReasonDialog open={one?.kind === 'reject'} title={`Reject ${one ? one.u.items[0]?.oldSerial || one.u.id : ''}`} confirm="Reject" kind="danger" suggestions={REJECT_REASONS} onClose={() => setOne(null)} onConfirm={r => one ? dec.reject(one.u, r) : false}
-      intro={`Only this battery (${one?.u.part || ''}) is rejected. The dealer sees this reason in their app.`} />
+      intro={`Only this battery${one?.u.part ? ` (${one.u.part})` : ''} is rejected. The dealer sees this reason in their app.`} />
     {/* the dealer's photo, full size, on this page — no tab switch, no second download */}
     <Dialog open={!!viewing} title={viewing?.tag === 'New label' ? 'New battery' : viewing?.tag || 'Photo'}
       sub={viewing?.itemSeq != null ? `Battery ${viewing.itemSeq + 1}` : undefined} width={980} onClose={() => setViewing(null)}>

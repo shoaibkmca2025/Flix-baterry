@@ -50,7 +50,7 @@ export function AdminApp({ session, onSignedIn, onSignOut }: { session: Session 
   const [route, setRoute] = useState<ARoute>({ r: 'home' }), [history, setHistory] = useState<ARoute[]>([]);
   const [account, setAccount] = useState(false), [toastMsg, setToastMsg] = useState('');
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const toast = useCallback((m: string) => { setToastMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setToastMsg(''), 3400); }, []);
+  const toast = useCallback((m: string) => { setToastMsg(m); clearTimeout(timer.current); timer.current = setTimeout(() => setToastMsg(''), 10_000); }, []); // 10s: these carry refusal reasons people have to read and act on (client, 2 Oct 2026)
   const go = (r: string, id?: string) => { if (ROOTS.includes(r) && !id) { setHistory([]); } else setHistory(h => [...h, route]); setRoute({ r, id }); };
   const back = () => { if (!history.length) { setRoute({ r: 'home' }); return; } setRoute(history[history.length - 1]); setHistory(history.slice(0, -1)); };
   useEffect(() => {
@@ -85,9 +85,14 @@ export function AdminApp({ session, onSignedIn, onSignOut }: { session: Session 
         {wide && <Sidebar />}
         <View style={{ flex: 1, minWidth: 0 }}>{body}{!wide && <TabBar />}</View>
       </View>
-      {!!toastMsg && <View pointerEvents="none" accessibilityRole="alert" style={{ position: 'absolute', left: wide ? 250 : 15, right: 15, bottom: wide ? 24 : 84, alignItems: 'center' }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: T.ink, paddingVertical: 13, paddingHorizontal: 15, borderRadius: 11, maxWidth: 560, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 12 }}>
-          <Ic n="check" size={19} color={T.volt} /><X s={13.5} c={T.white} style={{ flexShrink: 1 }}>{toastMsg}</X></View></View>}
+      {/* These carry refusal reasons, so they stay 10s — but a view that can only go away on a
+          timer is a problem for anyone who reads slowly or uses a screen reader, so it can also be
+          tapped away (HIG accessibility: "prefer dismissing views with an explicit action"). */}
+      {!!toastMsg && <View accessibilityRole="alert" style={{ position: 'absolute', left: wide ? 250 : 15, right: 15, bottom: wide ? 24 : 84, alignItems: 'center' }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={`${toastMsg}. Tap to dismiss.`} onPress={() => setToastMsg('')}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: T.ink, paddingVertical: 13, paddingHorizontal: 15, borderRadius: 11, maxWidth: 560, minHeight: 44, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 12 }}>
+          <Ic n="check" size={19} color={T.volt} /><X s={13.5} c={T.white} style={{ flexShrink: 1 }}>{toastMsg}</X>
+          <Ic n="x" size={16} color="#8B97A6" /></Pressable></View>}
       <Dialog open={account} title="Your account" onClose={() => setAccount(false)} width={460}>
         <View style={{ flexDirection: 'row', gap: 11, alignItems: 'center', backgroundColor: T.white, borderWidth: 1, borderColor: T.zinc2, borderRadius: 10, padding: 13, marginBottom: 14 }}>
           <Avatar n="user" tone="amber" />

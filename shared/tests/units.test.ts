@@ -24,12 +24,20 @@ test('head office sees one row per old battery, each with its own claim, stage a
   assert.ok(units.every(u => u.id === 'ENT-26-10-0003' && u.apiId === 'e-uuid')); // still the same request
 });
 
-test('a one-battery request, or one that is not a replacement, is its own row', () => {
+test('a one-battery replacement is still its own battery row — the form never changes shape', () => {
+  // A dealer may send two batteries as one request or as two, and head office must review every
+  // battery the same way either way (client, 2 Oct 2026). So a single-battery replacement is a
+  // unit with its own itemId and claim, exactly like one battery of a pair.
   const one = { ...twoBatteries(), items: [twoBatteries().items[0]!] };
-  assert.deepEqual(batteryUnits(one), [one]);
+  const [unit] = batteryUnits(one);
+  assert.equal(batteryUnits(one).length, 1);
+  assert.equal(unit!.itemId, 'item-1');
+  assert.equal(unit!.claimId, 'claim-1');
+  assert.equal(unit!.part, undefined);            // nothing to count when there is only one
+  assert.equal(unitKey(unit!), 'ENT-26-10-0003#item-1');
+  // anything that is not a replacement has no old battery and no claim, so it stays one row
   const ret = { ...twoBatteries(), type: 'Sales Return' };
   assert.deepEqual(batteryUnits(ret), [ret]);
-  assert.equal(unitKey(one), 'ENT-26-10-0003');
 });
 
 test('a battery with nothing of its own yet falls back to the request', () => {
