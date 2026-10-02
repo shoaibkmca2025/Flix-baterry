@@ -304,6 +304,7 @@ export function EntryDetail({ id }: { id?: string }) {
   // why there are none, when there are none: "the dealer sent none" and "we could not fetch them"
   // looked identical before, so a broken link read as a dealer who had not taken the photo
   const [photoError, setPhotoError] = useState('');
+  const [viewing, setViewing] = useState<ShownPhoto | null>(null);
   const [one, setOne] = useState<{ u: Entry; kind: 'approve' | 'reject' } | null>(null);
   // review / correct act on ONE battery (client, 2 Oct 2026) — the card's item, not the request
   const [workOn, setWorkOn] = useState<{ itemId: string; n: number; kind: 'review' | 'correct'; code: string; oldSerial: string } | null>(null);
@@ -335,6 +336,9 @@ export function EntryDetail({ id }: { id?: string }) {
   // the battery opened from Old battery returns comes first, marked
   const focusIdx = focusItem ? e.items.findIndex(it => it.id === focusItem) : -1;
   const order = e.items.map((_, i) => i).sort((x, y) => Number(y === focusIdx) - Number(x === focusIdx));
+  // Opening a photo in a new tab made the browser fetch it again and lost the reviewer's place.
+  // It opens here instead, straight from what the thumbnail already downloaded, so it is instant
+  // (client, 2 Oct 2026). `open` stays for the "open the original" link inside the viewer.
   const open = (uri: string) => { Linking.openURL(uri).catch(() => a.toast('The photo could not be opened here.')); };
   const g = parseGps(e.gps);
   const banner = e.status === 'Conflict' ? <Banner tone="bad" icon="alert"><B>Serial exception — this cannot be approved yet.</B> {problems[0] || 'A serial needs checking.'} Ask the dealer for a correction, or correct it yourself.</Banner>
@@ -399,7 +403,7 @@ export function EntryDetail({ id }: { id?: string }) {
             {/* the dealer's photos of THIS battery — what head office reviews before deciding */}
             <X s={12} w={7} c={T.slate} style={{ marginTop: 13, marginBottom: 7, letterSpacing: 0.4 }}>PHOTOS FROM THE DEALER</X>
             {photos === null ? <X s={13} c={T.slate}>Loading photos…</X>
-              : mine.length ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9 }}>{mine.map(p => <Pressable key={p.key} accessibilityRole="imagebutton" accessibilityLabel={`Open photo: ${p.tag}`} onPress={() => open(p.uri)} style={{ width: 150 }}>
+              : mine.length ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9 }}>{mine.map(p => <Pressable key={p.key} accessibilityRole="imagebutton" accessibilityLabel={`Open photo: ${p.tag}`} onPress={() => setViewing(p)} style={{ width: 150 }}>
                   <Image source={{ uri: p.uri }} style={{ width: 150, height: 112, borderRadius: 9, backgroundColor: T.zinc2 }} resizeMode="cover" />
                   <X s={12} w={6} c={T.slate} style={{ marginTop: 4 }}>{p.tag === 'New label' ? 'New battery' : p.tag}</X></Pressable>)}</View>
               : photoError ? <Banner tone="bad" icon="alert">The photos could not be loaded — {photoError}. This is not the dealer’s doing; try again, and tell the developer if it keeps happening.</Banner>
@@ -464,6 +468,17 @@ export function EntryDetail({ id }: { id?: string }) {
       intro={`Only this battery (${one?.u.part || ''}) is approved for refund. Cover dates carry over from the first sale.`} />
     <ReasonDialog open={one?.kind === 'reject'} title={`Reject ${one ? one.u.items[0]?.oldSerial || one.u.id : ''}`} confirm="Reject" kind="danger" suggestions={REJECT_REASONS} onClose={() => setOne(null)} onConfirm={r => one ? dec.reject(one.u, r) : false}
       intro={`Only this battery (${one?.u.part || ''}) is rejected. The dealer sees this reason in their app.`} />
+    {/* the dealer's photo, full size, on this page — no tab switch, no second download */}
+    <Dialog open={!!viewing} title={viewing?.tag === 'New label' ? 'New battery' : viewing?.tag || 'Photo'}
+      sub={viewing?.itemSeq != null ? `Battery ${viewing.itemSeq + 1}` : undefined} width={980} onClose={() => setViewing(null)}>
+      {viewing ? <>
+        <Image source={{ uri: viewing.uri }} style={{ width: '100%', height: 560, borderRadius: 10, backgroundColor: T.ink }} resizeMode="contain" />
+        <View style={{ flexDirection: 'row', gap: 9, marginTop: 13, flexWrap: 'wrap' }}>
+          <Btn kind="ghost" sm icon="link" label="Open the original" onPress={() => open(viewing.uri)} />
+          <Btn kind="ghost" sm icon="x" label="Close" onPress={() => setViewing(null)} />
+        </View>
+      </> : null}
+    </Dialog>
     {/* review / correct ONE battery (client, 2 Oct 2026) */}
     <ReasonDialog open={workOn?.kind === 'review'} title={`Check battery ${workOn?.n ?? ''}`} confirm="Mark as being checked"
       suggestions={['Waiting for the old battery to arrive', 'Checking the label photo', 'Opening it on the bench', 'Calling the dealer']}
