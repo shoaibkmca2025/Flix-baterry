@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { View, Image, Pressable, Linking } from 'react-native';
 import { useStore } from '@felix/shared/store';
-import { Entry, Item, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approveEntry, deriveCode, expiryFrom, today, isValidDigits, lengthsLabel, filterEntries, newEntry, newItem, normalize, uid, validateEntry, warranty } from '@felix/shared/domain';
+import { Entry, Item, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approveEntry, deriveCode, expiryFrom, today, isValidDigits, lengthsLabel, filterEntries, newEntry, newItem, normalize, uid, validateEntry, warranty } from '@felix/shared/domain';
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
-import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
-import { approvedForRefund, batteryUnits, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, tShort, monthShort } from '@felix/shared/data';
+import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, ChipRow, Label, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
+import { approvedForRefund, batteryUnits, entryErrors, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, tShort, monthShort } from '@felix/shared/data';
 import { listPhotos, splitTag, uploadEntryPhotos } from '@felix/shared/api/photos';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
@@ -572,7 +572,9 @@ export function NewEntry({ id }: { id?: string }) {
     finally { setBusy(false); }
   };
   const next = () => {
-    const all = validateEntry(entry, state);
+    // the same bar the dealer app sets (shared/data.ts entryErrors): fault, duplicate serials,
+    // expired cover, customer name — the console records on a dealer's behalf (client, 2 Oct 2026)
+    const all = entryErrors(entry, state);
     const relevant = Object.fromEntries(Object.entries(all).filter(([k]) => step === 1 ? !k.startsWith('items') : k.startsWith('items')));
     setErrors(relevant); if (!Object.keys(relevant).length) setStep(step + 1);
   };
@@ -592,7 +594,7 @@ export function NewEntry({ id }: { id?: string }) {
     <View style={{ flex: 1 }} />
     {step < 4 ? <Btn kind="primary" iconAfter="chev" label="Continue" onPress={step === 3 ? () => setStep(4) : next} />
       : <Btn kind="primary" icon="check" label={state.offline ? 'Save and send later' : 'Send for approval'} onPress={() => {
-        const all = validateEntry(entry, state); setErrors(all); if (Object.keys(all).length) { a.toast('Some details need fixing — see the list above.'); return; }
+        const all = entryErrors(entry, state); setErrors(all); if (Object.keys(all).length) { a.toast('Some details need fixing — see the list above.'); return; }
         if (dealer?.status !== 'Active') { a.toast('This dealer is not active. Save a draft until the account is restored.'); return; }
         if (!state.offline && dealer && /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(dealer.id)) { sendLive(); return; }
         setDone(save(state.offline ? 'Pending sync' : 'Submitted'));
@@ -633,7 +635,19 @@ export function NewEntry({ id }: { id?: string }) {
               <Field label="Short serial" req mono numeric maxLength={newMax - 4} value={it.serial} onChange={serial => item(i, { serial })} error={k('serial')} hint="Filled from the code." hintIcon="lock" />
               <Field label="Manufacturing month" mono value={it.mfg} onChange={mfg => item(i, { mfg })} ph="YYYY-MM" error={k('mfg')} />
             </Cols>
-            <Field label={rep ? 'Old battery serial' : 'Old battery serial (optional)'} req={rep} mono numeric maxLength={oldMax} value={it.oldSerial} onChange={v => item(i, { oldSerial: v.replace(/\D/g, '').slice(0, oldMax) })} error={k('oldSerial')} ph="The battery that came back" />
+            <Cols>
+              <Field label={rep ? 'Old battery serial' : 'Old battery serial (optional)'} req={rep} mono numeric maxLength={oldMax} value={it.oldSerial} onChange={v => item(i, { oldSerial: v.replace(/\D/g, '').slice(0, oldMax) })} error={k('oldSerial')} ph="The battery that came back" />
+              {/* the OLD battery's own model decides its warranty term — the dealer app asks for it,
+                  so the console must too, or the cover is worked out from the wrong term */}
+              {rep ? <Select label="Old battery model" value={it.oldModel || ''} options={state.models.map(m => ({ v: m.id, sub: `${m.type} · ${m.capacity}` }))} onChange={oldModel => item(i, { oldModel })} hint="Leave blank if it is the same model as the new one." /> : null}
+            </Cols>
+            {/* The server refuses a replacement without a fault, so without this the console could
+                not record one at all (client, 2 Oct 2026). Same list as the dealer app. */}
+            {rep ? <View style={{ marginBottom: 13 }}>
+              <Label text="What is wrong with the old battery?" req />
+              <ChipRow options={FAULTS} value={it.fault || ''} onChange={fault => item(i, { fault })} />
+              {k('fault') ? <Hint tone="err" icon="alert">{k('fault')}</Hint> : null}
+            </View> : null}
             {oldReady && (old ? <Banner tone={cover?.status === 'Expired' ? 'bad' : 'ok'} icon="shield" style={{ marginBottom: 13 }}><B>{old.model} · on record.</B> {cover ? `Cover ${dLong(cover.start)} → ${dLong(cover.expiry)}. The replacement inherits these dates.` : 'No cover dates on record.'}</Banner>
               : <Banner tone="warn" icon="eye" style={{ marginBottom: 13 }}>Not on record. It will be flagged for checking — no cover dates are invented.</Banner>)}
             <Cols>

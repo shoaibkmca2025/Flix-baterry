@@ -1,4 +1,4 @@
-import { Battery, Challan, Dealer, Entry, State, chainFor, normalize, today, warranty, validateEntry } from './domain';
+import { Battery, Challan, Dealer, Entry, State, anyDigitLengths, chainFor, deriveCode, expiryFrom, normalize, sameBattery, today, warranty, validateEntry } from './domain';
 import { escapeHtml } from './html';
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -187,4 +187,46 @@ export function challanHtml(c: Challan, d: Dealer) {
     `<div class="tot"><span>Total batteries returned</span><span>${c.rows.length}</span></div>` +
     '<div class="d">Returned for warranty inspection only. No sale value. Each battery remains the property of Felix Batteries Industries. Claims are decided after inspection at the company.</div>' +
     '<div class="s"><div>Distributor signature</div><div>Driver signature</div><div>Received at company</div></div></body></html>';
+}
+
+
+/** Requests that still hold a battery: a serial on one of these cannot be used on another. */
+const OPEN_ELSEWHERE = ['Submitted', 'Under Review', 'Conflict', 'Pending sync'];
+
+/**
+ * Every check a replacement or return has to pass before it is sent, on top of the shared
+ * field validation. Used by BOTH the dealer app and head office's "Record an entry" — the
+ * console records on a dealer's behalf, so a request typed there must clear exactly the same
+ * bar as one the dealer sent, or head office can create what it would refuse (client, 2 Oct 2026).
+ *
+ * Keyed `items.<i>.<field>` so a screen can show each message on the field it belongs to.
+ */
+export function entryErrors(e: Entry, state: State): Record<string, string> {
+  const errs: Record<string, string> = { ...validateEntry(e, state) };
+  const others = state.entries.filter(x => x.id !== e.id && OPEN_ELSEWHERE.includes(x.status));
+  const modelIds = state.models.map(m => m.id);
+  e.items.forEach((it, i) => {
+    const key = `items.${i}.`;
+    if (e.type === 'Replacement') {
+      if (!it.fault) errs[key + 'fault'] = 'Choose what is wrong with the old battery.';
+      const dupOld = it.oldSerial && others.find(x => x.type === 'Replacement' && x.items.some(y => sameBattery(y.oldSerial, y.oldModel, it.oldSerial, it.oldModel)));
+      if (dupOld && !errs[key + 'oldSerial']) errs[key + 'oldSerial'] = `This old battery is already on request ${dupOld.id}.`;
+      // Out of cover: the request must not be made at all. Worked out from the label — the same
+      // sum the server does on approval — because almost no old battery is on record here.
+      if (!errs[key + 'oldSerial'] && it.oldSerial) {
+        const mfg = deriveCode(it.oldSerial, modelIds, anyDigitLengths(state.serialDigitLengths)).mfg;
+        if (mfg) {
+          const months = (state.models.find(m => m.id === (it.oldModel || it.model))?.months ?? 24) + (state.graceMonths ?? 2);
+          const expiry = expiryFrom(`${mfg}-01`, months);
+          if (Date.parse(expiry) < Date.parse(e.date)) {
+            errs[key + 'oldSerial'] = `This battery's warranty ran out on ${dLong(expiry)} — ${months} months from ${monthLong(mfg)}. A replacement cannot be claimed for it.`;
+          }
+        }
+      }
+      if (i === 0 && !e.customer.trim()) errs['items.0.customer'] = 'Enter the customer name.';
+    }
+    const dupNew = it.code && others.find(x => x.items.some(y => sameBattery(y.code, y.model, it.code, it.model)));
+    if (dupNew && !errs[key + 'code']) errs[key + 'code'] = `This battery is already on request ${dupNew.id}.`;
+  });
+  return errs;
 }

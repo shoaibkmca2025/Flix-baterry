@@ -8,7 +8,7 @@ import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banne
 import { Screen, AppBar, Sheet, useD } from './shell';
 import { PickList } from '@felix/shared/ui/pick';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
-import { coverChip, dLong, findBattery, monYear, monthLong, monthShort, needsNewBatteryPhoto, newPhotoTag, nextEntryId, roleOf, span, spanLong, spanShort, tShort } from '@felix/shared/data';
+import { coverChip, dLong, entryErrors, findBattery, monYear, monthLong, monthShort, needsNewBatteryPhoto, newPhotoTag, nextEntryId, roleOf, span, spanLong, spanShort, tShort } from '@felix/shared/data';
 import { useAccessToken } from '@felix/shared/api/session';
 import { lookupBattery, type BatteryLookupResult } from '@felix/shared/api/batteries';
 import { createEntry } from '@felix/shared/api/entries';
@@ -34,35 +34,18 @@ function withPhoto(e: Entry, tag: string, uri: string): Partial<Entry> {
 }
 const codeFrom = (data: string) => (data.match(/[A-Za-z]\d{3,4}-?\d{6,9}/)?.[0]) || (data.match(/\d{6,9}/)?.[0]) || data.replace(/\D/g, '').slice(0, 9);
 
-/** Checks the dealer app adds on top of the shared validation. */
-function dealerErrors(e: Entry, state: State) {
-  const errs: Record<string, string> = { ...validateEntry(e, state) };
-  const others = state.entries.filter(x => x.id !== e.id && ACTIVE_ELSEWHERE.includes(x.status));
-  e.items.forEach((it, i) => {
-    if (e.type === 'Replacement') {
-      if (!it.fault) errs[`items.${i}.fault`] = 'Choose what is wrong with the old battery.';
-      const dupOld = it.oldSerial && others.find(x => x.type === 'Replacement' && x.items.some(y => sameBattery(y.oldSerial, y.oldModel, it.oldSerial, it.oldModel)));
-      if (dupOld && !errs[`items.${i}.oldSerial`]) errs[`items.${i}.oldSerial`] = `This old battery is already on request ${dupOld.id}.`;
-      // Out of cover: do not let the request be sent at all (client, 2 Oct 2026). Head office
-      // refuses these anyway, and a dealer who only finds out days later has already handed the
-      // customer a new battery. Worked out from the label — the same sum the server does on
-      // approval — because almost no old battery is on this system's records.
-      if (!errs[`items.${i}.oldSerial`] && it.oldSerial) {
-        const mfg = deriveCode(it.oldSerial, state.models.map(m => m.id), anyDigitLengths(state.serialDigitLengths)).mfg;
-        if (mfg) {
-          const months = (state.models.find(m => m.id === (it.oldModel || it.model))?.months ?? 24) + (state.graceMonths ?? 2);
-          const expiry = expiryFrom(`${mfg}-01`, months);
-          if (Date.parse(expiry) < Date.parse(e.date)) {
-            errs[`items.${i}.oldSerial`] = `This battery's warranty ran out on ${dLong(expiry)} — ${months} months from ${monthLong(mfg)}. A replacement cannot be claimed for it.`;
-          }
-        }
-      }
-      if (i === 0 && !e.customer.trim()) errs['items.0.customer'] = 'Enter the customer name.'; // compulsory (client, 29 Sep 2026)
+/**
+ * The shared checks (shared/data.ts entryErrors — head office's "Record an entry" runs the same
+ * ones) plus the one that is the dealer app's alone: a replacement cannot go ahead without a
+ * photo of the new battery, which only exists on this device until the request is sent.
+ */
+function dealerErrors(e: Entry, state: State): Record<string, string> {
+  const errs = entryErrors(e, state);
+  if (e.type === 'Replacement') {
+    e.items.forEach((_, i) => {
       if (needsNewBatteryPhoto(e, i)) errs[`items.${i}.newPhoto`] = 'Take a photo of the new battery. The replacement cannot go ahead without it.';
-    }
-    const dupNew = it.code && others.find(x => x.items.some(y => sameBattery(y.code, y.model, it.code, it.model)));
-    if (dupNew && !errs[`items.${i}.code`]) errs[`items.${i}.code`] = `This battery is already on request ${dupNew.id}.`;
-  });
+    });
+  }
   return errs;
 }
 const itemErrors = (errs: Record<string, string>, i: number, fields: string[]) => Object.fromEntries(fields.filter(f => errs[`items.${i}.${f}`]).map(f => [f, errs[`items.${i}.${f}`]]));
