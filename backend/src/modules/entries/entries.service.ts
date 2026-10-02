@@ -1,5 +1,5 @@
 import { db, withTransaction, type Tx } from '../../database/client';
-import { deriveCode, digitsOfFull, fullCode, lengthsSentence, readStored, NEW_BATTERY_DIGIT_LENGTHS } from '../../domain/serials';
+import { anyDigitLengths, deriveCode, digitsOfFull, fullCode, lengthsSentence, readStored, NEW_BATTERY_DIGIT_LENGTHS } from '../../domain/serials';
 import { coverFromMfg } from '../../domain/warranty';
 import { graceMonths, serialDigitLengths } from '../../utils/settings';
 import { audit } from '../../utils/audit';
@@ -52,11 +52,14 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
 
   // format-validate every item up front, and reject duplicate codes WITHIN the same entry —
   // before opening a transaction, matching architecture.md §9.3's "errors first" pipeline.
-  const [modelRows, lengths] = await Promise.all([batteriesRepo.listModels(db), serialDigitLengths(db)]);
+  const [modelRows, setting] = await Promise.all([batteriesRepo.listModels(db), serialDigitLengths(db)]);
   const modelIds = modelRows.map((m) => m.id);
+  // An OLD battery (and a sales return) is one already in the field: it can carry any form we have
+  // ever issued, including the 9-digit new-battery form, or it could not be sent back to us.
+  const lengths = anyDigitLengths(setting);
   const badFormat = `Use ${lengthsSentence(lengths)} that starts with the YYMM it was made.`;
-  // `code` is a NEW battery for a replacement or a sale (always 8 digits), but for a sales return it
-  // is a battery already in the field, which may carry the older 7-digit form like any old battery.
+  // `code` is a NEW battery for a replacement or a sale (7, 8 or 9 digits — client, 2 Oct 2026),
+  // but for a sales return it is a battery already in the field, so it follows `lengths`.
   const codeLengths: readonly number[] = input.entryType === 'sales_return' ? lengths : NEW_BATTERY_DIGIT_LENGTHS;
   const badNewFormat = input.entryType === 'sales_return' ? badFormat : `A new battery has ${lengthsSentence(NEW_BATTERY_DIGIT_LENGTHS)} that starts with the YYMM it was made.`;
   const derivedItems = input.items.map((item, i) => {

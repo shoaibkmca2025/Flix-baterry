@@ -7,7 +7,7 @@ import { checkClaim, receiveClaim } from '@felix/shared/api/claims';
 import { receiveChallan, receiveLine, setLinePlant, stageLine } from '@felix/shared/api/returns';
 import { errorMessage } from '@felix/shared/api/client';
 import { useSync } from '@felix/shared/api/sync';
-import { Challan, Entry, today, uid } from '@felix/shared/domain';
+import { Challan, Entry, anyDigitLengths, isValidDigits, lengthsLabel, today, uid } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar, Plate, PlateLab, PlateVal, Tone, IconName } from '@felix/shared/ui/kit';
 import { ageDays, challanHtml, dLong, dShort } from '@felix/shared/data';
@@ -25,6 +25,7 @@ export function Stock({ id }: { id?: string }) {
   const [tab, setTab] = useState('overview'), [model, setModel] = useState('All'), [st, setSt] = useState('All'), [dealer, setDealer] = useState('All'), [q, setQ] = useState('');
   const [move, setMove] = useState(!!id?.startsWith('move:')), [code, setCode] = useState(id?.startsWith('move:') ? id.slice(5) : ''), [to, setTo] = useState('Available'), [target, setTarget] = useState(''), [reason, setReason] = useState(''), [err, setErr] = useState('');
   const [thr, setThr] = useState<{ id: string; value: string } | null>(null);
+  const codeLengths = anyDigitLengths(state.serialDigitLengths), codeMax = Math.max(...codeLengths);
   const dealerName = (d: string) => state.dealers.find(x => x.id === d)?.name || d;
   const dealerId = state.dealers.find(d => d.name === dealer)?.id;
   const batteries = state.batteries.filter(b => (model === 'All' || b.model === model) && (st === 'All' || b.state === st) && (!dealerId || b.dealerId === dealerId) && (!q || b.code.includes(q) || b.customer.toLowerCase().includes(q.toLowerCase())));
@@ -83,7 +84,8 @@ export function Stock({ id }: { id?: string }) {
         mobile={{ title: m => m.id, sub: m => `${available(m.id)} available · level ${m.threshold}`, right: m => available(m.id) < m.threshold ? <Chip tone="bad" label="Low" /> : <Chip tone="live" label="OK" /> }} />
     </Box>}
     <Dialog open={move} title="Post a stock movement" sub="Moves one battery — the count follows by itself" onClose={() => setMove(false)}>
-      <Field label="Battery serial" req mono numeric maxLength={8} value={code} onChange={v => { setCode(v.replace(/\D/g, '')); setErr(''); }} ph="8 digits" hint={current ? `${current.model} · ${current.state} · ${dealerName(current.dealerId)}` : code.length === 8 ? 'Not in the register' : undefined} hintTone={current ? 'ok' : undefined} hintIcon={current ? 'check' : 'alert'} />
+      {/* a stock move names a battery already on record, so it accepts every form we have issued */}
+      <Field label="Battery serial" req mono numeric maxLength={codeMax} value={code} onChange={v => { setCode(v.replace(/\D/g, '').slice(0, codeMax)); setErr(''); }} ph={lengthsLabel(codeLengths)} hint={current ? `${current.model} · ${current.state} · ${dealerName(current.dealerId)}` : isValidDigits(code, codeLengths) ? 'Not in the register' : undefined} hintTone={current ? 'ok' : undefined} hintIcon={current ? 'check' : 'alert'} />
       <Select label="Move to" req value={to} options={current ? (TRANSITIONS[current.state] || []).map(v => ({ v })) : STATES.filter(s => s !== 'Replacement').map(v => ({ v }))} onChange={setTo} hint={current ? `Allowed from ${current.state.toLowerCase()}: ${(TRANSITIONS[current.state] || ['nothing']).join(', ')}` : undefined} />
       <Select label="Dealer" value={dealerName(target || current?.dealerId || '')} options={state.dealers.filter(d => d.status === 'Active').map(d => ({ v: d.name, sub: d.id }))} onChange={v => setTarget(state.dealers.find(d => d.name === v)?.id || '')} hint="Change only for a transfer between dealers." />
       <Field label="Reason" req value={reason} onChange={v => { setReason(v); setErr(''); }} ph="e.g. Replenishment against reorder alert" multiline />

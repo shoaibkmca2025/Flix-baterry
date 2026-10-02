@@ -19,10 +19,22 @@ export function normaliseLabel(input: string): string {
  * change, not a release.
  */
 export const DEFAULT_DIGIT_LENGTHS = [7, 8] as const;
-/** Batteries made now all carry 8 digits (client, 27 Sep 2026). Only batteries ALREADY in the field
- * (an old battery coming back, a sales return) can have the older 7-digit form, so those follow
- * the `serials.digit_lengths` setting while a new battery is always held to this. */
-export const NEW_BATTERY_DIGIT_LENGTHS = [8] as const;
+/**
+ * What a NEW battery's number may be. The client first said 8 only (27 Sep 2026) and has since
+ * said all three plants are in use on new stock: 7, 8 and 9 digits (client, 2 Oct 2026). It stays
+ * its own list rather than merging into the setting above so the two can diverge again when a
+ * plant stops printing a form — new stock and stock already in the field are different questions.
+ */
+export const NEW_BATTERY_DIGIT_LENGTHS = [7, 8, 9] as const;
+/**
+ * Every length a battery in the system can carry: what the plants print (the setting) plus what a
+ * new battery may be. A lookup, a stock move, a warranty check or an OLD battery coming back is
+ * handed a code without being told which kind it is, so all of them must read every form we
+ * issue — otherwise a 9-digit battery we registered ourselves becomes unreadable the next time
+ * anyone types it.
+ */
+export const anyDigitLengths = (settingLengths: readonly number[]): number[] =>
+  [...new Set([...settingLengths, ...NEW_BATTERY_DIGIT_LENGTHS])].sort((a, b) => a - b);
 const MONTH_DIGITS = 4;
 
 export type DerivedCode = {
@@ -99,6 +111,12 @@ export function splitLabel(
     if (endsWith) return { modelId: endsWith, code: tail };
   }
 
+  // All digits and not an accepted length: hand the whole thing back so the length check refuses
+  // it. Trimming it to a tail that happens to parse would silently register a DIFFERENT battery —
+  // '2609123456' would become '09123456'. The fallback below exists for a label whose model we do
+  // not know ('XYZ26091234'), which is a different case: that head is not digits.
+  if (isDigits(whole)) return { modelId: null, code: whole };
+
   // The label named something the catalogue does not have. Hand back the digits anyway —
   // preferring a tail that actually looks like YYMM — so the caller can say "we don't know
   // that model" rather than the misleading "that is not a valid number".
@@ -132,7 +150,9 @@ const article = (n: number) => (/^(8|11|18)/.test(String(n)) ? 'an' : 'a');
 export function lengthsSentence(lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS): string {
   const sorted = [...new Set(lengths)].sort((a, b) => a - b);
   if (sorted.length === 1) return `${article(sorted[0]!)} ${sorted[0]}-digit number`;
-  return `${article(sorted[0]!)} ${sorted.slice(0, -1).join(', ')}- or ${sorted[sorted.length - 1]}-digit number`;
+  // each length carries its own hyphen ("a 7-, 8- or 9-digit number"); with only two there is
+  // just the one, which is why the missing hyphens never showed before 9 digits was allowed.
+  return `${article(sorted[0]!)} ${sorted.slice(0, -1).join('-, ')}- or ${sorted[sorted.length - 1]}-digit number`;
 }
 
 export function deriveCode(

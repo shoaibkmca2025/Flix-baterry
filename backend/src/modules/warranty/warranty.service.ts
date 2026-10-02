@@ -1,5 +1,5 @@
 import { db, withTransaction } from '../../database/client';
-import { deriveCode, fullCode, lengthsSentence } from '../../domain/serials';
+import { anyDigitLengths, deriveCode, fullCode, lengthsSentence } from '../../domain/serials';
 import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
@@ -30,7 +30,9 @@ const addDays = (isoDate: string, days: number) => new Date(Date.parse(isoDate) 
 
 /** The battery the dealer scanned, found by its full printed identity (D-13). */
 async function findBattery(code: string, modelId?: string) {
-  const [modelRows, lengths] = await Promise.all([batteriesRepo.listModels(db), serialDigitLengths(db)]);
+  const [modelRows, setting] = await Promise.all([batteriesRepo.listModels(db), serialDigitLengths(db)]);
+  // a warranty check reads a battery already in the field, of any form we have ever issued
+  const lengths = anyDigitLengths(setting);
   const derived = deriveCode(code, modelRows.map((m) => m.id), lengths);
   if (!derived.valid) throw new AppError('format_mismatch', 422, `Use ${lengthsSentence(lengths)} that starts with the YYMM it was made.`, { field: 'batteryCode' });
   const productId = derived.modelId ?? modelId;

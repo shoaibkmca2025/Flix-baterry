@@ -1,6 +1,6 @@
 import { db, withTransaction, type Tx } from '../../database/client';
 import { canTransition, type BatteryState, type Custodian } from '../../domain/stock';
-import { deriveCode, fullCode } from '../../domain/serials';
+import { anyDigitLengths, deriveCode, fullCode } from '../../domain/serials';
 import { serialDigitLengths } from '../../utils/settings';
 import type { batteries } from '../../models/batteries.model';
 import { audit } from '../../utils/audit';
@@ -37,8 +37,9 @@ export type MovementInput = {
  * ('M1000 26090676') or as digits plus an explicit modelId.
  */
 async function findBattery(code: string, modelId?: string) {
-  const [modelRows, lengths] = await Promise.all([batteriesRepo.listModels(db), serialDigitLengths(db)]);
-  const derived = deriveCode(code, modelRows.map((m) => m.id), lengths);
+  const [modelRows, setting] = await Promise.all([batteriesRepo.listModels(db), serialDigitLengths(db)]);
+  // a stock move names a battery already on record, of any form we have ever issued
+  const derived = deriveCode(code, modelRows.map((m) => m.id), anyDigitLengths(setting));
   const productId = derived.modelId ?? modelId;
   if (!productId) return undefined;
   return batteriesRepo.findBatteryByCode(db, fullCode(productId, derived.normalised));

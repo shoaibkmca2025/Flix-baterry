@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { initialState } from '../seed';
-import { approveEntry, chainFor, deriveCode, expiryFrom, filterEntries, fullCode, newEntry, newItem, splitLabel, validateEntry, warranty } from '../domain';
+import { anyDigitLengths, approveEntry, chainFor, deriveCode, expiryFrom, filterEntries, fullCode, newEntry, newItem, splitLabel, validateEntry, warranty } from '../domain';
 const fresh=()=>structuredClone(initialState);
 test('manufacturing derivation preserves the short serial leading zeros',()=>{
  assert.deepEqual(deriveCode('21030047'),{serial:'0047',mfg:'2021-03',labelModelId:''});
@@ -61,14 +61,17 @@ test('warranty status is explicit at expiry and without a source date',()=>{
 test('a 7-digit code validates: the serial is 3 digits, not 4 (client, 27 Sep)',()=>{
  const state:any={models:[{id:'I700',plate:'I',modelNo:'700',months:12,active:true},{id:'M1000',plate:'M',modelNo:'1000',months:12,active:true}],
   serialDigitLengths:[7,8],batteries:[],entries:[],overrides:[],policies:[{id:'POL-01',months:24,alertDays:30}]};
- const entryWith=(model:string,typed:string,type='Regular Sales')=>{const d=deriveCode(typed);
+ // the lengths a NEW battery may use, so a 9-digit code derives its 5-digit serial here too
+ const entryWith=(model:string,typed:string,type='Regular Sales')=>{const d=deriveCode(typed,[],anyDigitLengths(state.serialDigitLengths));
   return {...newEntry('dealer-1',type),place:'Nashik',items:[{...newItem(),model,code:typed,serial:d.serial,mfg:d.mfg}]};};
- // 7 digits are for batteries ALREADY in the field (a sales return, an old battery coming back);
- // a NEW battery is always 8 digits (client, 27 Sep) — so the 7-digit example is a sales return.
+ // All three plants are in use on new stock, so 7, 8 and 9 digits are all accepted on a NEW
+ // battery (client, 2 Oct 2026). The serial is whatever follows the YYMM, so its length follows.
  assert.deepEqual(validateEntry(entryWith('I700','2609532','Sales Return'),state),{}); // the client's own entry
- assert.ok(validateEntry(entryWith('I700','2609532'),state)['items.0.code']);            // a 7-digit NEW battery is refused
- assert.deepEqual(validateEntry(entryWith('M1000','26095320'),state),{});    // 8 digits still fine
+ assert.deepEqual(validateEntry(entryWith('I700','2609532'),state),{});       // 7 digits, serial 532
+ assert.deepEqual(validateEntry(entryWith('M1000','26095320'),state),{});     // 8 digits, serial 5320
+ assert.deepEqual(validateEntry(entryWith('M1000','260953201'),state),{});    // 9 digits, serial 53201
  assert.ok(validateEntry(entryWith('M1000','260953'),state)['items.0.code']); // 6 digits still refused
+ assert.ok(validateEntry(entryWith('M1000','2609532012'),state)['items.0.code']); // 10 digits refused, not trimmed
  assert.ok(validateEntry(entryWith('M1000','26135320'),state)['items.0.code']); // month 13 still refused
 });
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Image, Pressable } from 'react-native';
 import { useStore } from '@felix/shared/store';
-import { Entry, Item, approveEntry, deriveCode, filterEntries, newEntry, newItem, normalize, uid, validateEntry, warranty } from '@felix/shared/domain';
+import { Entry, Item, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approveEntry, deriveCode, isValidDigits, lengthsLabel, filterEntries, newEntry, newItem, normalize, uid, validateEntry, warranty } from '@felix/shared/domain';
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
@@ -239,12 +239,14 @@ export function Corrections() {
 }
 function ApplyCorrection({ e, onClose }: { e: Entry; onClose: () => void }) {
   const dec = useDecisions();
+  // a correction may touch a battery of any form we have issued, so never cap this at 8
+  const corrMax = Math.max(...anyDigitLengths(useStore().state.serialDigitLengths));
   const [customer, setCustomer] = useState(e.customer), [remarks, setRemarks] = useState(e.remarks), [items, setItems] = useState(e.items.map(i => ({ code: i.code, oldSerial: i.oldSerial }))), [reason, setReason] = useState(e.correction?.reason || ''), [err, setErr] = useState('');
   return <Dialog open title={`Correct ${e.id}`} sub="Change only what is wrong — a linked copy is created" onClose={onClose} width={620}>
     {e.correction && <Banner tone="warn" icon="pen" style={{ marginBottom: 14 }}><B>Asked for:</B> {e.correction.value}</Banner>}
     {e.items.map((it, i) => <View key={it.id} style={{ flexDirection: 'row', gap: 9 }}>
-      <Field style={{ flex: 1 }} label={`Battery ${i + 1} serial`} mono numeric maxLength={8} value={items[i].code} onChange={v => setItems(x => x.map((y, j) => j === i ? { ...y, code: v.replace(/\D/g, '') } : y))} hint={items[i].code !== it.code ? `was ${it.code}` : undefined} hintIcon="pen" />
-      <Field style={{ flex: 1 }} label="Old serial" mono numeric maxLength={8} value={items[i].oldSerial} onChange={v => setItems(x => x.map((y, j) => j === i ? { ...y, oldSerial: v.replace(/\D/g, '') } : y))} hint={items[i].oldSerial !== it.oldSerial ? `was ${it.oldSerial || '—'}` : undefined} hintIcon="pen" />
+      <Field style={{ flex: 1 }} label={`Battery ${i + 1} serial`} mono numeric maxLength={corrMax} value={items[i].code} onChange={v => setItems(x => x.map((y, j) => j === i ? { ...y, code: v.replace(/\D/g, '') } : y))} hint={items[i].code !== it.code ? `was ${it.code}` : undefined} hintIcon="pen" />
+      <Field style={{ flex: 1 }} label="Old serial" mono numeric maxLength={corrMax} value={items[i].oldSerial} onChange={v => setItems(x => x.map((y, j) => j === i ? { ...y, oldSerial: v.replace(/\D/g, '') } : y))} hint={items[i].oldSerial !== it.oldSerial ? `was ${it.oldSerial || '—'}` : undefined} hintIcon="pen" />
     </View>)}
     <Field label="Customer" value={customer} onChange={setCustomer} />
     <Field label="Remarks" value={remarks} onChange={setRemarks} multiline />
@@ -357,6 +359,12 @@ export function NewEntry({ id }: { id?: string }) {
   });
   const [step, setStep] = useState(1), [errors, setErrors] = useState<Record<string, string>>({}), [scan, setScan] = useState<number | null>(null), [done, setDone] = useState<Entry | null>(null);
   const dealer = state.dealers.find(d => d.id === entry.dealerId);
+  // A NEW battery may be 7, 8 or 9 digits (client, 2 Oct 2026). An OLD one is already in the
+  // field, so it accepts every form we have ever issued — see anyDigitLengths in shared/domain.
+  const modelIds = state.models.map(m => m.id);
+  const newLengths = entry.type === 'Sales Return' ? anyDigitLengths(state.serialDigitLengths) : NEW_BATTERY_DIGIT_LENGTHS;
+  const oldLengths = anyDigitLengths(state.serialDigitLengths);
+  const newMax = Math.max(...newLengths), oldMax = Math.max(...oldLengths);
   const upd = (v: Partial<Entry>) => setEntry(e => ({ ...e, ...v }));
   const item = (i: number, v: Partial<Item>) => setEntry(e => ({ ...e, items: e.items.map((it, j) => j === i ? { ...it, ...v } : it) }));
   const save = (status: Entry['status']) => {
@@ -422,23 +430,27 @@ export function NewEntry({ id }: { id?: string }) {
       {step === 2 && <Stack>
         {errors.items && <Banner tone="bad" icon="alert">{errors.items}</Banner>}
         {entry.items.map((it, i) => {
-          const old = it.oldSerial.length === 8 ? findBattery(state, it.oldSerial) : undefined, cover = coverOf(old, state);
+          // A new battery may be 7, 8 or 9 digits (client, 2 Oct 2026) and an OLD one may be any
+          // form we have ever issued — so nothing here may test for a length of exactly 8.
+          const oldReady = isValidDigits(it.oldSerial, oldLengths);
+          const old = oldReady ? findBattery(state, it.oldSerial) : undefined, cover = coverOf(old, state);
           const k = (f: string) => errors[`items.${i}.${f}`];
           return <Card key={it.id}>
             <CardH title={`Battery ${i + 1}`} right={<View style={{ flexDirection: 'row', gap: 6 }}>
               {i > 0 && <Btn kind="ghost" sm icon="up" label="Move up" onPress={() => { const items = [...entry.items]; [items[i - 1], items[i]] = [items[i], items[i - 1]]; upd({ items }); }} />}
               {entry.items.length > 1 && <Btn kind="ghost" sm icon="x" label="Remove" color={T.terminal} borderColor="#F0C7BC" onPress={() => upd({ items: entry.items.filter((_, j) => j !== i) })} />}</View>} />
             <Cols>
-              <Field label="Serial number (8-digit code)" req mono numeric maxLength={8} value={it.code} onChange={v => { const code = v.replace(/\D/g, ''); const b = code.length === 8 ? findBattery(state, code) : undefined; item(i, { code, ...deriveCode(code), ...(b ? { model: b.model } : {}) }); }} error={k('code')} ph="e.g. 26080311"
+              <Field label={`Serial number (${lengthsLabel(newLengths)})`} req mono numeric maxLength={newMax} value={it.code} onChange={v => { const code = v.replace(/\D/g, '').slice(0, newMax); const b = isValidDigits(code, newLengths) ? findBattery(state, code) : undefined; item(i, { code, ...deriveCode(code, modelIds, newLengths), ...(b ? { model: b.model } : {}) }); }} error={k('code')} ph="e.g. 26080311"
                 tail={<CapBtn n="scan" tone="alt" label={`Scan battery ${i + 1}`} onPress={() => setScan(i)} />} hint="Leading zeros are kept exactly as printed." hintIcon="lock" />
               <Select label="Model" req value={it.model} options={state.models.filter(m => m.active).map(m => ({ v: m.id, sub: `${m.type} · ${m.capacity}` }))} onChange={model => item(i, { model })} />
             </Cols>
             <Cols>
-              <Field label="Short serial" req mono numeric maxLength={4} value={it.serial} onChange={serial => item(i, { serial })} error={k('serial')} hint="Filled from the code." hintIcon="lock" />
+              {/* whatever follows the YYMM: 3 digits on a 7-digit code, 4 on an 8, 5 on a 9 */}
+              <Field label="Short serial" req mono numeric maxLength={newMax - 4} value={it.serial} onChange={serial => item(i, { serial })} error={k('serial')} hint="Filled from the code." hintIcon="lock" />
               <Field label="Manufacturing month" mono value={it.mfg} onChange={mfg => item(i, { mfg })} ph="YYYY-MM" error={k('mfg')} />
             </Cols>
-            <Field label={rep ? 'Old battery serial' : 'Old battery serial (optional)'} req={rep} mono numeric maxLength={8} value={it.oldSerial} onChange={v => item(i, { oldSerial: v.replace(/\D/g, '') })} error={k('oldSerial')} ph="The battery that came back" />
-            {it.oldSerial.length === 8 && (old ? <Banner tone={cover?.status === 'Expired' ? 'bad' : 'ok'} icon="shield" style={{ marginBottom: 13 }}><B>{old.model} · on record.</B> {cover ? `Cover ${dLong(cover.start)} → ${dLong(cover.expiry)}. The replacement inherits these dates.` : 'No cover dates on record.'}</Banner>
+            <Field label={rep ? 'Old battery serial' : 'Old battery serial (optional)'} req={rep} mono numeric maxLength={oldMax} value={it.oldSerial} onChange={v => item(i, { oldSerial: v.replace(/\D/g, '').slice(0, oldMax) })} error={k('oldSerial')} ph="The battery that came back" />
+            {oldReady && (old ? <Banner tone={cover?.status === 'Expired' ? 'bad' : 'ok'} icon="shield" style={{ marginBottom: 13 }}><B>{old.model} · on record.</B> {cover ? `Cover ${dLong(cover.start)} → ${dLong(cover.expiry)}. The replacement inherits these dates.` : 'No cover dates on record.'}</Banner>
               : <Banner tone="warn" icon="eye" style={{ marginBottom: 13 }}>Not on record. It will be flagged for checking — no cover dates are invented.</Banner>)}
             <Cols>
               <Field label="WR reference" mono value={it.wr} onChange={wr => item(i, { wr })} />

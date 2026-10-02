@@ -1,5 +1,5 @@
 import { db } from '../../database/client';
-import { deriveCode, fullCode, lengthsSentence } from '../../domain/serials';
+import { anyDigitLengths, deriveCode, fullCode, lengthsSentence } from '../../domain/serials';
 import { checkWarranty } from '../../domain/warranty';
 import { graceMonths, serialDigitLengths } from '../../utils/settings';
 import type { Ctx } from '../../utils/context';
@@ -50,7 +50,10 @@ export async function lookup(ctx: Ctx, code: string, modelIdHint?: string) {
     throw new AppError('unauthenticated', 401, 'Sign in required.');
   }
 
-  const [modelRows, lengths] = await Promise.all([repo.listModels(db), serialDigitLengths(db)]);
+  const [modelRows, setting] = await Promise.all([repo.listModels(db), serialDigitLengths(db)]);
+  // A lookup is not told whether this is a new battery or one already in the field, so it reads
+  // every form we issue — a 9-digit new battery must be findable the next time anyone types it.
+  const lengths = anyDigitLengths(setting);
   const derived = deriveCode(code, modelRows.map((m) => m.id), lengths);
   if (!derived.valid) {
     throw new AppError('format_mismatch', 422, `Use ${lengthsSentence(lengths)} that starts with the YYMM it was made.`, { field: 'code' });

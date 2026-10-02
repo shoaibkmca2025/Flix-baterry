@@ -39,8 +39,13 @@ export function warranty(b: Battery, now = today(), alertDays = 30) {
  * same underneath: YYMM, then the serial.
  */
 export const DEFAULT_DIGIT_LENGTHS = [7, 8];
-/** New batteries are always 8 digits; only batteries already in the field may be 7 (see backend domain/serials.ts). */
-export const NEW_BATTERY_DIGIT_LENGTHS = [8];
+/** A new battery may be 7, 8 or 9 digits — all three plants are in use on new stock (client,
+ * 2 Oct 2026). Must stay in step with backend domain/serials.ts, which is what actually decides. */
+export const NEW_BATTERY_DIGIT_LENGTHS = [7, 8, 9];
+/** Every length a battery in the system can carry — see anyDigitLengths in backend domain/serials.ts.
+ * Used wherever a code is read back rather than issued: an old battery returning, a stock move. */
+export const anyDigitLengths = (settingLengths: readonly number[] = DEFAULT_DIGIT_LENGTHS) =>
+  [...new Set([...settingLengths, ...NEW_BATTERY_DIGIT_LENGTHS])].sort((a, b) => a - b);
 const isDigits = (v: string) => /^\d+$/.test(v);
 const monthOf = (d: string) => { if (d.length <= 4 || !isDigits(d)) return ''; const m = Number(d.slice(2, 4)); return m >= 1 && m <= 12 ? `20${d.slice(0, 2)}-${d.slice(2, 4)}` : ''; };
 const lengthsDesc = (ls: readonly number[]) => [...new Set(ls)].sort((a, b) => b - a);
@@ -64,6 +69,9 @@ export function splitLabel(input: string, knownModelIds: readonly string[] = [],
     const endsWith = ids.find(id => head.endsWith(id));
     if (endsWith) return { modelId: endsWith, code: tail };
   }
+  // all digits and not an accepted length: hand the whole thing back so the length check refuses it,
+  // rather than trimming '2609123456' to '09123456' and registering a different battery
+  if (isDigits(whole)) return { modelId: '', code: whole };
   // the label named a model the catalogue does not have — prefer a tail that looks like YYMM
   const fallback = tryLengths.find(len => monthOf(whole.slice(-len))) ?? tryLengths.find(len => isDigits(whole.slice(-len)));
   return { modelId: '', code: fallback ? whole.slice(-fallback) : whole };
@@ -103,7 +111,7 @@ export const sameBattery = (a: string, aModel: string | undefined, b: string, bM
 };
 export const isValidDigits = (code: string, lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS) =>
   lengthsDesc(lengths).includes(code.length) && !!monthOf(code);
-/** "7 or 8 digits" — so a message names what is actually accepted. */
+/** "7, 8 or 9 digits" — so a message names what is actually accepted. */
 export const lengthsLabel = (lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS) => {
   const ls = [...new Set(lengths)].sort((a,b) => a-b);
   return ls.length === 1 ? `${ls[0]} digits` : `${ls.slice(0,-1).join(', ')} or ${ls[ls.length-1]} digits`;
@@ -139,7 +147,7 @@ export function validateEntry(e: Entry, state: State): Record<string,string> {
   e.items.forEach((item,i)=>{
     const key=`items.${i}.`; const code=normalize(item.code);
     if(!state.models.some(m=>m.id===item.model&&m.active)) errors[key+'model']='Choose an active model.';
-    // a replacement's or sale's battery is NEW (8 digits); a sales return's is already in the field (setting)
+    // a replacement's or sale's battery is NEW (7, 8 or 9 digits); a sales return's is already in the field
     const codeLengths=e.type==='Sales Return'?state.serialDigitLengths:NEW_BATTERY_DIGIT_LENGTHS;
     const digits=digitsOf(code, item.model), codeOk=isValidDigits(digits, codeLengths);
     if(!codeOk) errors[key+'code']=`Use ${lengthsLabel(codeLengths)} starting with the YYMM it was made.`;

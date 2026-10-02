@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useStore } from '@felix/shared/store';
-import { Entry, Item, State, DEFAULT_DIGIT_LENGTHS, NEW_BATTERY_DIGIT_LENGTHS, deriveCode, digitsOf, expiryFrom, fullCode, isValidDigits, lengthsLabel, newEntry, newItem, normalize, sameBattery, splitLabel, today, validateEntry } from '@felix/shared/domain';
+import { Entry, Item, State, DEFAULT_DIGIT_LENGTHS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, deriveCode, digitsOf, expiryFrom, fullCode, isValidDigits, lengthsLabel, newEntry, newItem, normalize, sameBattery, splitLabel, today, validateEntry } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, BigTile, ChipRow, CapBtn, IconBtn, Plate, PlateLab, PlateVal, Meter, Gap } from '@felix/shared/ui/kit';
 import { Screen, AppBar, Sheet, useD } from './shell';
@@ -54,7 +54,7 @@ const itemErrors = (errs: Record<string, string>, i: number, fields: string[]) =
 
 function dealerWarnings(e: Entry, state: State): { key: string; text: string }[] {
   const out: { key: string; text: string }[] = [];
-  const lengths = state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS;
+  const lengths = anyDigitLengths(state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS); // any form we have issued
   const month = today().slice(0, 7);
   // the dealer's other batteries this month, as digits under their own model
   const recent = state.entries.filter(x => x.id !== e.id && x.status !== 'Draft' && x.date.startsWith(month)).flatMap(x => x.items.map(y => ({ model: y.model, digits: digitsOf(y.code, y.model) })));
@@ -133,7 +133,7 @@ function useFlow() {
 /** Live warranty/custody check against the real backend (architecture.md §9.9), replacing
  * the local demo store's `findBattery`/`coverOf` wherever a dealer needs the truth about a
  * battery that might have been sold/replaced by anyone, not just recorded on this phone. */
-function useLiveLookup(code: string, token: string | null, modelId?: string, lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS) {
+function useLiveLookup(code: string, token: string | null, modelId?: string, lengths: readonly number[] = anyDigitLengths()) {
   const [result, setResult] = useState<BatteryLookupResult | null>(null);
   const [loading, setLoading] = useState(false);
   useEffect(() => {
@@ -153,10 +153,11 @@ function coverStatus(cover: { inWarranty: boolean; daysRemaining: number }): 'Ac
   return !cover.inWarranty ? 'Expired' : cover.daysRemaining <= 30 ? 'Expiring soon' : 'Active';
 }
 
-/** The battery's full number as printed on its label: code (plates) + model + the 8 digits,
+/** The battery's full number as printed on its label: code (plates) + model + its digits,
  * e.g. "M 1000 2609 0676" or "GP M 1000 2609 0676" (D-13 — the digits alone are not unique). */
 function printedNumber(m: { plate?: string; modelNo?: string; brand?: string; id: string } | undefined, digits: string): string {
-  const d = digits.length === 8 ? `${digits.slice(0, 4)} ${digits.slice(4)}` : digits;
+  // YYMM, a space, then the serial — the way it is printed, at whatever length (7, 8 or 9)
+  const d = digits.length > 4 ? `${digits.slice(0, 4)} ${digits.slice(4)}` : digits;
   if (!m) return d;
   const head = m.plate && m.modelNo ? `${m.brand === 'gold_power' ? 'GP ' : ''}${m.plate} ${m.modelNo}` : m.id;
   return `${head} ${d}`.trim();
@@ -263,7 +264,7 @@ export function ScanSheet({ open, title, onClose, onCode }: { open: boolean; tit
     <ScanBox active={sc.active} onCode={sc.handle} />
     <Btn kind="blue" sm icon="scan" label={sc.active ? 'Stop camera' : 'Start camera'} style={{ alignSelf: 'stretch', marginTop: 12 }} onPress={sc.start} />
     <Gap h={14} />
-    <Field label="Or type the number on the label" mono numeric maxLength={9} value={manual} onChange={v => setManual(v.replace(/\D/g, ''))} ph="8 digits" />
+    <Field label="Or type the number on the label" mono numeric maxLength={9} value={manual} onChange={v => setManual(v.replace(/\D/g, ''))} ph="The digits on the label" />
     <Btn kind="primary" icon="check" label="Use this number" disabled={manual.length !== 8} onPress={() => { onCode(manual); onClose(); }} />
   </Sheet>;
 }
@@ -306,8 +307,8 @@ function WarrantyLeft({ start, expiry, from, months = DEFAULT_TERM, grace = DEFA
 }
 function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code: string; lookup: BatteryLookupResult | null; looking: boolean; token: string | null; fallbackModel?: string }) {
   const { state } = useStore();
-  if (!isValidDigits(code, state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS)) return null;
-  const local = deriveCode(code);
+  if (!isValidDigits(code, anyDigitLengths(state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS))) return null;
+  const local = deriveCode(code, [], anyDigitLengths(state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS));
   const mfg = (lookup?.mfgMonth) || local.mfg;
   // The rule (memory.md D-11): cover runs from the first day of the manufacture month for the
   // (plate, model)'s term plus the grace months — the same maths as the server's checkWarranty.
@@ -367,7 +368,7 @@ export function D11() {
   if (!f) return null;
   const e = f.entry, i = f.cur, it = e.items[i];
   const modelIds = state.models.map(m => m.id);
-  const lengths = state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS;
+  const lengths = anyDigitLengths(state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS); // any form we have issued
   const maxLen = Math.max(...lengths);
   const { lookup, looking } = useLiveLookup(it.oldSerial, token, it.oldModel, lengths);
   useEffect(() => {
@@ -423,13 +424,16 @@ export function D13() {
   const [errs, setErrs] = useState<Record<string, string>>({});
   const del = useDeleteEntry(f?.entry, 'd07');
   const modelIds = state.models.map(m => m.id);
-  // a new battery is always 8 digits; a sales return brings back one already in the field (7 or 8)
-  const lengths = f?.entry.type === 'Sales Return' ? (state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS) : NEW_BATTERY_DIGIT_LENGTHS;
+  // a new battery may be 7, 8 or 9 digits (client, 2 Oct 2026); a sales return brings back one
+  // already in the field, so it accepts every form we have ever issued
+  const lengths = f?.entry.type === 'Sales Return' ? anyDigitLengths(state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS) : NEW_BATTERY_DIGIT_LENGTHS;
   const maxLen = Math.max(...lengths);
   const setCode = (v: string, scanned = false) => {
-    const { code: digits, modelId } = splitLabel(v, modelIds);
+    // the lengths this field accepts, not the default: without them a 9-digit code splits wrong
+    // and "Made in" comes out blank, because deriveCode would not count 9 as a length at all
+    const { code: digits, modelId } = splitLabel(v, modelIds, lengths);
     const code = digits.replace(/\D/g, '').slice(0, maxLen);
-    const { serial, mfg } = deriveCode(code);
+    const { serial, mfg } = deriveCode(code, modelIds, lengths);
     item({ code, serial, mfg, ...(modelId ? { model: modelId } : {}) }); // a prefixed label names the product too
     d.setFlow(x => x && { ...x, scanned: { ...x.scanned, [`new-${x.cur}`]: scanned } });
     setErrs(x => ({ ...x, code: '', serial: '', model: '' }));

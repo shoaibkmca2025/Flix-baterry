@@ -244,7 +244,7 @@ export function Catalogue() {
     </Stack>}
     {tab === 'rules' && <Cols>
       <Card><CardH title="How a serial is read" right={<Chip tone="live" label="All models" />} />
-        <Field label="Pattern" value="8 digits · YYMM then a 4-digit serial" readonly mono />
+        <Field label="Pattern" value="7, 8 or 9 digits · YYMM then the serial" readonly mono />
         <Plate style={{ marginBottom: 13 }}><PlateLab>EXAMPLE</PlateLab><PlateVal>21030047</PlateVal><X s={13} c="#9BA9BB" style={{ marginTop: 4 }}>made March 2021 · short serial 0047</X></Plate>
         <Banner tone="warn" icon="alert">Serials are stored as written. 0047 is never turned into 47 — on screen or in the Excel export.</Banner>
         <Hint icon="lock">Family-specific patterns will be confirmed with Felix before production data is connected.</Hint>
@@ -272,7 +272,7 @@ export function Catalogue() {
         </>}
       </Card>
       <Card><CardH title="Columns the file needs" />
-        {[['Code', 'Required · 8 digits, formatted as text'], ['Model', 'Required · must be in the catalogue'], ['Dealer ID', 'Required · e.g. FPP-014'], ['Serial No', 'Optional · read from the code if empty']].map((r, i, arr) => <Line key={r[0]} last={i === arr.length - 1} title={<Mono>{r[0]}</Mono>} sub={r[1]} />)}
+        {[['Code', 'Required · 7, 8 or 9 digits, formatted as text'], ['Model', 'Required · must be in the catalogue'], ['Dealer ID', 'Required · e.g. FPP-014'], ['Serial No', 'Optional · read from the code if empty']].map((r, i, arr) => <Line key={r[0]} last={i === arr.length - 1} title={<Mono>{r[0]}</Mono>} sub={r[1]} />)}
         <Banner tone="info" icon="shield" style={{ marginTop: 11 }}>Imported batteries start as available stock. Historic cover dates are left “not on record” rather than guessed.</Banner>
       </Card>
     </Cols>}

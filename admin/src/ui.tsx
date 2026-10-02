@@ -233,7 +233,7 @@ export function ScanDialog({ open, onClose, onCode }: { open: boolean; onClose: 
     {msg ? <Hint tone="err">{msg}</Hint> : null}
     <Btn kind="blue" sm icon="scan" label={active ? 'Stop camera' : 'Start camera'} style={{ alignSelf: 'stretch', marginTop: 12 }} onPress={() => active ? setActive(false) : start()} />
     <View style={{ height: 14 }} />
-    <Field label="Or type the number on the label" mono numeric maxLength={8} value={manual} onChange={v => setManual(v.replace(/\D/g, ''))} ph="8 digits" />
+    <Field label="Or type the number on the label" mono numeric maxLength={9} value={manual} onChange={v => setManual(v.replace(/\D/g, ''))} ph="The digits on the label" />
     <Btn kind="primary" icon="check" label="Use this number" disabled={!manual} onPress={() => use(manual)} />
   </Dialog>;
 }

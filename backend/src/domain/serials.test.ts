@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveCode, digitsOfFull, fullCode, lengthsSentence, normalise, readStored, splitLabel } from './serials';
+import { anyDigitLengths, deriveCode, digitsOfFull, fullCode, lengthsSentence, normalise, readStored, splitLabel } from './serials';
 
 const IDS = ['M1000', 'GPM1000', 'S1000', 'M2200', 'N2200', 'SG2200', 'SS2500', 'K60L', 'IDIN75'];
 
@@ -100,10 +100,20 @@ describe('serial length varies by plant (memory.md D-18)', () => {
   });
 
   it('rejects a length the plants do not use, and says which are accepted', () => {
-    expect(deriveCode('260700').valid).toBe(false); // 6 digits — not enabled yet
-    expect(deriveCode('260700012').valid).toBe(false); // 9 digits — not enabled yet
+    expect(deriveCode('260700').valid).toBe(false); // 6 digits — no plant prints it
+    // deriveCode's default is the SETTING ([7, 8] — what is already in the field), not the
+    // new-battery list, so 9 digits is still invalid here; see anyDigitLengths for the union.
+    expect(deriveCode('260700012').valid).toBe(false);
+    expect(deriveCode('260700012', [], anyDigitLengths([7, 8])).valid).toBe(true); // ...and valid as one we issue
     expect(lengthsSentence([7, 8])).toBe('a 7- or 8-digit number');
-    expect(lengthsSentence([6, 7, 8, 9])).toBe('a 6, 7, 8- or 9-digit number');
+    expect(lengthsSentence([7, 8, 9])).toBe('a 7-, 8- or 9-digit number');
+    expect(lengthsSentence([6, 7, 8, 9])).toBe('a 6-, 7-, 8- or 9-digit number');
+  });
+
+  it('anyDigitLengths unions the setting with the new-battery forms, sorted and deduped', () => {
+    expect(anyDigitLengths([7, 8])).toEqual([7, 8, 9]);
+    expect(anyDigitLengths([])).toEqual([7, 8, 9]);
+    expect(anyDigitLengths([10, 7])).toEqual([7, 8, 9, 10]); // a plant added to the setting still counts
   });
 
   it('a new plant is a settings change, not a release — 6 and 9 work the moment they are allowed', () => {

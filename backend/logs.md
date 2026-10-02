@@ -38,6 +38,18 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-10-02 · a new battery may be 7, 8 or 9 digits (Claude Code)
+**Worked on:** the client's revision to the new-battery rule — all three plants are in use on new stock, so the new-battery section must accept 7, 8 **and** 9 digits, not 8 only (supersedes the 27 Sep rule).
+**Changed:**
+- `NEW_BATTERY_DIGIT_LENGTHS` is `[7, 8, 9]` in `backend/src/domain/serials.ts` and `shared/domain.ts`. Kept as its own list rather than merged into the `serials.digit_lengths` setting, so new stock and stock already in the field can diverge again when a plant stops printing a form.
+- **New: `anyDigitLengths(setting)`** — the union of the setting and the new-battery forms. Everything that *reads a code back* now uses it instead of the setting alone: `/batteries/lookup`, stock moves, warranty checks, and the **old** battery on a replacement or sales return. Without this a 9-digit battery we registered ourselves could not be looked up, moved, warranty-checked or sent back — it would have become unreadable the moment it left the new-battery field.
+- Front ends: the dealer's D13 `setCode` now passes its own lengths to `splitLabel`/`deriveCode` (on the default it would have split a 9-digit code wrong and left "Made in" blank), and `printedNumber` spaces YYMM at any length. The admin console had `8` hard-coded in six places — the record-an-entry serial and old serial, the short serial's `maxLength={4}`, the correction dialog, the scan dialog's manual entry, and the CSV import help — all now driven by the lengths.
+**Also fixed (pre-existing, same area):** `splitLabel` trimmed an all-digit code that was too long down to a tail that happened to parse, so `2609123456` silently became battery `09123456`. It now hands the whole string back so the length check refuses it. The "unknown model prefix" fallback it was written for is unaffected — that head is not digits. Also `lengthsSentence` was missing hyphens with three or more lengths ("a 7, 8- or 9-digit number"); only reachable now that a third length exists.
+**Verified:** backend 269 tests (18 files, +3), shared 21, both apps type-check clean. Behavioural check: 7/8/9 all derive the right serial length (3/4/5) and manufacture month; 6 digits, 10 digits and month 99 refused; `M1300 2608 0001`, `S2000 2607 001` and a 9-digit `SE1800` label all still split correctly.
+**Open:** the two `NEW_BATTERY_DIGIT_LENGTHS` constants must be kept in step by hand. If this changes again, consider serving it from `/masters` beside `serialDigitLengths` so it becomes a row to change rather than a release. Not deployed — see the open item below.
+
+---
+
 ### 2026-09-29 · backend test pass: lists stopped at 200 rows, approvals read off the pool (Claude Code)
 **Worked on:** testing the whole backend against the live deployment (read-only), and the three commits from the client's list.
 **Found and fixed:**

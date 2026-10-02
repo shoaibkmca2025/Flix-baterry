@@ -113,14 +113,31 @@ describe('create', () => {
     expect(repo.insertEntry).not.toHaveBeenCalled();
   });
 
-  it('a NEW battery must have 8 digits; the OLD battery coming back may have 7 (client rule, 27 Sep 2026)', async () => {
-    // 7-digit new battery on a replacement → refused with the new-battery message
-    await expect(create(dealerCtx, baseBody({ entryType: 'replacement', items: [{ modelId: 'M5', code: '2609123', oldCode: '26041212', faultCode: 'not_holding_charge' }] })))
-      .rejects.toMatchObject({ code: 'format_mismatch', field: 'items.0.code', message: expect.stringContaining('A new battery has an 8-digit number') });
-    // 7-digit new battery on a regular sale → refused too
-    await expect(create(dealerCtx, baseBody({ entryType: 'regular_sales', items: [{ modelId: 'M5', code: '2609123' }] })))
-      .rejects.toMatchObject({ code: 'format_mismatch', field: 'items.0.code' });
+  it('a NEW battery may have 7, 8 or 9 digits — all three plants are in use (client rule, 2 Oct 2026)', async () => {
+    vi.mocked(repo.insertEntry).mockResolvedValue({ id: 'entry-len', ref: 'ENT-26-10-0001' } as never);
+    vi.mocked(repo.insertEntryItem).mockResolvedValue({ id: 'item-len' } as never);
+    // 2609 + 3, 4 and 5 serial digits: every form the plants print is accepted on a new battery
+    for (const code of ['2609123', '26091234', '260912345']) {
+      await expect(create(dealerCtx, baseBody({ entryType: 'regular_sales', items: [{ modelId: 'M5', code }] }))).resolves.toBeTruthy();
+    }
+  });
+
+  it('a length no plant prints is still refused, and the message names the three that are', async () => {
+    // too short, too long, and a month that does not exist — none reach a transaction. The
+    // long one also proves 10 digits is not quietly trimmed to the valid 8-digit tail '09123456'.
+    for (const code of ['260912', '2609123456', '269912345']) {
+      await expect(create(dealerCtx, baseBody({ entryType: 'regular_sales', items: [{ modelId: 'M5', code }] })))
+        .rejects.toMatchObject({ code: 'format_mismatch', field: 'items.0.code', message: expect.stringContaining('a 7-, 8- or 9-digit number') });
+    }
     expect(repo.insertEntry).not.toHaveBeenCalled();
+  });
+
+  it('a 9-digit battery we issued can come back as the OLD battery on a replacement', async () => {
+    // the whole point of anyDigitLengths: a form we hand out must be readable when it returns
+    vi.mocked(repo.insertEntry).mockResolvedValue({ id: 'entry-9', ref: 'ENT-26-10-0002' } as never);
+    vi.mocked(repo.insertEntryItem).mockResolvedValue({ id: 'item-9' } as never);
+    await expect(create(dealerCtx, baseBody({ entryType: 'replacement', items: [{ modelId: 'M5', code: '26101234', oldCode: '260912345', faultCode: 'not_holding_charge' }] })))
+      .resolves.toBeTruthy();
   });
 
   it('a 7-digit OLD battery with an 8-digit new one passes the format check', async () => {
