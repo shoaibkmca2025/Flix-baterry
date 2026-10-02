@@ -129,7 +129,12 @@ export function Returns() {
   // at the factory: still waiting for head office's decision; once approved it moves to "Claimed"
   const AT_FACTORY = ['Received', 'Testing', 'Repaired', 'Scrapped', 'Closed'];
   const atCompany = reps.filter(e => e.status !== 'Approved' && AT_FACTORY.includes(e.returnState || ''));
-  const claimed = reps.filter(e => e.status === 'Approved' && AT_FACTORY.includes(e.returnState || ''));
+  // Approved and claimed are two different things now (client, 2 Oct 2026): head office approves
+  // a battery (its claim sits at 'checked'), then settles it with the rest of its challan, and
+  // only then is it claimed. A battery with no claim at all is local demo data — treat it as done.
+  const atFactory = reps.filter(e => e.status === 'Approved' && AT_FACTORY.includes(e.returnState || ''));
+  const approved = atFactory.filter(e => e.claimStatus === 'checked');
+  const claimed = atFactory.filter(e => e.claimStatus !== 'checked');
   const rejected = units.filter(e => e.status === 'Rejected');
   const challanOf = (e: Entry) => state.challans.find(c => c.entryIds.includes(e.id));
   // Plants come from the server; the preview that runs without one has none, and asks for none.
@@ -322,12 +327,17 @@ export function Returns() {
       : <Stack><Btn kind="ghost" sm label={only ? '← Back to the list' : '← All challans'} style={{ alignSelf: 'flex-start' }} onPress={() => setSelChallan(null)} />{detail}</Stack>;
   };
   return <Page title="Old battery returns" sub="Every replaced battery, from the dealer’s shop to claimed or rejected"
-    tabs={<Tabs value={tab} onChange={t => { setTab(t); setSelChallan(null); }} items={[['challans', `Pending challans ${pendingChallans.length}`], ['done', `Completed challans ${doneChallans.length}`], ['way', `On the way ${onWay.length}`], ['dealers', `At dealers ${atDealer.length}`], ['claimed', `Claimed ${claimed.length}`], ['rejected', `Rejected ${rejected.length}`]]} />}>
+    tabs={<Tabs value={tab} onChange={t => { setTab(t); setSelChallan(null); }} items={[['challans', `Pending challans ${pendingChallans.length}`], ['done', `Completed challans ${doneChallans.length}`], ['way', `On the way ${onWay.length}`], ['dealers', `At dealers ${atDealer.length}`], ['approved', `Approved ${approved.length}`], ['rejected', `Rejected ${rejected.length}`], ['settle', `Settle ${approved.length}`], ['claimed', `Claimed ${claimed.length}`]]} />}>
     <Kpis cols={a.wide ? 4 : 2} items={[{ v: String(atDealer.length), l: 'Still at dealers', tone: 'flag', onPress: () => setTab('dealers') }, { v: String(onWay.length), l: 'On the way', onPress: () => setTab('way') }, { v: String(receivedThisMonth), l: 'Arrived this month' }, { v: String(atDealer.filter(e => ageDays(e.date) > 30).length), l: 'At a dealer over 30 days', tone: 'bad', onPress: () => setTab('dealers') }]} />
     <View style={{ height: 14 }} />
     {tab === 'challans' && challanView(undefined, { icon: 'truck', title: 'Nothing pending', text: 'Every challan has arrived and every battery on it is approved or refused. New challans appear here when a dealer dispatches old batteries.' }, c => !challanDone(c))}
     {tab === 'done' && challanView(undefined, { icon: 'check', title: 'No completed challans yet', text: 'A challan moves here once it has arrived and every battery on it is approved or refused.' }, challanDone)}
-    {tab === 'claimed' && challanView(claimed, { icon: 'check', title: 'Nothing claimed yet', text: 'A battery shows here, under its challan, once you approve it at the factory.' })}
+    {tab === 'approved' && challanView(approved, { icon: 'check', title: 'Nothing approved yet', text: 'A battery shows here, under its challan, once you approve it. Settle it to finish the claim.' })}
+    {tab === 'settle' && <Stack>
+      <Banner tone="ok" icon="check"><B>One challan at a time.</B> Open a challan below and press Settle — every approved battery on it is marked claimed together. Refused batteries, and any still to be checked, are left alone.</Banner>
+      {challanView(approved, { icon: 'check', title: 'Nothing to settle', text: 'Approve some batteries first — then settle them together, one challan at a time.' })}
+    </Stack>}
+    {tab === 'claimed' && challanView(claimed, { icon: 'check', title: 'Nothing claimed yet', text: 'A battery shows here once it has been approved and settled.' })}
     {tab === 'rejected' && challanView(rejected, { icon: 'x', title: 'Nothing rejected', text: 'A battery you refuse shows here, under its challan, with the reason the dealer sees.' })}
     {tab === 'way' && <Stack>
       <Banner tone="info" icon="truck"><B>Scanning in is not approving.</B> Confirm each battery as it comes off the van and choose the plant that made it, then approve or reject it once it has been checked.</Banner>
