@@ -64,7 +64,7 @@ export function Home() {
           cols={[
             { h: 'What', w: 1.7, cell: d => <View><X s={13.5} w={7}>{d.what}</X><X s={12} c={T.slate} numberOfLines={1}>{d.detail}</X></View> },
             { h: 'Reference', w: 1.2, cell: d => <X s={12.5} f="m" w={6}>{d.ref}</X> },
-            { h: 'Dealer', w: 1.2, cell: d => d.dealer },
+            { h: 'Distributor / dealer', w: 1.2, cell: d => d.dealer },
             { h: 'Raised', w: 0.6, cell: d => d.raised },
             { h: 'Action', w: 0.9, cell: d => <Chip tone={d.chip[1]} icon={d.chip[2]} label={d.chip[0]} /> },
           ]}

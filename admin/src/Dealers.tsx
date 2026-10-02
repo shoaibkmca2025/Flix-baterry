@@ -62,7 +62,7 @@ export function Registrations() {
   const pick = (x: Dealer) => setSel(x.id);
   const dupes = d ? state.dealers.filter(x => x.id !== d.id && (digits(x.mobile) === digits(d.mobile) || (d.email && x.email.toLowerCase() === d.email.toLowerCase()))) : [];
   const applied = d && state.audits.find(x => x.ref === d.id && x.action === 'Dealer registered')?.at;
-  return <Page title="New dealers" sub={`${pending.length} ${pending.length === 1 ? 'shop' : 'shops'} waiting · approving lets them record entries`}>
+  return <Page title="New distributors" sub={`${pending.length} ${pending.length === 1 ? 'shop' : 'shops'} waiting · approving lets them record entries`}>
     {!d ? <Box><Empty icon="people" title="No shops waiting" text="Shops that register from the dealer app appear here for approval." action={<Btn kind="ghost" sm label="Open dealer directory" onPress={() => a.go('dealers')} />} /></Box> :
       <Cols weights={[1.55, 1]}>
         <Card>
@@ -140,7 +140,7 @@ export function DealerProfile({ id }: { id?: string }) {
       <Card><CardH title="Business details" right={<StatusChip status={d.status} />} />
         <KV cols={a.wide ? 3 : 2} pairs={[['Contact person', d.contact], ['Mobile', `+91 ${d.mobile}`, 'mono'], ['Email', d.email || '—'], ['City · place', `${d.city} · ${d.place || '—'}`], ['PIN', d.pin, 'mono'], ['Dealer code', d.id, 'mono'], ['Address', d.address], ['State', d.state], ['Documents', d.documents?.join(', ') || 'None uploaded']]} />
         {d.reason && <Banner tone={d.status === 'Active' ? 'info' : 'warn'} icon="alert" style={{ marginTop: 12 }}><B>Last decision:</B> {d.reason}</Banner>}
-        {canEdit && <View style={{ flexDirection: 'row', gap: 9, marginTop: 13, flexWrap: 'wrap' }}>{actions.map(x => <Btn key={x} sm kind={x === 'Approve' || x === 'Activate' ? 'blue' : 'ghost'} color={x === 'Suspend' || x === 'Reject' ? T.terminal : undefined} borderColor={x === 'Suspend' || x === 'Reject' ? '#F0C7BC' : undefined} label={`${x === 'Reject' ? 'Refuse' : x} dealer`} onPress={() => setAct(x)} />)}</View>}
+        {canEdit && <View style={{ flexDirection: 'row', gap: 9, marginTop: 13, flexWrap: 'wrap' }}>{actions.map(x => <Btn key={x} sm kind={x === 'Approve' || x === 'Activate' ? 'blue' : 'ghost'} color={x === 'Suspend' || x === 'Reject' ? T.terminal : undefined} borderColor={x === 'Suspend' || x === 'Reject' ? '#F0C7BC' : undefined} label={`${x === 'Reject' ? 'Refuse' : x} ${isDealer ? 'dealer' : 'distributor'}`} onPress={() => setAct(x)} />)}</View>}
         <Hint icon="shield" style={{ marginTop: 10 }}>Suspending stops new entries at once. It never removes anything the dealer already recorded.</Hint>
       </Card>
       <Stack>
@@ -151,7 +151,7 @@ export function DealerProfile({ id }: { id?: string }) {
     {tab === 'entries' && <Box><EntryTable showDealer={false} entries={entries} onOpen={e => a.go(e.status === 'Draft' ? 'new' : 'entry', e.id)} empty="No entries from this dealer yet." /></Box>}
     {tab === 'staff' && <StaffManager dealerId={d.id} />}
     {tab === 'history' && <Box title="Status history">{history.length ? <View style={{ paddingHorizontal: 14 }}>{history.map((h, i) => <Line key={h.id} last={i === history.length - 1} av={<Avatar n={/Approve|Activate/.test(h.action) ? 'check' : /Reject|Suspend/.test(h.action) ? 'x' : 'doc'} tone={/Approve|Activate/.test(h.action) ? 'green' : /Reject|Suspend/.test(h.action) ? 'red' : 'mute'} />} title={h.action} sub={`${fmtAt(h.at)} · ${personOf(h.actor)}${h.reason ? ` — ${h.reason}` : ''}`} right={h.before ? <Chip tone="mute" label={`${h.before} → ${h.after}`} /> : undefined} />)}</View> : <X s={13.5} c={T.slate} style={{ padding: 14 }}>No status changes yet.</X>}</Box>}
-    {act && <ReasonDialog open title={`${act === 'Reject' ? 'Refuse' : act} ${d.name}`} confirm={`${act === 'Reject' ? 'Refuse' : act} dealer`} kind={act === 'Approve' || act === 'Activate' ? 'blue' : 'danger'} onClose={() => setAct('')} onConfirm={r => decide(d, act, r)}
+    {act && <ReasonDialog open title={`${act === 'Reject' ? 'Refuse' : act} ${d.name}`} confirm={`${act === 'Reject' ? 'Refuse' : act} ${isDealer ? 'dealer' : 'distributor'}`} kind={act === 'Approve' || act === 'Activate' ? 'blue' : 'danger'} onClose={() => setAct('')} onConfirm={r => decide(d, act, r)}
       intro={act === 'Suspend' ? 'New entries stop straight away. Their records, stock and history stay exactly as they are.' : act === 'Activate' ? 'The dealer can sign in and record entries again.' : undefined} />}
   </Page>;
 }
@@ -173,12 +173,12 @@ export function Customers() {
   const others = state.customers.filter(c => c.id !== detail?.id && c.dealerId === detail?.dealerId && !c.mergedInto);
   return <Page title="Customers" sub="Battery history becomes service history"
     actions={canEdit ? <Btn kind="primary" sm icon="plus" label="Add customer" onPress={() => setEditing({ id: uid('CUS'), dealerId: state.dealers.find(d => d.status === 'Active')?.id || '', name: '', mobile: '', address: '', equipment: '', consent: false })} /> : undefined}>
-    <Box filters={<><SearchBox value={q} onChange={setQ} ph="Name, mobile or equipment" /><FilterPick label="Dealer" value={dealer} options={state.dealers.map(d => d.name)} onChange={setDealer} /></>}>
+    <Box filters={<><SearchBox value={q} onChange={setQ} ph="Name, mobile or equipment" /><FilterPick label="Distributor / dealer" value={dealer} options={state.dealers.map(d => d.name)} onChange={setDealer} /></>}>
       <Table rows={rows} keyOf={c => c.id} onRow={setDetail} empty="No customers match."
         cols={[
           { h: 'Customer', w: 1.4, cell: c => <X s={13.5} w={7}>{c.name}</X> },
           { h: 'Mobile', w: 1, cell: c => <X s={12.5} f="m" w={6}>{c.mobile}</X> },
-          { h: 'Dealer', w: 1.3, cell: c => dealerName(c.dealerId) },
+          { h: 'Distributor / dealer', w: 1.3, cell: c => dealerName(c.dealerId) },
           { h: 'Equipment', w: 1.5, cell: c => c.equipment || '—' },
           { h: 'Messages', w: 0.9, cell: c => c.consent ? <Chip tone="live" icon="check" label="Allowed" /> : <Chip tone="mute" label="No consent" /> },
           { h: 'Entries', w: 0.6, cell: c => String(history(c).length) },
@@ -186,7 +186,7 @@ export function Customers() {
         mobile={{ av: () => <Avatar n="user" tone="amber" />, title: c => c.name, sub: c => <><Mono>{c.mobile}</Mono> · {dealerName(c.dealerId)}</> }} />
     </Box>
     <Dialog open={!!editing} title={editing && state.customers.some(c => c.id === editing.id) ? 'Edit customer' : 'Add customer'} onClose={() => setEditing(null)}>{editing && <>
-      <Select label="Dealer" req value={dealerName(editing.dealerId)} options={state.dealers.filter(d => d.status === 'Active').map(d => d.name)} onChange={v => setEditing({ ...editing, dealerId: state.dealers.find(d => d.name === v)!.id })} />
+      <Select label="Distributor / dealer" req value={dealerName(editing.dealerId)} options={state.dealers.filter(d => d.status === 'Active').map(d => d.name)} onChange={v => setEditing({ ...editing, dealerId: state.dealers.find(d => d.name === v)!.id })} />
       <Field label="Name" req value={editing.name} onChange={name => setEditing({ ...editing, name })} />
       <Field label="Mobile" req mono numeric maxLength={10} value={editing.mobile} onChange={v => setEditing({ ...editing, mobile: digits(v) })} ph="10 digits" />
       <Field label="Address" value={editing.address} onChange={address => setEditing({ ...editing, address })} />

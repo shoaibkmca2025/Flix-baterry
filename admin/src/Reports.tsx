@@ -31,7 +31,7 @@ export function Reports() {
     tabs={<Tabs value={tab} onChange={setTab} items={[['build', 'Build a report'], ['saved', `Saved ${state.reports.length}`], ['history', 'Export history'], ['analytics', 'Analytics']]} />}>
     {tab === 'build' && <Stack>
       <Box title="1 · Which entries" filters={<>
-        <FilterPick label="Dealer" value={dealer} options={state.dealers.map(d => d.name)} onChange={setDealer} />
+        <FilterPick label="Distributor / dealer" value={dealer} options={state.dealers.map(d => d.name)} onChange={setDealer} />
         <FilterPick label="Type" value={type} options={state.entryTypes} onChange={setType} />
         <FilterPick label="Status" value={status} options={['Approved', 'Submitted', 'Under Review', 'Rejected', 'Conflict', 'Corrected', 'Cancelled']} onChange={setStatus} />
         <FilterPick label="Model" value={model} options={state.models.map(m => m.id)} onChange={setModel} />
@@ -81,7 +81,7 @@ export function Reports() {
           mobile={{ title: r => monYear(`${r.m}-01`), sub: r => `${r.count} batteries · ${r.dealers} dealers` }} /></Box>
       </Cols>
       <Box title="Dealer performance"><Table rows={state.dealers} keyOf={d => d.id} onRow={d => a.go('dealer', d.id)}
-        cols={[{ h: 'Dealer', w: 1.5, cell: d => <X s={13.5} w={7}>{d.name}</X> }, { h: 'City', w: 0.8, cell: d => d.city }, { h: 'Entries', w: 0.6, cell: d => String(state.entries.filter(e => e.dealerId === d.id && e.status !== 'Draft').length) }, { h: 'Replacements', w: 0.8, cell: d => String(reps.filter(e => e.dealerId === d.id).length) }, { h: 'Exceptions', w: 0.7, cell: d => { const n = state.entries.filter(e => e.dealerId === d.id && ['Conflict', 'Rejected'].includes(e.status)).length; return n ? <Chip tone="bad" label={String(n)} /> : '0'; } }, { h: 'Status', w: 1, cell: d => <StatusChip status={d.status} /> }]}
+        cols={[{ h: 'Distributor / dealer', w: 1.5, cell: d => <X s={13.5} w={7}>{d.name}</X> }, { h: 'City', w: 0.8, cell: d => d.city }, { h: 'Entries', w: 0.6, cell: d => String(state.entries.filter(e => e.dealerId === d.id && e.status !== 'Draft').length) }, { h: 'Replacements', w: 0.8, cell: d => String(reps.filter(e => e.dealerId === d.id).length) }, { h: 'Exceptions', w: 0.7, cell: d => { const n = state.entries.filter(e => e.dealerId === d.id && ['Conflict', 'Rejected'].includes(e.status)).length; return n ? <Chip tone="bad" label={String(n)} /> : '0'; } }, { h: 'Status', w: 1, cell: d => <StatusChip status={d.status} /> }]}
         mobile={{ title: d => d.name, sub: d => `${d.city} · ${state.entries.filter(e => e.dealerId === d.id && e.status !== 'Draft').length} entries`, right: d => <StatusChip status={d.status} /> }} /></Box>
       <Banner tone="info" icon="alert">Failure rates need complete sales numbers and checked failure reasons. Until those are connected, this shows replacement counts only — no rates are invented.</Banner>
     </Stack>}

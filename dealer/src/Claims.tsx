@@ -106,7 +106,7 @@ function D33Dispatch() {
         return <Pressable key={e.id} accessibilityRole="checkbox" accessibilityState={{ checked: on }} onPress={() => setOff(o => on ? [...o, e.id] : o.filter(x => x !== e.id))}
           style={{ flexDirection: 'row', gap: 12, alignItems: 'center', paddingVertical: 13, borderBottomWidth: i < rows.length - 1 ? 1 : 0, borderBottomColor: T.zinc2 }}>
           <CheckBox on={on} />
-          <View style={{ flex: 1, minWidth: 0 }}><X s={14.5} w={6} f="m">{oldList(e)}</X><X s={12.5} c={T.slate} style={{ marginTop: 2 }}>{findBattery(state, it.oldSerial)?.model || it.model} · {e.id}</X><X s={12.5} c={T.slate} style={{ marginTop: 2 }}>{e.customer || 'Dealer / customer not named'}</X></View>
+          <View style={{ flex: 1, minWidth: 0 }}><X s={14.5} w={6} f="m">{oldList(e)}</X><X s={12.5} c={T.slate} style={{ marginTop: 2 }}>{findBattery(state, it.oldSerial)?.model || it.model} · {e.id}</X><X s={12.5} c={T.slate} style={{ marginTop: 2 }}>{e.customer || 'Customer not named'}</X></View>
           <Chip tone={age > 30 ? 'bad' : 'warn'} icon="clock" label={age === 0 ? 'Today' : `${age} ${age === 1 ? 'day' : 'days'}`} />
         </Pressable>;
       }) : <X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>Nothing to send back. Old batteries from new replacements appear here.</X>}
@@ -215,7 +215,7 @@ function ChallanDoc({ c }: { c: Challan }) {
     </View>
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1.5, borderTopColor: T.ink, paddingTop: 7, marginBottom: 12 }}><X s={12.5} w={7}>Total batteries returned</X><X s={12.5} w={7}>{c.rows.length}</X></View>
     <View style={{ borderLeftWidth: 2, borderLeftColor: T.volt, paddingLeft: 9, marginBottom: 16 }}><X s={11} c={T.slate}>Returned for warranty inspection only. No sale value. Each battery remains the property of Felix Batteries Industries. Claims are decided after inspection at the company.</X></View>
-    <View style={{ flexDirection: 'row', gap: 10 }}>{['Dealer signature', 'Driver signature', 'Received at company'].map(s => <View key={s} style={{ flex: 1, borderTopWidth: 1, borderTopColor: T.ink3, paddingTop: 5 }}><X s={11} c={T.slate} style={{ textAlign: 'center' }}>{s}</X></View>)}</View>
+    <View style={{ flexDirection: 'row', gap: 10 }}>{['Distributor signature', 'Driver signature', 'Received at company'].map(s => <View key={s} style={{ flex: 1, borderTopWidth: 1, borderTopColor: T.ink3, paddingTop: 5 }}><X s={11} c={T.slate} style={{ textAlign: 'center' }}>{s}</X></View>)}</View>
   </View>;
 }
 export function D36({ p }: { p?: string }) {

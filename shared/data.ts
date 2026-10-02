@@ -152,6 +152,14 @@ export const unitKey = (e: Entry) => e.itemId ? `${e.id}#${e.itemId}` : e.id;
 
 /** A dealer works under a distributor and cannot dispatch old batteries (client, 2 Oct 2026). Every shop from before is a distributor. */
 export const isDealerShop = (d?: Pick<Dealer, 'kind'>) => d?.kind === 'Dealer';
+/** 'Distributor' or 'Dealer' — what a shop is called wherever it is named. */
+export const roleOf = (d?: Pick<Dealer, 'kind'>) => isDealerShop(d) ? 'Dealer' : 'Distributor';
+/** A shop as head office reads it: its name, its role, and a dealer's distributor (client, 2 Oct 2026). */
+export function shopRole(state: Pick<State, 'dealers'>, id: string) {
+  const d = state.dealers.find(x => x.id === id);
+  const parent = d?.kind === 'Dealer' ? state.dealers.find(x => x.id === d.distributorId) : undefined;
+  return { shop: d, name: d?.name || id, role: roleOf(d), parent, line: d?.kind === 'Dealer' ? `Dealer · under ${parent?.name || 'a distributor'}` : 'Distributor' };
+}
 
 export const firstProblem = (e: Entry, state: State) =>
   Object.values(validateEntry(e, state))[0] ?? e.items.find(i => i.exception)?.exception;
@@ -172,11 +180,11 @@ export function challanHtml(c: Challan, d: Dealer) {
     '<h1>FELIX BATTERIES INDUSTRIES</h1><div class="sub">Battery Distribution &amp; Warranty Operations · Nashik, Maharashtra</div><hr>' +
     '<h2>Material Return Challan</h2>' +
     `<div class="m"><div><i>Challan No.</i><br><b>${escapeHtml(c.no)}</b></div><div><i>Date</i><br><b>${date}</b></div>` +
-    `<div><i>From · Dealer</i><br><b>${escapeHtml(d.name)}</b><br>${[d.place, d.city].filter(Boolean).map(escapeHtml).join(', ')} · ${escapeHtml(d.code || d.id)}</div>` +
+    `<div><i>From · Distributor</i><br><b>${escapeHtml(d.name)}</b><br>${[d.place, d.city].filter(Boolean).map(escapeHtml).join(', ')} · ${escapeHtml(d.code || d.id)}</div>` +
     '<div><i>To</i><br><b>Felix Batteries Industries</b><br>Warehouse, Nashik</div>' +
     `<div><i>Vehicle</i><br><b>${escapeHtml(c.vehicle || '—')}</b></div><div><i>Collected by</i><br><b>${escapeHtml(c.driver || '—')}</b></div></div>` +
     `<table><thead><tr><th>#</th><th>Serial No.</th><th>Model</th><th>Request Ref.</th><th>Reported fault</th></tr></thead><tbody>${rows}</tbody></table>` +
     `<div class="tot"><span>Total batteries returned</span><span>${c.rows.length}</span></div>` +
     '<div class="d">Returned for warranty inspection only. No sale value. Each battery remains the property of Felix Batteries Industries. Claims are decided after inspection at the company.</div>' +
-    '<div class="s"><div>Dealer signature</div><div>Driver signature</div><div>Received at company</div></div></body></html>';
+    '<div class="s"><div>Distributor signature</div><div>Driver signature</div><div>Received at company</div></div></body></html>';
 }

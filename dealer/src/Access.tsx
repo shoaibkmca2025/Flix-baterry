@@ -7,7 +7,7 @@ import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Bann
 import { Screen, AppBar, Sheet, useD } from './shell';
 import { PickList } from '@felix/shared/ui/pick';
 import { Photo, pickDocument, takePhoto } from '@felix/shared/ui/media';
-import { dLong, tShort } from '@felix/shared/data';
+import { dLong, tShort, roleOf } from '@felix/shared/data';
 import { requestOtp, verifyOtp, type VerifyOtpLoginResult, type VerifyOtpVerifiedResult } from '@felix/shared/api/auth';
 import { registerDealer } from '@felix/shared/api/dealers';
 import { ApiError } from '@felix/shared/api/client';
@@ -38,7 +38,7 @@ export function D01() {
   };
   return <Screen bg={T.deep} center>
     <View style={{ width: 86, height: 86, borderRadius: 22, backgroundColor: T.volt, alignItems: 'center', justifyContent: 'center' }}><Ic n="batt" color={T.white} /></View>
-    <X s={31} w={7} f="c" c={T.white} lh={1.05} style={{ textAlign: 'center' }}>{'Felix Batteries\nDealer App'}</X>
+    <X s={31} w={7} f="c" c={T.white} lh={1.05} style={{ textAlign: 'center' }}>{'Felix Batteries\nDistributor & Dealer App'}</X>
     <X s={14} c={T.deepText} style={{ textAlign: 'center', maxWidth: 250 }}>Record a replacement in under a minute.</X>
     <View style={{ height: 14 }} />
     {web ? <>
@@ -137,7 +137,7 @@ export function D02() {
       <CardH title="SMS code (OTP)" right={!sent ? <Pressable accessibilityRole="button" onPress={send}><Chip tone="info" icon="phone" label="Send code" /></Pressable>
         : left > 0 ? <Chip tone="mute" icon="clock" label={`Resend in ${left}s`} /> : <Pressable accessibilityRole="button" onPress={send}><Chip tone="info" icon="sync" label="Resend code" /></Pressable>} />
       <OtpBoxes value={code} onChange={v => { setCode(v); setError({}); }} />
-      {error.code ? <Hint tone="err">{error.code}</Hint> : <Hint icon="lock">Tap Send code, then type the 6-digit number from the SMS. Your dealer code (like FPP-014) is not needed to sign in.</Hint>}
+      {error.code ? <Hint tone="err">{error.code}</Hint> : <Hint icon="lock">Tap Send code, then type the 6-digit number from the SMS. Your shop code (like FPP-014) is not needed to sign in.</Hint>}
     </Card>
     <Btn kind="primary" icon="check" label="Sign in" onPress={signIn} disabled={busy} />
     <BtnRow><Btn kind="ghost" sm label="Forgot password" style={{ alignSelf: 'stretch' }} onPress={() => d.go('d03')} /><Btn kind="ghost" sm label="New dealer? Register" style={{ alignSelf: 'stretch' }} onPress={() => d.go('d04')} /></BtnRow>
@@ -250,7 +250,7 @@ export function D04({ p }: { p?: string } = {}) {
     </Sheet></>}>
     <Steps labels={['Shop', 'Owner', 'Address']} now={1} />
     <Gap h={12} />
-    <Field label="Dealer / company name" req mr="दुकानाचे नाव" value={f.name} onChange={set('name')} ph="Shop name on the board" error={err.name} />
+    <Field label="Distributor / company name" req mr="दुकानाचे नाव" value={f.name} onChange={set('name')} ph="Shop name on the board" error={err.name} />
     <Field label="Contact person" req value={f.contact} onChange={set('contact')} ph="Owner or manager" error={err.contact} />
     <Field label="Mobile number" req mono phone value={grouped(f.mobile)} onChange={v => { set('mobile')(digits(v, 10)); setVerified(false); }} ph="98765 43210" maxLength={11} error={err.mobile}
       tail={verified ? <Chip tone="live" icon="check" label="OTP verified" /> : f.mobile.length === 10 ? <Pressable accessibilityRole="button" onPress={openVerify}><Chip tone="info" icon="phone" label="Verify" /></Pressable> : undefined} />
@@ -262,7 +262,7 @@ export function D04({ p }: { p?: string } = {}) {
     </View>
     <Field label="Place / area" value={f.place} onChange={set('place')} ph="Road or area" />
     <Field label="Full address" req value={f.address} onChange={set('address')} ph="Shop number, building, road" error={err.address} />
-    <Field label="Dealer code" value="" ph="Admin will assign one" readonly />
+    <Field label="Distributor code" value="" ph="Head office will assign one" readonly />
     <Field label="Password" req secure value={f.password} onChange={set('password')} ph="••••••••" error={err.password} />
     <Card><CardH title="Shop documents" right={<Chip tone="mute" label="Optional" />} />
       <View style={{ flexDirection: 'row', gap: 9 }}>
@@ -277,7 +277,7 @@ export function D04({ p }: { p?: string } = {}) {
 export function D05({ p }: { p?: string }) {
   const d = useD(); const { state } = useStore();
   const dealer = state.dealers.find(x => x.id === p);
-  const sent = state.audits.find(a => a.ref === p && a.action === 'Dealer registered')?.at;
+  const sent = state.audits.find(a => a.ref === p && a.action === 'Distributor registered')?.at;
   const approved = dealer?.status === 'Active';
   return <Screen top={<AppBar title="Registration sent" />}>
     <BigOk n={approved ? 'check' : 'clock'} bg={approved ? T.live : T.amber} />
@@ -297,10 +297,10 @@ export function D06() {
   const dealer = state.dealers.find(x => x.id === dealerId)!;
   const docs = dealer.documents || [];
   const gst = docs.find(x => x.startsWith('GST')), photo = docs.find(x => x.startsWith('Shop photo'));
-  const add = (doc: string) => setState(s => audit({ ...s, dealers: s.dealers.map(x => x.id === dealerId ? { ...x, documents: [...(x.documents || []), doc] } : x) }, 'Dealer document added', dealerId, doc));
+  const add = (doc: string) => setState(s => audit({ ...s, dealers: s.dealers.map(x => x.id === dealerId ? { ...x, documents: [...(x.documents || []), doc] } : x) }, 'Shop document added', dealerId, doc));
   return <Screen tab="user" top={<AppBar title="Shop profile" back="d09" />}>
     <Card><CardH title={dealer.name} right={<StatusChip status={dealer.status} />} />
-      <KV pairs={[['Dealer code', dealer.id, 'mono'], ['City', dealer.city], ['Place', dealer.place || '—'], ['Contact', dealer.contact], ['Mobile', `+91 ${grouped(digits(dealer.mobile, 10))}`, 'mono'], ['Email', dealer.email || '—']]} /></Card>
+      <KV pairs={[[`${roleOf(dealer)} code`, dealer.id, 'mono'], ['City', dealer.city], ['Place', dealer.place || '—'], ['Contact', dealer.contact], ['Mobile', `+91 ${grouped(digits(dealer.mobile, 10))}`, 'mono'], ['Email', dealer.email || '—']]} /></Card>
     <SecT title="Documents" />
     <Card>
       <Line av={<Avatar n="doc" tone={gst ? 'blue' : 'mute'} />} title="GST certificate" sub={gst ? gst.split(' · ')[1] || 'Uploaded' : 'Not uploaded'}
@@ -308,6 +308,6 @@ export function D06() {
       <Line last av={<Avatar n="cam" tone={photo ? 'blue' : 'mute'} />} title="Shop photo" sub={photo ? 'Uploaded' : 'Not uploaded'}
         right={photo ? <Chip tone="info" icon="check" label="Uploaded" /> : <Btn kind="ghost" sm label="Add" onPress={async () => { const u = await takePhoto(d.toast); if (u) { add('Shop photo'); d.toast('Shop photo added.'); } }} />} />
     </Card>
-    <Banner tone="info" icon="lock" style={{ marginTop: 12 }}>Name, city and dealer code are locked by Felix Batteries. Ask an admin to change them — every edit is recorded.</Banner>
+    <Banner tone="info" icon="lock" style={{ marginTop: 12 }}>Name, city and code are locked by Felix Batteries. Ask an admin to change them — every edit is recorded.</Banner>
   </Screen>;
 }

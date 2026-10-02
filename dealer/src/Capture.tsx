@@ -8,7 +8,7 @@ import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banne
 import { Screen, AppBar, Sheet, useD } from './shell';
 import { PickList } from '@felix/shared/ui/pick';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
-import { coverChip, dLong, findBattery, monYear, monthLong, monthShort, needsNewBatteryPhoto, newPhotoTag, nextEntryId, span, spanLong, spanShort, tShort } from '@felix/shared/data';
+import { coverChip, dLong, findBattery, monYear, monthLong, monthShort, needsNewBatteryPhoto, newPhotoTag, nextEntryId, roleOf, span, spanLong, spanShort, tShort } from '@felix/shared/data';
 import { useAccessToken } from '@felix/shared/api/session';
 import { lookupBattery, type BatteryLookupResult } from '@felix/shared/api/batteries';
 import { createEntry } from '@felix/shared/api/entries';
@@ -57,7 +57,7 @@ function dealerErrors(e: Entry, state: State) {
           }
         }
       }
-      if (i === 0 && !e.customer.trim()) errs['items.0.customer'] = 'Enter the dealer or customer name.'; // compulsory (client, 29 Sep 2026)
+      if (i === 0 && !e.customer.trim()) errs['items.0.customer'] = 'Enter the customer name.'; // compulsory (client, 29 Sep 2026)
       if (needsNewBatteryPhoto(e, i)) errs[`items.${i}.newPhoto`] = 'Take a photo of the new battery. The replacement cannot go ahead without it.';
     }
     const dupNew = it.code && others.find(x => x.items.some(y => sameBattery(y.code, y.model, it.code, it.model)));
@@ -82,7 +82,7 @@ function dealerWarnings(e: Entry, state: State): { key: string; text: string }[]
     // a photo of it proves nothing a dealer should be chased for — the tile is still there for
     // anyone who wants to attach one.
   });
-  if (e.type !== 'Replacement' && !e.customer.trim()) out.push({ key: 'items.0.customer', text: 'No dealer or customer name is on this entry.' });
+  if (e.type !== 'Replacement' && !e.customer.trim()) out.push({ key: 'items.0.customer', text: 'No customer name is on this entry.' });
   return out;
 }
 
@@ -323,7 +323,7 @@ export function D10() {
   return <Screen top={<AppBar title="What are you recording?" back="d07" />}>
     <Banner tone="info" icon="alert" style={{ marginBottom: 15 }}>Choose one. The next screen then asks only for what that choice needs — nothing extra.</Banner>
     {TYPES.map(t => <BigTile key={t[0]} icon={t[2]} title={t[0]} sub={t[1]} desc={t[4]} hot={t[3]} onPress={() => start(t[0])} />)}
-    <Hint icon="lock" style={{ marginTop: 4 }}>Only these two are switched on for dealers. Head office can turn on more types later without an app update.</Hint>
+    <Hint icon="lock" style={{ marginTop: 4 }}>Only these two are switched on for your shop. Head office can turn on more types later without an app update.</Hint>
   </Screen>;
 }
 
@@ -385,7 +385,7 @@ function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code:
   if (custody === 'other') return <Card style={{ borderColor: '#F0C7BC', backgroundColor: '#FFF8F6', marginBottom: 14 }}>
     <CardH title="Held by another shop" right={<Chip tone="bad" icon="lock" label="Not yours" />} />
     <KV pairs={ident} />
-    <Gap h={8} /><X s={13.5} c={T.slate}>This serial is recorded against a different dealer. Check the label again, or call head office.</X></Card>;
+    <Gap h={8} /><X s={13.5} c={T.slate}>This serial is recorded against a different shop. Check the label again, or call head office.</X></Card>;
 
   const blocked = battery.alreadyReplaced ? 'This battery has already been replaced once — its replacement carries the cover now. Check the label again.'
     : !cover.inWarranty ? 'Cover has ended for this chain. Head office will not accept a warranty replacement for it.' : null;
@@ -449,10 +449,10 @@ export function D11() {
     <ChipRow options={FAULTS} value={it.fault || ''} onChange={v => { item({ fault: v }); setErrs(x => ({ ...x, fault: '' })); }} />
     {errs.fault && <Hint tone="err" style={{ marginTop: -9, marginBottom: 13 }}>{errs.fault}</Hint>}
     <Field label="Remarks" mr="शेरा" multiline value={it.remarks} onChange={v => item({ remarks: v })} ph="Anything head office should know" />
-    <Field label="Dealer / customer name" req mr="डीलर / ग्राहकाचे नाव" value={e.customer} onChange={v => { upd({ customer: v }); setErrs(x => ({ ...x, customer: '' })); }} ph="Name of the dealer or customer" error={errs.customer} />
+    <Field label="Customer name" req mr="ग्राहकाचे नाव" value={e.customer} onChange={v => { upd({ customer: v }); setErrs(x => ({ ...x, customer: '' })); }} ph="Name of the customer" error={errs.customer} />
     <Btn kind="primary" big iconAfter="chev" label="Next: the new battery" style={{ marginTop: 4 }} onPress={next} />
     {del.button}
-    <Hint icon="lock" center style={{ marginTop: 10 }}>Your shop, city and dealer code are added automatically.</Hint>
+    <Hint icon="lock" center style={{ marginTop: 10 }}>Your shop, city and code are added automatically.</Hint>
   </Screen>;
 }
 
@@ -723,7 +723,7 @@ export function D16() {
       const data: Entry = { ...e, status: state.offline ? 'Pending sync' : 'Submitted', createdAt: now, date: today(), items: e.items.map(it => ({ ...it, wr: it.oldSerial || it.wr })),
         handover: rep ? `Given to ${e.customer || 'the customer'} at the counter · ${dLong(now)}, ${tShort(now)}` : e.handover };
       SENT.add(e.id);
-      setState(s => audit({ ...s, entries: [data, ...s.entries.filter(x => x.id !== data.id)] }, 'Entry submitted', data.id, state.offline ? 'Saved on the dealer phone to send later' : 'Sent from the dealer app (preview)'));
+      setState(s => audit({ ...s, entries: [data, ...s.entries.filter(x => x.id !== data.id)] }, 'Entry submitted', data.id, state.offline ? 'Saved on the phone to send later' : 'Sent from the app (preview)'));
       d.setFlow(null); d.go('d17', data.id);
       return;
     }
@@ -737,7 +737,7 @@ export function D16() {
       const data: Entry = { ...e, id: result.ref, apiId: result.id, status: result.status === 'approved' ? 'Approved' : result.status === 'with_distributor' ? 'With distributor' : 'Submitted', createdAt: result.createdAt, date: result.entryDate,
         items: e.items.map(it => ({ ...it, wr: it.oldSerial || it.wr })),
         handover: rep ? `Given to ${e.customer || 'the customer'} at the counter · ${dLong(result.createdAt)}, ${tShort(result.createdAt)}` : e.handover };
-      setState(s => audit({ ...s, entries: [data, ...s.entries.filter(x => x.id !== e.id)] }, 'Entry submitted', data.id, 'Sent from the dealer app'));
+      setState(s => audit({ ...s, entries: [data, ...s.entries.filter(x => x.id !== e.id)] }, 'Entry submitted', data.id, 'Sent from the app'));
       d.setFlow(null); d.go('d17', data.id);
       if (photosFailed) d.toast(`${photosFailed} ${photosFailed === 1 ? 'photo' : 'photos'} could not be sent. The request reached head office — tell them, or send the photos on WhatsApp.`);
       sync(true); // the server's copy (with its items and claim) replaces the bridged one
@@ -756,7 +756,7 @@ export function D16() {
     {errList.length > 0 && <Banner tone="bad" icon="alert" style={{ marginBottom: 12 }}><B>{errList.length === 1 ? 'One thing must be fixed.' : `${errList.length} things must be fixed.`}</B> {errList[0][1]} <B u onPress={() => jump(errList[0][0])}>Go to the field</B></Banner>}
     {warns.length > 0 && <Banner tone="warn" icon="alert" style={{ marginBottom: 12 }}><B>{warns.length === 1 ? 'One thing to look at.' : `${warns.length} things to look at.`}</B> {warns[0].text} Not blocked — confirm it is correct. <B u onPress={() => jump(warns[0].key)}>Go to the field</B></Banner>}
     <Card><CardH title="Entry" right={<Chip tone="mute" mono label={e.id} />} />
-      <KV pairs={[['Type', e.type], ['Date', dLong(today())], ['Shop', dealer.name], ['City / place', `${dealer.city} · ${e.place}`], ['Dealer / customer', e.customer || '—'], ['Items', `${e.items.length} ${e.items.length === 1 ? 'battery' : 'batteries'}`]]} /></Card>
+      <KV pairs={[['Type', e.type], ['Date', dLong(today())], [roleOf(dealer), dealer.name], ['City / place', `${dealer.city} · ${e.place}`], ['Customer', e.customer || '—'], ['Items', `${e.items.length} ${e.items.length === 1 ? 'battery' : 'batteries'}`]]} /></Card>
     {e.items.map((it, i) => <ReviewItem key={it.id} it={it} i={i} e={e} rep={rep} token={token} />)}
     <Card style={{ backgroundColor: T.deep, borderColor: '#082A13', marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
       <X s={13} c="#9BA9BB">Total batteries</X><X s={19} w={7} c={T.white}>{e.items.length}</X></Card>

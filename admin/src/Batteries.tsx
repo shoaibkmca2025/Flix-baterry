@@ -28,7 +28,7 @@ export function Search({ id }: { id?: string }) {
   const dealers = n ? state.dealers.filter(d => [d.name, d.id, d.mobile].some(v => v.toLowerCase().includes(n))) : [];
   const recent = [...state.movements].reverse().map(m => m.code).filter((c, i, arr) => arr.indexOf(c) === i).slice(0, 6).map(c => state.batteries.find(b => b.code === c)).filter(Boolean) as Battery[];
   const batteryTable = (rows: Battery[]) => <Table rows={rows} keyOf={b => b.code} onRow={b => a.go('battery', b.code)} empty="No batteries match."
-    cols={[{ h: 'Serial', w: 1, cell: b => <X s={13} f="m" w={6}>{b.code}</X> }, { h: 'Model', w: 0.6, cell: b => <X s={13.5} w={7}>{b.model}</X> }, { h: 'Dealer', w: 1.3, cell: b => dealerName(b.dealerId) }, { h: 'Customer', w: 1.2, cell: b => b.customer || '—' }, { h: 'Where', w: 1, cell: b => stateChip(b.state) }, { h: 'Cover', w: 1.1, cell: coverCell }]}
+    cols={[{ h: 'Serial', w: 1, cell: b => <X s={13} f="m" w={6}>{b.code}</X> }, { h: 'Model', w: 0.6, cell: b => <X s={13.5} w={7}>{b.model}</X> }, { h: 'Distributor / dealer', w: 1.3, cell: b => dealerName(b.dealerId) }, { h: 'Customer', w: 1.2, cell: b => b.customer || '—' }, { h: 'Where', w: 1, cell: b => stateChip(b.state) }, { h: 'Cover', w: 1.1, cell: coverCell }]}
     mobile={{ av: () => <Avatar n="batt" tone="mute" />, title: b => <Mono>{b.code}</Mono>, sub: b => `${b.model} · ${dealerName(b.dealerId)}`, right: coverCell }} />;
   return <Page title="Battery search" sub="Any part of a serial, an old serial, a customer, a dealer or a reference"
     actions={<Btn kind="blue" sm icon="scan" label="Scan a battery" onPress={() => setScan(true)} />}>
@@ -89,7 +89,7 @@ export function BatteryDetail({ id = '' }: { id?: string }) {
       </Stack>
       <Stack>
         <Card><CardH title="This battery" right={stateChip(b.state)} />
-          <KV pairs={[['Model', b.model], ['Short serial', b.serial, 'mono'], ['Made', monthLong(b.mfg)], ['Dealer', dealer?.name || b.dealerId], ['Customer', b.customer || '—'], ['Old serial', b.oldSerial || '—', 'mono']]} />
+          <KV pairs={[['Model', b.model], ['Short serial', b.serial, 'mono'], ['Made', monthLong(b.mfg)], ['Distributor / dealer', dealer?.name || b.dealerId], ['Customer', b.customer || '—'], ['Old serial', b.oldSerial || '—', 'mono']]} />
           {dealer && <Btn kind="ghost" sm icon="shop" label="Open dealer" style={{ marginTop: 11 }} onPress={() => a.go('dealer', dealer.id)} />}</Card>
         <Box title="Entries using this battery"><EntryTable compact entries={related} onOpen={e => a.go('entry', e.id)} empty="No entries yet." /></Box>
         <Box title="Stock movements">{moves.length ? <View style={{ paddingHorizontal: 14 }}>{moves.map((m, i) => <Line key={m.id} last={i === moves.length - 1} av={<Avatar n="box" tone="mute" />} title={`${m.from} → ${m.to}`} titleSize={14} sub={`${dShort(m.date)} · ${m.reason}`} />)}</View> : <X s={13.5} c={T.slate} style={{ padding: 14 }}>No movements posted.</X>}</Box>
@@ -133,7 +133,7 @@ export function Warranty({ id }: { id?: string }) {
     tabs={<Tabs value={tab} onChange={setTab} items={[['register', 'Batteries in cover'], ['policies', 'Policy versions'], ['overrides', `Override requests${pendingOv.length ? ` ${pendingOv.length}` : ''}`], ['continuity', 'How cover carries over']]} />}>
     {tab === 'register' && <Box filters={<><Pills value={filter} onChange={setFilter} items={['All', 'Active', 'Expiring soon', 'Expired', 'Not on record'].map(s => [s, `${s} ${s === 'All' ? state.batteries.length : state.batteries.filter(b => warranty(b).status === s).length}`] as [string, string])} /><SearchBox value={q} onChange={setQ} ph="Serial, customer or dealer" /></>}>
       <Table rows={register} keyOf={b => b.code} onRow={b => a.go('battery', b.code)} empty="No batteries match."
-        cols={[{ h: 'Serial', w: 1, cell: b => <X s={13} f="m" w={6}>{b.code}</X> }, { h: 'Model', w: 0.5, cell: b => <X s={13.5} w={7}>{b.model}</X> }, { h: 'Dealer', w: 1.3, cell: b => dealerName(b.dealerId) }, { h: 'Customer', w: 1.2, cell: b => b.customer || '—' }, { h: 'Started', w: 0.9, cell: b => dLong(b.start) }, { h: 'Ends', w: 0.9, cell: b => dLong(b.expiry) }, { h: 'Status', w: 1.1, cell: coverCell }]}
+        cols={[{ h: 'Serial', w: 1, cell: b => <X s={13} f="m" w={6}>{b.code}</X> }, { h: 'Model', w: 0.5, cell: b => <X s={13.5} w={7}>{b.model}</X> }, { h: 'Distributor / dealer', w: 1.3, cell: b => dealerName(b.dealerId) }, { h: 'Customer', w: 1.2, cell: b => b.customer || '—' }, { h: 'Started', w: 0.9, cell: b => dLong(b.start) }, { h: 'Ends', w: 0.9, cell: b => dLong(b.expiry) }, { h: 'Status', w: 1.1, cell: coverCell }]}
         mobile={{ title: b => <Mono>{b.code}</Mono>, sub: b => `${b.model} · ends ${dLong(b.expiry)}`, right: coverCell }} />
     </Box>}
     {tab === 'policies' && <Cols weights={[1.55, 1]}>
@@ -154,7 +154,7 @@ export function Warranty({ id }: { id?: string }) {
         const b = state.batteries.find(x => x.code === o.code), p = state.policies.find(x => x.id === b?.policy);
         const allowed = !!p?.overrides && o.days <= (p?.maxDays || 0) && !!b?.expiry;
         return <Card key={o.id}><CardH mono title={o.code} right={<StatusChip status={o.status === 'Pending' ? 'Under Review' : o.status} label={o.status === 'Pending' ? 'Waiting' : o.status} />} />
-          <KV cols={a.wide ? 4 : 2} pairs={[['Dealer', b ? dealerName(b.dealerId) : '—'], ['Cover ends', dLong(b?.expiry)], ['Extra days asked', String(o.days)], ['Policy allows', p?.overrides ? `Up to ${p.maxDays} days` : 'No overrides']]} />
+          <KV cols={a.wide ? 4 : 2} pairs={[['Distributor / dealer', b ? dealerName(b.dealerId) : '—'], ['Cover ends', dLong(b?.expiry)], ['Extra days asked', String(o.days)], ['Policy allows', p?.overrides ? `Up to ${p.maxDays} days` : 'No overrides']]} />
           <X s={13.5} c={T.ink3} style={{ marginTop: 10 }}>“{o.reason}”</X>
           {o.status === 'Pending' && !allowed && <Banner tone="bad" icon="lock" style={{ marginTop: 10 }}>The battery’s policy does not allow this extension. It can only be refused.</Banner>}
           {canEdit && o.status === 'Pending' && <View style={{ flexDirection: 'row', gap: 9, marginTop: 12, flexWrap: 'wrap' }}>
@@ -263,7 +263,7 @@ export function Catalogue() {
           <Kpis items={[{ v: String(staged.length), l: 'Rows read' }, { v: String(staged.filter(r => !r.errors.length).length), l: 'Ready to import' }, { v: String(staged.filter(r => r.errors.length).length), l: 'Need fixing', tone: staged.some(r => r.errors.length) ? 'bad' : undefined }]} />
           <View style={{ height: 12 }} />
           <Box><Table rows={staged} keyOf={r => String(r.idx)}
-            cols={[{ h: 'Code', w: 1, cell: r => <X s={13} f="m" w={6}>{r.code || '—'}</X> }, { h: 'Model', w: 0.6, cell: r => r.model || '—' }, { h: 'Dealer', w: 0.8, cell: r => r.dealerId || '—' }, { h: 'Made', w: 0.7, cell: r => r.mfg || '—' }, { h: 'Check', w: 1.3, cell: r => r.errors.length ? <Chip tone="bad" icon="alert" label={r.errors.join(', ')} /> : <Chip tone="live" icon="check" label="Ready" /> }]}
+            cols={[{ h: 'Code', w: 1, cell: r => <X s={13} f="m" w={6}>{r.code || '—'}</X> }, { h: 'Model', w: 0.6, cell: r => r.model || '—' }, { h: 'Distributor / dealer', w: 0.8, cell: r => r.dealerId || '—' }, { h: 'Made', w: 0.7, cell: r => r.mfg || '—' }, { h: 'Check', w: 1.3, cell: r => r.errors.length ? <Chip tone="bad" icon="alert" label={r.errors.join(', ')} /> : <Chip tone="live" icon="check" label="Ready" /> }]}
             mobile={{ title: r => <Mono>{r.code || '—'}</Mono>, sub: r => `${r.model} · ${r.dealerId}`, right: r => r.errors.length ? <Chip tone="bad" label="Fix" /> : <Chip tone="live" label="Ready" /> }} /></Box>
           {message ? <Banner tone="ok" icon="check" style={{ marginTop: 12 }}>{message}</Banner> : null}
           <Btn kind="blue" icon="check" label={`Import ${staged.length} rows`} style={{ marginTop: 12 }} disabled={!staged.length || staged.some(r => r.errors.length > 0) || !canEdit}

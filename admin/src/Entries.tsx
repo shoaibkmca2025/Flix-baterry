@@ -5,7 +5,7 @@ import { Entry, Item, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approveEntry, 
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
-import { approvedForRefund, batteryUnits, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, tShort, monthShort } from '@felix/shared/data';
+import { approvedForRefund, batteryUnits, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, tShort, monthShort } from '@felix/shared/data';
 import { listPhotos, splitTag, uploadEntryPhotos } from '@felix/shared/api/photos';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
@@ -193,7 +193,7 @@ export function Approvals({ id }: { id?: string }) {
       <Table rows={rows} keyOf={e => e.id} onRow={e => a.go('entry', e.id)} empty={f === 'conflict' ? 'No serial exceptions.' : 'Nothing waiting here.'}
         cols={[
           { h: 'Request', w: 1.25, cell: e => <View><X s={12.5} f="m" w={6}>{e.id}</X><X s={12} c={T.slate}>{e.type}</X></View> },
-          { h: 'Dealer', w: 1.3, cell: e => <View><X s={13.5} w={6}>{dealer(e.dealerId)?.name}</X><X s={12} c={T.slate}>{dealer(e.dealerId)?.city}</X></View> },
+          { h: 'Distributor / dealer', w: 1.3, cell: e => { const s = shopRole(state, e.dealerId); return <View><X s={13.5} w={6}>{s.name}</X><X s={12} c={T.slate}>{s.line}{s.shop?.city ? ` · ${s.shop.city}` : ''}</X></View>; } },
           { h: 'Old → new battery', w: 1.6, cell: e => <View>{e.items.map(i => <X key={i.id} s={12.5} f="m" w={5}>{i.oldSerial ? <X s={12.5} f="m" w={5} c={T.steel}>{i.oldSerial} → </X> : null}{i.code}</X>)}</View> },
           { h: 'Customer', w: 1.1, cell: e => e.customer || '—' },
           { h: 'Raised', w: 0.7, cell: e => dShort(e.createdAt) },
@@ -232,7 +232,7 @@ export function Entries() {
     actions={<>{canEdit && <Btn kind="primary" sm icon="plus" label="Record an entry" onPress={() => a.go('new')} />}<Btn kind="ghost" sm icon="excel" label={busy ? 'Preparing…' : `Export ${rows.length} to Excel`} disabled={busy || !rows.length} onPress={exportNow} /><Btn kind="ghost" sm icon="chart" label="More report options" onPress={() => a.go('reports')} /></>}>
     <Box filters={<>
       <SearchBox value={q} onChange={setQ} ph="Reference, serial, model or customer" />
-      <FilterPick label="Dealer" value={dealer} options={state.dealers.map(d => d.name)} onChange={setDealer} />
+      <FilterPick label="Distributor / dealer" value={dealer} options={state.dealers.map(d => d.name)} onChange={setDealer} />
       <FilterPick label="Type" value={type} options={state.entryTypes} onChange={setType} />
       <FilterPick label="Status" value={status} options={['Draft', 'Pending sync', 'Submitted', 'Under Review', 'Approved', 'Rejected', 'Corrected', 'Conflict', 'Cancelled']} onChange={setStatus} />
       <FilterPick label="Model" value={model} options={state.models.map(m => m.id)} onChange={setModel} />
@@ -259,7 +259,7 @@ export function Corrections() {
         const d = state.dealers.find(x => x.id === e.dealerId);
         return <Card key={e.id}>
           <CardH mono title={e.id} right={<StatusChip status="Under Review" label="Waiting" />} />
-          <KV cols={a.wide ? 3 : 2} pairs={[['Dealer', d?.name || e.dealerId], ['Asked by', personOf(raised?.actor)], ['Asked on', raised ? `${dShort(raised.at)}, ${tShort(raised.at)}` : '—'], ['Entry status', e.status === 'Conflict' ? 'Serial exception' : e.status], ['Batteries', e.items.map(i => i.code).join(', '), 'mono'], ['Customer', e.customer || '—']]} />
+          <KV cols={a.wide ? 3 : 2} pairs={[[roleOf(d), d?.name || e.dealerId], ['Asked by', personOf(raised?.actor)], ['Asked on', raised ? `${dShort(raised.at)}, ${tShort(raised.at)}` : '—'], ['Entry status', e.status === 'Conflict' ? 'Serial exception' : e.status], ['Batteries', e.items.map(i => i.code).join(', '), 'mono'], ['Customer', e.customer || '—']]} />
           <View style={{ backgroundColor: '#FAFBFD', borderWidth: 1, borderColor: T.zinc2, borderRadius: 9, padding: 12, marginTop: 12 }}>
             <X s={12} w={6} c={T.slate}>What should change</X><X s={14} w={6} style={{ marginTop: 2 }}>{e.correction!.value}</X>
             <X s={12} w={6} c={T.slate} style={{ marginTop: 8 }}>Why</X><X s={13.5}>{e.correction!.reason}</X></View>
@@ -460,9 +460,9 @@ export function EntryDetail({ id }: { id?: string }) {
       </Stack>
       <Stack>
         <Card><CardH title="Entry" right={<StatusChip status={e.status} />} />
-          <KV pairs={[['Dealer', dealer?.name || e.dealerId], ['City · place', `${dealer?.city || '—'} · ${e.place}`], ['Customer', e.customer || '—'], ['Reference', e.order || '—'], ['Date', dLong(e.date)], ['Sent', `${dShort(e.createdAt)}, ${tShort(e.createdAt)}`], ['Batteries', String(e.items.length)], ['Refund', approvedForRefund(e) ? 'Approved' : '—'], ...(e.distributorDecidedAt ? [['Distributor', `${e.status === 'Rejected' && e.decisionReason === e.distributorReason ? 'Refused' : 'Approved'} ${dShort(e.distributorDecidedAt)}${e.distributorReason ? ` — ${e.distributorReason}` : ''}`] as [string, string]] : [])]} />
+          <KV pairs={[...(dealer?.kind === 'Dealer' ? [['Dealer', dealer.name], ['Distributor', shopRole(state, e.dealerId).parent?.name || '—']] as [string, string][] : [['Distributor', dealer?.name || e.dealerId]] as [string, string][]), ['City · place', `${dealer?.city || '—'} · ${e.place}`], ['Customer', e.customer || '—'], ['Reference', e.order || '—'], ['Date', dLong(e.date)], ['Sent', `${dShort(e.createdAt)}, ${tShort(e.createdAt)}`], ['Batteries', String(e.items.length)], ['Refund', approvedForRefund(e) ? 'Approved' : '—'], ...(e.distributorDecidedAt ? [['Distributor', `${e.status === 'Rejected' && e.decisionReason === e.distributorReason ? 'Refused' : 'Approved'} ${dShort(e.distributorDecidedAt)}${e.distributorReason ? ` — ${e.distributorReason}` : ''}`] as [string, string]] : [])]} />
           {e.remarks ? <X s={13.5} c={T.ink3} style={{ marginTop: 11 }}>“{e.remarks}”</X> : null}
-          {dealer && <Btn kind="ghost" sm icon="shop" label="Open dealer" style={{ marginTop: 11 }} onPress={() => a.go('dealer', dealer.id)} />}
+          {dealer && <Btn kind="ghost" sm icon="shop" label={`Open ${roleOf(dealer).toLowerCase()}`} style={{ marginTop: 11 }} onPress={() => a.go('dealer', dealer.id)} />}
         </Card>
         {e.type === 'Replacement' && <Card><CardH title="Old battery return" right={<StatusChip status={e.returnState === 'In transit' ? 'In transit' : e.returnState === 'Closed' ? 'Closed' : e.returnState && e.returnState !== 'At dealer' ? 'Received' : 'Pending Approval'} label={e.returnState || 'At dealer'} />} />
           <X s={13.5} c={T.slate}>{e.returnNote || 'Still in the dealer’s shop until the next pickup.'}</X>
@@ -603,7 +603,7 @@ export function NewEntry({ id }: { id?: string }) {
       <Steps labels={['1 · Details', '2 · Batteries', '3 · Photos & proof', '4 · Check']} now={step} />
       <View style={{ height: 14 }} />
       {step === 1 && <Card>
-        <Cols><Select label="Dealer" req value={dealer?.name || ''} options={active.map(d => ({ v: d.name, sub: `${d.code || d.id} · ${d.city}` }))} onChange={v => { const d = active.find(x => x.name === v)!; upd({ dealerId: d.id, place: d.place || entry.place }); }} />
+        <Cols><Select label="Distributor / dealer" req value={dealer?.name || ''} options={active.map(d => ({ v: d.name, sub: `${d.code || d.id} · ${d.city}` }))} onChange={v => { const d = active.find(x => x.name === v)!; upd({ dealerId: d.id, place: d.place || entry.place }); }} />
           <Select label="Entry type" req value={entry.type} options={state.entryTypes} onChange={type => upd({ type })} /></Cols>
         <Cols><Field label="Date" req mono value={entry.date} onChange={date => upd({ date })} ph="YYYY-MM-DD" error={errors.date} hint="Within the last 30 days." hintIcon="clock" />
           <Field label="Place / area" req value={entry.place} onChange={place => upd({ place })} error={errors.place} /></Cols>
@@ -663,7 +663,7 @@ export function NewEntry({ id }: { id?: string }) {
       {step === 4 && <Stack>
         {Object.keys(errors).length > 0 && <Banner tone="bad" icon="alert"><B>Fix before sending:</B> {Object.values(errors).join(' ')}</Banner>}
         <Card><CardH title="Entry" right={<Chip tone="mute" mono label={entry.id} />} />
-          <KV cols={a.wide ? 3 : 2} pairs={[['Dealer', dealer?.name || '—'], ['Type', entry.type], ['Date', dLong(entry.date)], ['Place', entry.place], ['Customer', entry.customer || '—'], ['Batteries', String(entry.items.length)], ['Photos', String(entry.evidence.length)], ['Location', entry.gps ? 'Added' : 'Not added'], ['Signature', entry.signature ? 'Captured' : 'Not captured']]} /></Card>
+          <KV cols={a.wide ? 3 : 2} pairs={[[dealer ? roleOf(dealer) : 'Distributor / dealer', dealer?.name || '—'], ['Type', entry.type], ['Date', dLong(entry.date)], ['Place', entry.place], ['Customer', entry.customer || '—'], ['Batteries', String(entry.items.length)], ['Photos', String(entry.evidence.length)], ['Location', entry.gps ? 'Added' : 'Not added'], ['Signature', entry.signature ? 'Captured' : 'Not captured']]} /></Card>
         {entry.items.map((it, i) => <Card key={it.id}><Line last title={<>{i + 1}. {it.model} · <Mono>{it.code || '—'}</Mono></>} sub={<>{it.oldSerial ? <>replaces <Mono>{it.oldSerial}</Mono> · </> : null}serial {it.serial || '—'} · made {monthShort(it.mfg)}</>} right={<Btn kind="ghost" sm label="Edit" onPress={() => setStep(2)} />} /></Card>)}
         <Banner tone={state.offline ? 'warn' : 'info'} icon={state.offline ? 'cloud' : 'shield'}>{state.offline ? 'You are offline. It is saved on this device and sent when you reconnect.' : 'It goes into “Requests to approve”. Stock and warranty change only when it is approved.'}</Banner>
       </Stack>}

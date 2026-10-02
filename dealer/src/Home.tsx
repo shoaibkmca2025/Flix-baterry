@@ -46,7 +46,7 @@ export function useSyncNow() {
     }
     if (!rows.length) { d.toast('Nothing waiting to send.'); return; }
     const verdict = new Map(rows.map(e => [e.id, Object.keys(validateEntry(e, state)).length === 0]));
-    setState(s => audit({ ...s, lastSync: new Date().toISOString(), entries: s.entries.map(e => verdict.has(e.id) ? { ...e, status: verdict.get(e.id) ? 'Submitted' : 'Conflict', retries: e.retries + 1 } : e) }, 'Entries sent from the dealer app', 'SYNC', `${rows.length} saved entries sent`));
+    setState(s => audit({ ...s, lastSync: new Date().toISOString(), entries: s.entries.map(e => verdict.has(e.id) ? { ...e, status: verdict.get(e.id) ? 'Submitted' : 'Conflict', retries: e.retries + 1 } : e) }, 'Entries sent from the app', 'SYNC', `${rows.length} saved entries sent`));
     const bad = [...verdict.values()].filter(v => !v).length;
     d.toast(bad ? `${rows.length - bad} sent. ${bad} need a fix — see My requests.` : `${rows.length} ${rows.length === 1 ? 'entry' : 'entries'} sent to head office.`);
   };
@@ -136,6 +136,6 @@ export function D09() {
       <Line last onPress={() => setState(s => ({ ...s, smsAlerts: !(s.smsAlerts ?? true) }))} av={<Avatar n="bell" tone="mute" />} title="Alerts by SMS" sub="Status changes and warranty reminders" right={state.smsAlerts ?? true ? <Chip tone="live" label="On" /> : <Chip tone="mute" label="Off" />} />
     </Card>
     <Btn kind="ghost" label="Sign out" color={T.terminal} borderColor="#F0C7BC" style={{ marginTop: 13 }} onPress={d.signOut} />
-    <X s={12} c={T.slate} style={{ textAlign: 'center', marginTop: 14 }}>Felix Dealer App v1.0 · built by 4AM Global Media</X>
+    <X s={12} c={T.slate} style={{ textAlign: 'center', marginTop: 14 }}>Felix Distributor & Dealer App v1.0 · built by 4AM Global Media</X>
   </Screen>;
 }
