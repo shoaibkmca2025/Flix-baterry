@@ -1,4 +1,4 @@
-import { deriveCode, digitsOf } from '../domain';
+import { deriveCode, digitsOf, faultLabel } from '../domain';
 import type { Audit, Battery, Challan, Dealer, Entry, Item, Model, Movement, Staff, State } from '../domain';
 import { listAudit } from './audit';
 import { listBatteries, type ApiBattery } from './batteries';
@@ -31,7 +31,6 @@ const DEALER_STATUS: Record<ApiDealer['status'], string> = { pending_approval: '
 const ENTRY_TYPE: Record<EntryWithItems['entryType'], string> = { replacement: 'Replacement', sales_return: 'Sales Return', regular_sales: 'Regular Sales' };
 const ROLE_LABEL: Record<string, string> = { main_admin: 'Main Admin', co_admin: 'Co-Admin', operations: 'Operations', inventory_manager: 'Inventory manager', read_only: 'Read-only', dealer_manager: 'Dealer manager', dealer_user: 'Dealer user' };
 const USER_STATUS: Record<string, string> = { active: 'Active', temporarily_blocked: 'Blocked', inactive: 'Inactive', soft_deleted: 'Deleted' };
-const FAULT_LABEL: Record<string, string> = { not_holding_charge: 'Not holding charge', low_backup: 'Low backup', swollen_case: 'Swollen case', leaking: 'Leaking', other: 'Other' };
 
 /** Where the old battery is, in the words the returns screens use (memory.md §1a flow). */
 export function returnStageOf(claim: ApiClaim | undefined): Entry['returnState'] {
@@ -77,7 +76,7 @@ function toItem(it: EntryWithItems['items'][number], e: EntryWithItems, batterie
     rtn: '',
     wr: it.oldBatteryCode ?? '',
     remarks: it.remarks ?? '',
-    fault: it.faultCode ? (FAULT_LABEL[it.faultCode] ?? it.faultCode) : undefined,
+    fault: faultLabel(it.faultCode),
     ...(rep ? {
       claimId: claim?.id,
       claimStatus: claim?.status,
@@ -185,7 +184,7 @@ export function toChallan(c: ChallanResult, refOf: (entryId: string) => string):
     no: c.no, serverId: c.id, dealerId: c.dealerId, at: c.dispatchedAt, vehicle: c.vehicleNo ?? '', driver: c.driverName ?? '',
     receivedAt: c.receivedAt ?? undefined,
     entryIds: [...new Set(c.lines.map((l) => refOf(l.entryId)))],
-    rows: c.lines.map((l) => ({ serial: l.batteryCode, model: l.modelId, ref: refOf(l.entryId), fault: l.faultCode ? (FAULT_LABEL[l.faultCode] ?? l.faultCode) : '—', lineId: l.id, itemId: l.entryItemId, stage: RETURN_STAGE[l.stage], plantId: l.plantId ?? undefined, stagedAt: l.stagedAt ?? undefined })),
+    rows: c.lines.map((l) => ({ serial: l.batteryCode, model: l.modelId, ref: refOf(l.entryId), fault: faultLabel(l.faultCode) ?? '—', lineId: l.id, itemId: l.entryItemId, stage: RETURN_STAGE[l.stage], plantId: l.plantId ?? undefined, stagedAt: l.stagedAt ?? undefined })),
   };
 }
 

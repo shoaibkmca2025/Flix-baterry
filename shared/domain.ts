@@ -50,6 +50,30 @@ export const NEW_BATTERY_DIGIT_LENGTHS = [7, 8, 9];
  * Used wherever a code is read back rather than issued: an old battery returning, a stock move. */
 export const anyDigitLengths = (settingLengths: readonly number[] = DEFAULT_DIGIT_LENGTHS) =>
   [...new Set([...settingLengths, ...NEW_BATTERY_DIGIT_LENGTHS])].sort((a, b) => a - b);
+
+/**
+ * What can be wrong with the battery that came back, in the client's own words and order
+ * (client, 2 Oct 2026). The dealer picks one of these on the old-battery screen.
+ *
+ * This list lives here, not in the app, because the label is only half of it: what is stored is
+ * `faultCode(label)`, and the console and the challan print-out turn that code back into words
+ * (FAULT_LABEL in api/mapping.ts, built from this list). Keeping the list and the reverse map in
+ * two different files is how they drift, and a drifted code prints as a raw slug.
+ */
+export const FAULTS = ['Low voltage', 'Low backup', 'Leakage', 'Low gravity', 'Pole damage', 'Cell disconnect', 'Cell boil', 'Temp battery', 'Bulgy battery'];
+/** The label as it is stored: 'Pole damage' → 'pole_damage'. Stable, so old rows keep reading. */
+export const faultCode = (label: string) => label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+/**
+ * Codes the dealer app no longer offers, but which are on entries already sent. They have to stay
+ * readable for good: without them the console and the challan print-out would show a raw slug
+ * ('not_holding_charge') on every request taken before 2 Oct 2026. Never delete a line from here.
+ */
+const RETIRED_FAULT_LABEL: Record<string, string> = { not_holding_charge: 'Not holding charge', swollen_case: 'Swollen case', leaking: 'Leaking', other: 'Other' };
+const FAULT_LABEL: Record<string, string> = { ...RETIRED_FAULT_LABEL, ...Object.fromEntries(FAULTS.map(f => [faultCode(f), f])) };
+/** What the console, the entry list and the challan print-out show for a stored fault code.
+ * An unknown code falls back to itself rather than going blank — better a slug than nothing. */
+export const faultLabel = (code: string | null | undefined) => (code ? FAULT_LABEL[code] ?? code : undefined);
+
 const isDigits = (v: string) => /^\d+$/.test(v);
 const monthOf = (d: string) => { if (d.length <= 4 || !isDigits(d)) return ''; const m = Number(d.slice(2, 4)); return m >= 1 && m <= 12 ? `20${d.slice(0, 2)}-${d.slice(2, 4)}` : ''; };
 const lengthsDesc = (ls: readonly number[]) => [...new Set(ls)].sort((a, b) => b - a);

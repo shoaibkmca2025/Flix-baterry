@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Image, StyleSheet } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useStore } from '@felix/shared/store';
-import { Entry, Item, State, DEFAULT_DIGIT_LENGTHS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, deriveCode, digitsOf, expiryFrom, fullCode, isValidDigits, lengthsLabel, newEntry, newItem, normalize, sameBattery, splitLabel, today, validateEntry } from '@felix/shared/domain';
+import { Entry, Item, State, DEFAULT_DIGIT_LENGTHS, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, deriveCode, digitsOf, expiryFrom, fullCode, isValidDigits, lengthsLabel, newEntry, newItem, normalize, sameBattery, splitLabel, today, validateEntry } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, BigTile, ChipRow, CapBtn, IconBtn, Plate, PlateLab, PlateVal, Meter, Gap } from '@felix/shared/ui/kit';
 import { Screen, AppBar, Sheet, useD } from './shell';
@@ -18,7 +18,7 @@ import { useSync } from '@felix/shared/api/sync';
 
 const REP_STEPS = ['1 · Old battery', '2 · New battery', '3 · Check'];
 const RET_STEPS = ['1 · Battery', '2 · Photos', '3 · Check'];
-const FAULTS = ['Not holding charge', 'Low backup', 'Swollen case', 'Leaking', 'Other'];
+// FAULTS now comes from shared/domain, beside the code it is stored as — see the note there.
 const ACTIVE_ELSEWHERE = ['Submitted', 'Under Review', 'Conflict', 'Pending sync'];
 
 /* ---------- flow helpers ---------- */

@@ -94,3 +94,20 @@ test('the same battery means code + model + YY + MM + serial all match, never th
  assert.equal(validateEntry(rep([{model:'GPI700',code:'26090001',oldSerial:'25010001',oldModel:'GPI700'},{model:'MG2500',code:'26090001',oldSerial:'25010002',oldModel:'MG2500'}]),s)['items.1.code'],undefined);
  assert.ok(validateEntry(rep([{model:'GPI700',code:'26090001',oldSerial:'25010001',oldModel:'GPI700'},{model:'GPI700',code:'26090001',oldSerial:'25010002',oldModel:'GPI700'}]),s)['items.1.code']);
 });
+
+test('every fault the dealer can pick survives the round trip, and retired ones still read', async () => {
+ const { FAULTS, faultCode, faultLabel } = await import('../domain');
+ // the client's list, in the client's order (2 Oct 2026)
+ assert.deepEqual(FAULTS, ['Low voltage','Low backup','Leakage','Low gravity','Pole damage','Cell disconnect','Cell boil','Temp battery','Bulgy battery']);
+ // what the dealer taps -> what is stored -> what head office reads, with nothing lost in between
+ for (const f of FAULTS) assert.equal(faultLabel(faultCode(f)), f);
+ // entries sent before the list changed must never print as a raw slug
+ assert.equal(faultLabel('not_holding_charge'), 'Not holding charge');
+ assert.equal(faultLabel('swollen_case'), 'Swollen case');
+ assert.equal(faultLabel('leaking'), 'Leaking');   // the retired 'Leaking', not the new 'Leakage'
+ assert.equal(faultLabel('leakage'), 'Leakage');
+ assert.equal(faultLabel('other'), 'Other');
+ // an unknown code shows itself rather than going blank; no fault at all stays undefined
+ assert.equal(faultLabel('something_new'), 'something_new');
+ assert.equal(faultLabel(null), undefined);
+});
