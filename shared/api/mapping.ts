@@ -68,6 +68,7 @@ export function returnStageOf(claim: ApiClaim | undefined): Entry['returnState']
  * claim decision it reads "Under Review", which is what the two-step flow (memory.md D-05) is.
  */
 export function entryStatusOf(e: EntryWithItems, claim: ApiClaim | undefined): Entry['status'] {
+  if (e.status === 'with_distributor') return 'With distributor';
   if (e.status === 'submitted') return 'Submitted';
   if (e.status === 'rejected') return 'Rejected';
   if (e.entryType !== 'replacement' || !claim) return 'Approved';
@@ -154,6 +155,8 @@ export function toEntry(e: EntryWithItems, claims: Map<string, ApiClaim>, batter
     claimStatus: claim?.status,
     decidedAt: claim?.decidedAt ?? e.decidedAt ?? undefined,
     decisionReason: claim?.decisionReason ?? e.decisionReason ?? undefined,
+    distributorDecidedAt: e.distributorDecidedAt ?? undefined,
+    distributorReason: e.distributorReason ?? undefined,
   };
 }
 

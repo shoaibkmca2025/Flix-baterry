@@ -91,7 +91,7 @@ export function Chip({ tone = 'mute', icon, label, mono, style }: { tone?: Tone;
 }
 export const ST: Record<string, [Tone, IconName]> = {
   Approved: ['live', 'check'], Submitted: ['info', 'clock'], 'Pending sync': ['warn', 'sync'], 'Serial exception': ['bad', 'alert'], Conflict: ['bad', 'alert'],
-  'Under Review': ['vio', 'eye'], Rejected: ['bad', 'x'], Draft: ['mute', 'pen'], Corrected: ['info', 'pen'], Cancelled: ['mute', 'x'],
+  'With distributor': ['info', 'people'], 'Under Review': ['vio', 'eye'], Rejected: ['bad', 'x'], Draft: ['mute', 'pen'], Corrected: ['info', 'pen'], Cancelled: ['mute', 'x'],
   Active: ['live', 'shield'], Expiring: ['warn', 'clock'], Expired: ['mute', 'clock'], 'Pending Approval': ['warn', 'clock'], Suspended: ['bad', 'lock'],
   'In transit': ['vio', 'truck'], Received: ['live', 'box'], Closed: ['live', 'check'], Refused: ['bad', 'x'], 'Not returned': ['bad', 'alert'],
 };

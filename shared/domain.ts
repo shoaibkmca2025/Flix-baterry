@@ -1,11 +1,14 @@
 export type Role = 'Dealer' | 'Main Admin' | 'Co-Admin' | 'Read-only';
-export type Status = 'Draft' | 'Pending sync' | 'Submitted' | 'Under Review' | 'Approved' | 'Rejected' | 'Corrected' | 'Cancelled' | 'Conflict';
+// 'With distributor': a dealer's request waiting for its distributor's approval (client, 2 Oct 2026)
+export type Status = 'Draft' | 'Pending sync' | 'With distributor' | 'Submitted' | 'Under Review' | 'Approved' | 'Rejected' | 'Corrected' | 'Cancelled' | 'Conflict';
 export type Item = { id: string; model: string; oldModel?: string; code: string; serial: string; oldSerial: string; mfg: string; rpl: string; rtn: string; wr: string; remarks: string; exception?: string; fault?: string;
   /** a replacement's old battery travels and is decided on its own (client, 2 Oct 2026): its claim, where it is, and head office's decision */
   claimId?: string; claimStatus?: string; status?: Status; returnState?: string; returnNote?: string; decidedAt?: string; decisionReason?: string;
   /** head office looked at THIS battery, and/or rewrote its serials (client, 2 Oct 2026) */
   reviewStartedAt?: string; reviewNote?: string; correctedAt?: string; correctionReason?: string };
 export type Entry = { id: string; dealerId: string; type: string; date: string; customer: string; place: string; order: string; remarks: string; items: Item[]; status: Status; evidence: string[]; gps?: string; signature?: string; createdAt: string; retries: number; correction?: { reason: string; value: string; status: string }; handover?: string; returnState?: string; returnNote?: string; linkedTo?: string; evidenceTags?: string[]; coverTold?: string; apiId?: string; claimId?: string; claimStatus?: string; decidedAt?: string; decisionReason?: string;
+  /** the distributor's decision on a dealer's request, before head office (client, 2 Oct 2026) */
+  distributorDecidedAt?: string; distributorReason?: string;
   /** set when this Entry stands for ONE battery of a multi-battery replacement (see batteryUnits) */
   itemId?: string; part?: string };
 export type Battery = { code: string; serial: string; model: string; dealerId: string; customer: string; mfg: string; oldSerial?: string; start?: string; expiry?: string; policy?: string; state: string };

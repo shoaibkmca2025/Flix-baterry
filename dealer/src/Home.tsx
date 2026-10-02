@@ -80,12 +80,17 @@ export function D07() {
   const needs = attention(all);
   const problems = all.filter(e => ['Conflict', 'Rejected'].includes(e.status));
   const queued = all.filter(e => e.status === 'Pending sync'), drafts = all.filter(e => e.status === 'Draft');
-  const back = toSendBack(state, dealerId), rf = refunds(state, dealerId);
+  // a distributor sends back (and is refunded for) his dealers' batteries too (client, 2 Oct 2026)
+  const net = !isDealerShop(dealer);
+  const back = net ? toSendBack(state, dealerId, true) : all.filter(e => e.type === 'Replacement' && e.status === 'With distributor'), rf = refunds(state, dealerId, net);
   const alerts: { av: [any, AvTone]; title: string; sub: string; go: () => void }[] = [];
   if (problems.length) alerts.push({ av: ['alert', 'red'], title: `${problems.length} ${problems.length === 1 ? 'request needs' : 'requests need'} your attention`, sub: problems.length === 1 ? `${problems[0].id} · ${problems[0].status === 'Conflict' ? 'head office has asked about the serial' : 'head office refused it — see why'}` : 'Tap to see what to fix', go: () => problems.length === 1 ? d.go('d19', problems[0].id) : d.go('d18', 'fix') });
   if (queued.length) alerts.push({ av: ['sync', 'amber'], title: `${queued.length} ${queued.length === 1 ? 'entry' : 'entries'} waiting to send`, sub: state.offline ? 'Saved on this phone · sends when signal returns' : 'Saved on this phone · tap to send now', go: sync });
   if (drafts.length) alerts.push({ av: ['pen', 'mute'], title: `${drafts.length} ${drafts.length === 1 ? 'entry' : 'entries'} not finished`, sub: 'Continue where you left off', go: () => d.go('d18', 'notsent') });
   const underDistributor = isDealerShop(dealer);
+  // a distributor's queue: his dealers' requests waiting for his approval (client, 2 Oct 2026)
+  const fromDealers = underDistributor ? [] : state.entries.filter(e => e.dealerId !== dealerId && e.status === 'With distributor');
+  if (fromDealers.length) alerts.unshift({ av: ['people', 'amber'], title: `${fromDealers.length} ${fromDealers.length === 1 ? 'request' : 'requests'} from your dealers to approve`, sub: 'Check each one and its photos, then approve or refuse', go: () => d.go('d42') });
   // a dealer hands its old batteries to the distributor by hand; only a distributor sends them back
   if (back.length && underDistributor) alerts.push({ av: ['truck', 'amber'], title: `${back.length} old ${back.length === 1 ? 'battery' : 'batteries'} to hand to your distributor`, sub: dealer.distributor ? `${dealer.distributor.name} · +91 ${dealer.distributor.mobile}` : 'Give them to your distributor', go: () => d.go('d18', 'rep') });
   else if (back.length) alerts.push({ av: ['truck', 'amber'], title: `${back.length} old ${back.length === 1 ? 'battery' : 'batteries'} to send back`, sub: `Oldest has been in your shop ${ageDays(back[back.length - 1].date)} days`, go: () => d.tab('d33') });
@@ -100,7 +105,7 @@ export function D07() {
     <Gap h={13} />
     <Btn kind="primary" big icon="plus" label={tr('New replacement')} onPress={() => { d.setFlow(null); d.go('d10'); }} />
     <BtnRow><Btn icon="scan" label={tr('Scan')} onPress={() => d.tab('d23')} /><Btn kind="ghost" icon="search" label={tr('Find serial')} onPress={() => d.tab('d23')} /></BtnRow>
-    {!underDistributor && <Btn kind="ghost" icon="people" label="My dealers" style={{ marginTop: 9 }} onPress={() => d.go('d40')} />}
+    {!underDistributor && <BtnRow><Btn kind="ghost" icon="people" label="My dealers" onPress={() => d.go('d40')} /><Btn kind={fromDealers.length ? 'blue' : 'ghost'} icon="check" label={fromDealers.length ? `Dealers' requests (${fromDealers.length})` : "Dealers' requests"} onPress={() => d.go('d42')} /></BtnRow>}
     {underDistributor && dealer.distributor && <><Gap h={13} /><DistributorCard name={dealer.distributor.name} mobile={dealer.distributor.mobile} contact={dealer.distributor.contact} /></>}
     <SecT title="Recent entries" />
     <Card>{all.length ? all.slice(0, 4).map((e, i, a) => <EntryLine key={e.id} e={e} last={i === a.length - 1} onPress={() => openEntry(d, d.setFlow, e)} />)

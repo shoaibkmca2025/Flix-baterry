@@ -5,7 +5,7 @@ import { AppError } from '../../utils/errors';
 import { issueInTx as issueCreditNoteInTx } from '../credits/credits.service';
 import { findBatteryById } from '../batteries/batteries.repository';
 import { postMovementInTx } from '../stock/stock.service';
-import { distributorShopIds } from '../dealers/dealers.service';
+import { distributorShopIds, visibleShopIds } from '../dealers/dealers.service';
 import type { claimStatus } from '../../models/claims.model';
 import * as repo from './claims.repository';
 import type { ClaimCheckBody, ClaimDecideBody, ClaimListQuery } from './claims.validation';
@@ -119,8 +119,9 @@ export async function decide(ctx: Ctx, id: string, input: ClaimDecideBody) {
 
 export async function list(ctx: Ctx, query: ClaimListQuery) {
   const user = requireUser(ctx);
-  const dealerId = user.scope === 'dealer' ? user.dealerId : undefined;
-  return repo.listClaims(db, { status: query.status, dealerId, limit: query.limit, cursor: decodeCursor(query.cursor) });
+  // a shop reads its own claims; a distributor his dealers' too, so their requests show the true status (client, 2 Oct 2026)
+  if (user.scope === 'dealer') return repo.listClaims(db, { status: query.status, dealerIds: [...(await visibleShopIds(ctx))], limit: query.limit, cursor: decodeCursor(query.cursor) });
+  return repo.listClaims(db, { status: query.status, limit: query.limit, cursor: decodeCursor(query.cursor) });
 }
 
 export async function getById(ctx: Ctx, id: string) {

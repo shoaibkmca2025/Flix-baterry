@@ -734,7 +734,7 @@ export function D16() {
       // then its photos, so head office can review the batteries from them (D-10)
       let photosFailed = 0;
       if (e.evidence.length) { setPhase(`Sending ${e.evidence.length} ${e.evidence.length === 1 ? 'photo' : 'photos'}…`); photosFailed = (await uploadEntryPhotos(e, result.id, token)).failed; }
-      const data: Entry = { ...e, id: result.ref, apiId: result.id, status: result.status === 'approved' ? 'Approved' : 'Submitted', createdAt: result.createdAt, date: result.entryDate,
+      const data: Entry = { ...e, id: result.ref, apiId: result.id, status: result.status === 'approved' ? 'Approved' : result.status === 'with_distributor' ? 'With distributor' : 'Submitted', createdAt: result.createdAt, date: result.entryDate,
         items: e.items.map(it => ({ ...it, wr: it.oldSerial || it.wr })),
         handover: rep ? `Given to ${e.customer || 'the customer'} at the counter · ${dLong(result.createdAt)}, ${tShort(result.createdAt)}` : e.handover };
       setState(s => audit({ ...s, entries: [data, ...s.entries.filter(x => x.id !== e.id)] }, 'Entry submitted', data.id, 'Sent from the dealer app'));
@@ -774,6 +774,9 @@ export function D17({ p }: { p?: string }) {
   const { lookup } = useLiveLookup(e?.type === 'Replacement' ? (e.items[0]?.oldSerial || '') : '', token);
   if (!e) return <Screen top={<AppBar title="Entry" back="d07" />}><X c={T.slate}>This entry could not be found.</X></Screen>;
   const rep = e.type === 'Replacement', queued = e.status === 'Pending sync';
+  // a dealer's request goes to its distributor first (client, 2 Oct 2026)
+  const shop = state.dealers.find(x => x.id === e.dealerId), viaDistributor = shop?.kind === 'Dealer';
+  const approver = viaDistributor ? (shop?.distributor?.name ? `Your distributor (${shop.distributor.name})` : 'Your distributor') : 'Head office';
   const cover = rep && lookup?.found && lookup.cover.warrantyStart ? lookup.cover : null;
   const list = (k: 'oldSerial' | 'code') => e.items.map(it => it[k]).filter(Boolean).join(', ') || '—';
   // One way out, within thumb reach: Done → Home. The request and its decision stay in My requests.
@@ -781,7 +784,7 @@ export function D17({ p }: { p?: string }) {
   return <Screen footer={<Btn kind="primary" big icon="check" label="Done" onPress={done} />}>
     <BigOk n={queued ? 'cloud' : 'check'} bg={queued ? T.amber : T.live} />
     <X s={22} w={7} f="c" accessibilityRole="header" style={{ textAlign: 'center', marginBottom: 5 }}>{queued ? 'Saved on this phone' : 'Recorded and sent'}</X>
-    <X s={15} c={T.slate} style={{ textAlign: 'center', marginBottom: 16 }}>{rep ? (queued ? 'It sends by itself when signal returns. Give the new battery to the customer now.' : 'Give the new battery to the customer now. Head office confirms the claim afterwards — the customer does not wait.') : (queued ? 'It sends by itself when signal returns.' : 'Head office confirms the return afterwards.')}</X>
+    <X s={15} c={T.slate} style={{ textAlign: 'center', marginBottom: 16 }}>{rep ? (queued ? 'It sends by itself when signal returns. Give the new battery to the customer now.' : `Give the new battery to the customer now. ${approver} confirms it afterwards — the customer does not wait.${viaDistributor ? ' Hand the old battery to your distributor.' : ''}`) : (queued ? 'It sends by itself when signal returns.' : `${approver} confirms the return afterwards.`)}</X>
     <Plate><PlateLab center>REQUEST NUMBER</PlateLab><PlateVal size={22} center>{e.id}</PlateVal></Plate>
     <Card style={{ marginTop: 12 }}><KV pairs={rep
       ? [['Old battery', list('oldSerial'), 'mono'], ['New battery', list('code'), 'mono'], ['Cover ends', cover ? dLong(cover.expiryDate) : 'Set by head office'], ['Remaining', cover ? spanShort(span(today(), cover.expiryDate)) : '—'], [queued ? 'Saved' : 'Sent', tShort(e.createdAt)], ['Claim decided', 'After the battery is checked']]

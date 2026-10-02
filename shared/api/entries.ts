@@ -34,7 +34,7 @@ export type EntryResult = {
   customerName: string | null;
   remarks: string | null;
   totalQty: number;
-  status: 'submitted' | 'approved' | 'rejected';
+  status: 'submitted' | 'approved' | 'rejected' | 'with_distributor';
   gps: string | null;
   signature: string | null;
   coverToldAt: string | null;
@@ -42,6 +42,8 @@ export type EntryResult = {
   decidedBy: string | null;
   decidedAt: string | null;
   decisionReason: string | null;
+  distributorDecidedAt?: string | null;
+  distributorReason?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -109,4 +111,9 @@ export function correctEntryItem(
 export function settleEntry(id: string, decision: 'approved' | 'passed' | 'refused', reason: string, accessToken: string, itemId?: string) {
   // `itemId`: decide one battery of a multi-battery replacement on its own
   return apiPost<{ entry: EntryResult; creditNotes: { no: string }[] }>(`/entries/${id}/settle`, { decision, reason, ...(itemId ? { itemId } : {}) }, { accessToken });
+}
+
+/** A distributor approves a dealer's request on to head office, or refuses it (client, 2 Oct 2026). */
+export function distributorDecide(id: string, decision: 'approve' | 'refuse', reason: string, accessToken: string) {
+  return apiPost<EntryResult>(`/entries/${id}/distributor/${decision}`, { reason }, { accessToken });
 }

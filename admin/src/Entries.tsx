@@ -354,6 +354,7 @@ export function EntryDetail({ id }: { id?: string }) {
     : e.status === 'Under Review' ? <Banner tone="info" icon="eye"><B>Under review.</B> Approve or refuse once the check is done.</Banner>
     : e.status === 'Approved' ? <Banner tone="ok" icon="check"><B>Approved.</B> Stock, warranty history and the replacement chain are updated.</Banner>
     : e.status === 'Rejected' ? <Banner tone="bad" icon="x"><B>Refused.</B> {e.decisionReason || state.audits.find(x => x.ref === e.id && x.action === 'Reject entry')?.reason || ''}</Banner>
+    : e.status === 'With distributor' ? <Banner tone="info" icon="people"><B>With the dealer’s distributor.</B> The distributor checks it first; it reaches your queue once they approve it.</Banner>
     : e.status === 'Pending sync' ? <Banner tone="warn" icon="sync"><B>Still on the dealer’s phone.</B> It reaches head office when their phone is back online.</Banner>
     : e.status === 'Corrected' ? <Banner tone="info" icon="pen"><B>Corrected.</B> See the linked entry for the current values. This version stays readable.</Banner>
     : <Banner tone="info" icon="x"><B>Voided.</B> Removed from live totals, kept in search and the audit log.</Banner>;
@@ -459,7 +460,7 @@ export function EntryDetail({ id }: { id?: string }) {
       </Stack>
       <Stack>
         <Card><CardH title="Entry" right={<StatusChip status={e.status} />} />
-          <KV pairs={[['Dealer', dealer?.name || e.dealerId], ['City · place', `${dealer?.city || '—'} · ${e.place}`], ['Customer', e.customer || '—'], ['Reference', e.order || '—'], ['Date', dLong(e.date)], ['Sent', `${dShort(e.createdAt)}, ${tShort(e.createdAt)}`], ['Batteries', String(e.items.length)], ['Refund', approvedForRefund(e) ? 'Approved' : '—']]} />
+          <KV pairs={[['Dealer', dealer?.name || e.dealerId], ['City · place', `${dealer?.city || '—'} · ${e.place}`], ['Customer', e.customer || '—'], ['Reference', e.order || '—'], ['Date', dLong(e.date)], ['Sent', `${dShort(e.createdAt)}, ${tShort(e.createdAt)}`], ['Batteries', String(e.items.length)], ['Refund', approvedForRefund(e) ? 'Approved' : '—'], ...(e.distributorDecidedAt ? [['Distributor', `${e.status === 'Rejected' && e.decisionReason === e.distributorReason ? 'Refused' : 'Approved'} ${dShort(e.distributorDecidedAt)}${e.distributorReason ? ` — ${e.distributorReason}` : ''}`] as [string, string]] : [])]} />
           {e.remarks ? <X s={13.5} c={T.ink3} style={{ marginTop: 11 }}>“{e.remarks}”</X> : null}
           {dealer && <Btn kind="ghost" sm icon="shop" label="Open dealer" style={{ marginTop: 11 }} onPress={() => a.go('dealer', dealer.id)} />}
         </Card>

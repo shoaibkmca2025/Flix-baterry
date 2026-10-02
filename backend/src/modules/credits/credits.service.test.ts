@@ -16,6 +16,11 @@ vi.mock('../../utils/ids', () => ({
   monthKey: vi.fn(() => '26-09'),
 }));
 
+// dealer-1 is a distributor; dealer-1a a dealer under him (client, 2 Oct 2026)
+vi.mock('../dealers/dealers.repository', () => ({
+  findDealerById: vi.fn(async (_db: unknown, id: string) => (id === 'dealer-1a' ? { id, kind: 'dealer', distributorId: 'dealer-1' } : { id, kind: 'distributor', distributorId: null })),
+}));
+
 vi.mock('./credits.repository', () => ({
   findCreditNoteById: vi.fn(),
   findCreditNoteByNo: vi.fn(),
@@ -53,6 +58,13 @@ describe('issueInTx — called by claims.decide', () => {
 
     expect(note).toMatchObject({ no: 'CN-26-09-0001', dealerId: 'dealer-1', claimId: 'claim-1', issuedBy: 'admin-1' });
     expect(audit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'credit_note.issued', entityRef: 'CN-26-09-0001' }));
+  });
+
+  it("a dealer's claim is credited to its distributor — head office refunds him, he settles with the dealer", async () => {
+    vi.mocked(repo.insertCreditNote).mockImplementation(async (_tx, input) => ({ id: 'cn-2', ...input }) as never);
+    const note = await issueInTx({} as never, adminCtx, { claim: { ...claim, dealerId: 'dealer-1a' } });
+    expect(note).toMatchObject({ dealerId: 'dealer-1', claimId: 'claim-1' });
+    expect(vi.mocked(audit).mock.calls.at(-1)?.[1].after).toMatchObject({ dealerId: 'dealer-1', forDealerId: 'dealer-1a' });
   });
 
   it('carries no amount — the accounts team works out and pays the refund (D-20)', async () => {

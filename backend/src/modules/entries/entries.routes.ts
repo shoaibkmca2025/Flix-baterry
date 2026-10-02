@@ -46,5 +46,8 @@ export async function registerEntryRoutes(app: FastifyInstance) {
     { preHandler: [requireAuth, requirePermission('entries.create')], schema: { body: EntryPhotoBody }, bodyLimit: 10 * 1024 * 1024 },
     controller.addPhoto,
   );
+  // a distributor approves (→ head office) or refuses a dealer's request; the service checks it is his dealer's
+  app.post<{ Params: { id: string }; Body: EntryDecisionBody }>('/:id/distributor/approve', { preHandler: [requireAuth], schema: { body: EntryDecisionBody } }, controller.distributorApprove);
+  app.post<{ Params: { id: string }; Body: EntryDecisionBody }>('/:id/distributor/refuse', { preHandler: [requireAuth], schema: { body: EntryDecisionBody } }, controller.distributorRefuse);
   app.get<{ Params: { id: string } }>('/:id/photos', { preHandler: [requireAuth, requirePermission('entries.read')] }, controller.listPhotos);
 }

@@ -12,6 +12,7 @@ import * as batteriesRepo from '../batteries/batteries.repository';
 import * as claimsRepo from '../claims/claims.repository';
 import * as claimsService from '../claims/claims.service';
 import { findDealerById } from '../dealers/dealers.repository';
+import { requireDistributor, visibleShopIds } from '../dealers/dealers.service';
 import { postMovementInTx } from '../stock/stock.service';
 import * as returnsRepo from '../returns/returns.repository';
 import * as repo from './entries.repository';
@@ -51,6 +52,10 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
   }
 
   const entryDate = input.entryDate ?? todayIso(ctx);
+  // A dealer's request goes to its distributor first; a distributor's own straight to head
+  // office (client, 2 Oct 2026). Head office recording one itself skips the distributor.
+  const shop = user.scope === 'dealer' ? await findDealerById(db, dealerId) : undefined;
+  const status = shop?.kind === 'dealer' ? 'with_distributor' as const : 'submitted' as const;
 
   // format-validate every item up front, and reject duplicate codes WITHIN the same entry —
   // before opening a transaction, matching architecture.md §9.3's "errors first" pipeline.
@@ -107,6 +112,7 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
       signature: input.signature ?? null,
       coverToldAt: input.coverTold ? ctx.now() : null,
       submittedBy: user.id,
+      status,
     });
 
     for (const [i, item] of derivedItems.entries()) {
@@ -289,6 +295,7 @@ export async function approve(ctx: Ctx, entryId: string, reason: string) {
   }
   const entry = await repo.findEntryById(db, entryId);
   if (!entry) throw new AppError('entry_not_found', 404, 'Entry not found.');
+  if (entry.status === 'with_distributor') throw new AppError('with_distributor', 409, 'This request is still with the dealer’s distributor. It reaches you once they approve it.');
   if (entry.status !== 'submitted') {
     throw new AppError('invalid_transition', 409, `Cannot approve an entry that is already ${entry.status}.`);
   }
@@ -352,6 +359,7 @@ export async function settle(ctx: Ctx, entryId: string, input: EntrySettleBody) 
   const entry = await repo.findEntryById(db, entryId);
   if (!entry) throw new AppError('entry_not_found', 404, 'Entry not found.');
   if (entry.entryType !== 'replacement') throw new AppError('not_a_replacement', 422, 'Only replacements are decided on arrival. Use Approve for this entry.');
+  if (entry.status === 'with_distributor') throw new AppError('with_distributor', 409, 'This request is still with the dealer’s distributor. It reaches you once they approve it.');
   if (entry.status !== 'submitted' && entry.status !== 'approved') {
     throw new AppError('invalid_transition', 409, `This request is already ${entry.status}.`);
   }
@@ -403,6 +411,7 @@ export async function reject(ctx: Ctx, entryId: string, reason: string) {
   }
   const entry = await repo.findEntryById(db, entryId);
   if (!entry) throw new AppError('entry_not_found', 404, 'Entry not found.');
+  if (entry.status === 'with_distributor' && ctx.user.scope === 'admin') throw new AppError('with_distributor', 409, 'This request is still with the dealer’s distributor. It reaches you once they approve it.');
   if (entry.status !== 'submitted') {
     throw new AppError('invalid_transition', 409, `Cannot reject an entry that is already ${entry.status}.`);
   }
@@ -417,7 +426,8 @@ export async function getById(ctx: Ctx, id: string) {
   const user = requireDealer(ctx);
   const entry = await repo.findEntryById(db, id);
   if (!entry) throw new AppError('entry_not_found', 404, 'Entry not found.');
-  if (user.scope === 'dealer' && entry.dealerId !== user.dealerId) {
+  // a distributor also reads his dealers' requests (client, 2 Oct 2026)
+  if (user.scope === 'dealer' && !(await visibleShopIds(ctx)).has(entry.dealerId)) {
     throw new AppError('entry_not_found', 404, 'Entry not found.'); // 404 not 403 — no existence leak (I-3)
   }
   const items = await repo.findItemsByEntryId(db, id);
@@ -426,8 +436,36 @@ export async function getById(ctx: Ctx, id: string) {
 
 export async function list(ctx: Ctx, query: EntryListQuery) {
   const user = requireDealer(ctx);
-  const dealerId = user.scope === 'dealer' ? user.dealerId : query.dealerId;
-  return repo.listEntries(db, { status: query.status, dealerId, limit: query.limit, cursor: decodeCursor(query.cursor) });
+  // a shop reads its own requests; a distributor his dealers' too (client, 2 Oct 2026)
+  if (user.scope === 'dealer') {
+    return repo.listEntries(db, { status: query.status, dealerIds: [...(await visibleShopIds(ctx))], limit: query.limit, cursor: decodeCursor(query.cursor) });
+  }
+  return repo.listEntries(db, { status: query.status, dealerId: query.dealerId, limit: query.limit, cursor: decodeCursor(query.cursor) });
+}
+
+/**
+ * The distributor's decision on a dealer's request (client, 2 Oct 2026). Approving forwards it
+ * to head office, which still decides it at the factory; refusing ends it with the reason the
+ * dealer sees. Approving also says the distributor has the old battery in hand — the dealer
+ * gives it to him; there is no separate "received" step.
+ */
+export async function distributorDecide(ctx: Ctx, entryId: string, decision: 'approve' | 'refuse', reason: string) {
+  const me = await requireDistributor(ctx);
+  const entry = await repo.findEntryById(db, entryId);
+  const shop = entry ? await findDealerById(db, entry.dealerId) : undefined;
+  if (!entry || !shop || shop.distributorId !== me.id) throw new AppError('entry_not_found', 404, 'Entry not found.'); // I-3
+  if (entry.status !== 'with_distributor') {
+    throw new AppError('invalid_transition', 409, entry.status === 'rejected' ? 'This request was already refused.' : 'This request has already gone to head office.');
+  }
+  return withTransaction(async (tx) => {
+    const updated = await repo.setDistributorDecision(tx, entryId, { approve: decision === 'approve', by: ctx.user!.id, reason });
+    if (!updated) throw new AppError('invalid_transition', 409, 'This request was decided a moment ago. Refresh and check it.');
+    await audit(tx, {
+      ctx, action: decision === 'approve' ? 'entry.distributor_approved' : 'entry.distributor_refused', entityType: 'entry', entityId: entry.id, entityRef: entry.ref,
+      before: { status: 'with_distributor' }, after: { status: updated.status, distributor: me.name, dealer: shop.name }, reason, outcome: 'ok',
+    });
+    return updated;
+  });
 }
 
 function decodeCursor(cursor?: string) {
@@ -446,7 +484,8 @@ function decodeCursor(cursor?: string) {
 async function visibleEntry(ctx: Ctx, entryId: string) {
   const user = requireDealer(ctx);
   const entry = await repo.findEntryById(db, entryId);
-  if (!entry || (user.scope === 'dealer' && entry.dealerId !== user.dealerId)) throw new AppError('entry_not_found', 404, 'Entry not found.');
+  // the distributor reviews his dealers' photos before approving (client, 2 Oct 2026)
+  if (!entry || (user.scope === 'dealer' && !(await visibleShopIds(ctx)).has(entry.dealerId))) throw new AppError('entry_not_found', 404, 'Entry not found.');
   return { user, entry };
 }
 

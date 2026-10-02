@@ -50,6 +50,8 @@ export async function dispatch(ctx: Ctx, input: ChallanCreateBody) {
     if (!e || !shops.has(e.dealerId)) throw new AppError('entry_not_found', 404, 'Entry not found.');
     if (e.entryType !== 'replacement') throw new AppError('nothing_to_dispatch', 422, `${e.ref} is not a replacement — there is no old battery to send back.`);
     if (e.status === 'rejected') throw new AppError('nothing_to_dispatch', 422, `${e.ref} was refused — nothing to send back.`);
+    // a dealer's request is sent back only once its distributor has approved it (client, 2 Oct 2026)
+    if (e.status === 'with_distributor') throw new AppError('not_approved_yet', 422, `${e.ref} is waiting for your approval. Approve it first, then send its old battery.`);
   }
 
   const items = (await entriesRepo.findItemsByEntryIds(db, ids)).filter((it) => !!it.oldBatteryCode);

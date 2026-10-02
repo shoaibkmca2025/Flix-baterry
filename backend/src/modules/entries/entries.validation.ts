@@ -73,7 +73,7 @@ export const EntryItemCorrectBody = z.object({
 export type EntryItemCorrectBody = z.infer<typeof EntryItemCorrectBody>;
 
 export const EntryListQuery = z.object({
-  status: z.enum(['submitted', 'approved', 'rejected'] as const).optional(),
+  status: z.enum(['submitted', 'approved', 'rejected', 'with_distributor'] as const).optional(),
   dealerId: z.string().uuid().optional(), // admins only; a dealer's scope always comes from the token
   limit: z.coerce.number().int().positive().max(200).default(50),
   cursor: z.string().optional(),

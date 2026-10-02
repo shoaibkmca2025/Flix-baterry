@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, or, sql } from 'drizzle-orm';
+import { and, inArray, desc, eq, lt, or, sql } from 'drizzle-orm';
 import { db, type Tx } from '../../database/client';
 import { claimStatus, warrantyClaims } from '../../models/claims.model';
 
@@ -44,12 +44,13 @@ export async function updateClaimDecision(
   return row!;
 }
 
-export type ClaimListFilter = { status?: (typeof claimStatus.enumValues)[number]; dealerId?: string; limit: number; cursor?: { createdAt: Date; id: string } };
+export type ClaimListFilter = { status?: (typeof claimStatus.enumValues)[number]; dealerId?: string; dealerIds?: string[]; limit: number; cursor?: { createdAt: Date; id: string } };
 
 export async function listClaims(dbh: DbOrTx, filter: ClaimListFilter) {
   const conditions = [
     filter.status ? eq(warrantyClaims.status, filter.status) : undefined,
     filter.dealerId ? eq(warrantyClaims.dealerId, filter.dealerId) : undefined,
+    filter.dealerIds ? inArray(warrantyClaims.dealerId, filter.dealerIds.length ? filter.dealerIds : ['00000000-0000-0000-0000-000000000000']) : undefined,
     filter.cursor
       ? or(lt(warrantyClaims.createdAt, filter.cursor.createdAt), and(eq(warrantyClaims.createdAt, filter.cursor.createdAt), lt(warrantyClaims.id, filter.cursor.id)))
       : undefined,

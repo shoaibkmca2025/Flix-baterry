@@ -52,3 +52,12 @@ export async function correctItem(request: FastifyRequest<{ Params: { id: string
   const result = await service.correctItem(buildCtx(request), request.params.id, request.params.itemId, request.body);
   reply.status(200).send(result);
 }
+
+// the distributor's decision on a dealer's request (client, 2 Oct 2026)
+export async function distributorApprove(request: FastifyRequest<{ Params: { id: string }; Body: EntryDecisionBody }>, reply: FastifyReply) {
+  reply.status(200).send(await service.distributorDecide(buildCtx(request), request.params.id, 'approve', request.body.reason));
+}
+
+export async function distributorRefuse(request: FastifyRequest<{ Params: { id: string }; Body: EntryDecisionBody }>, reply: FastifyReply) {
+  reply.status(200).send(await service.distributorDecide(buildCtx(request), request.params.id, 'refuse', request.body.reason));
+}

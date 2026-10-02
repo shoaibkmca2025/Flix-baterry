@@ -60,7 +60,8 @@ export function D33() {
 
 function D33Dispatch() {
   const d = useD(); const { state, setState, dealerId, audit } = useStore(); const { sync } = useSync();
-  const rows = toSendBack(state, dealerId);
+  // his own old batteries and those his dealers handed him, once he approved their requests
+  const rows = toSendBack(state, dealerId, true);
   const [off, setOff] = useState<string[]>([]), [vehicle, setVehicle] = useState(''), [driver, setDriver] = useState(''), [busy, setBusy] = useState(false);
   const picked = rows.filter(e => !off.includes(e.id));
   const count = picked.reduce((t, e) => t + e.items.filter(i => i.oldSerial).length, 0);
@@ -250,7 +251,7 @@ export function D36({ p }: { p?: string }) {
 /* d37 · refunds — which batteries are approved for refund (no amounts, D-20) */
 export function D37() {
   const d = useD(); const { state, dealerId } = useStore();
-  const r = refunds(state, dealerId), dealer = state.dealers.find(x => x.id === dealerId)!;
+  const dealer = state.dealers.find(x => x.id === dealerId)!, r = refunds(state, dealerId, dealer.kind !== 'Dealer');
   const statement = () => printHtml(`<h1>Felix Batteries · Approved for refund</h1><p><b>${escapeHtml(dealer.name)}</b> · ${escapeHtml(dealer.city)} · ${escapeHtml(dealer.id)}<br/>Generated ${escapeHtml(dLong(new Date().toISOString()))}</p>
     <table><thead><tr><th>Request</th><th>Batteries</th><th>Approved on</th></tr></thead><tbody>${r.approved.map(x => `<tr><td>${escapeHtml(x.entry.id)}</td><td>${escapeHtml(x.entry.items.map(i => `${i.oldSerial} · ${i.model}`).join(', '))}</td><td>${escapeHtml(dLong(x.date))}</td></tr>`).join('')}</tbody></table>
     <p>Approved for refund: <b>${r.approved.length}</b> · Still being checked: ${r.checking.length} · Refused: ${r.refused.length}</p>`).then(() => d.toast('Statement ready.')).catch(() => d.toast('The statement could not be printed on this device.'));

@@ -261,6 +261,18 @@ export async function setMyDealerStatus(ctx: Ctx, dealerId: string, to: 'suspend
 }
 
 /**
+ * The shops whose requests this signed-in shop may read: a distributor his own and his
+ * dealers', a dealer only its own. Never throws for a dealer, unlike distributorShopIds.
+ */
+export async function visibleShopIds(ctx: Ctx) {
+  requireDealerUser(ctx);
+  const shop = await repo.findDealerById(db, ctx.user.dealerId);
+  if (!shop || shop.kind !== 'distributor') return new Set([ctx.user.dealerId]);
+  const mine = await repo.findDealersByDistributor(db, shop.id);
+  return new Set([shop.id, ...mine.map((d) => d.id)]);
+}
+
+/**
  * The shops a distributor acts for: his own and every dealer under him. Old batteries from
  * any of them leave on his challan (dealers hand theirs over by hand and cannot dispatch).
  */

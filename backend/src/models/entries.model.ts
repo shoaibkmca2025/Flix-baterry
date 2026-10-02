@@ -13,7 +13,9 @@ import { batteryModels } from './masters.model';
 // warranty_effect: starts_warranty). Admin-only for now, since the app has no dealer screen
 // for it; this is what replaces the temporary POST /batteries/sell.
 export const entryType = pgEnum('entry_type', ['replacement', 'sales_return', 'regular_sales']);
-export const entryStatus = pgEnum('entry_status', ['submitted', 'approved', 'rejected']);
+// with_distributor: a dealer's request waiting for its distributor (client, 2 Oct 2026); his
+// approval moves it to submitted (head office), his refusal to rejected.
+export const entryStatus = pgEnum('entry_status', ['submitted', 'approved', 'rejected', 'with_distributor']);
 
 export const entries = pgTable(
   'entries',
@@ -37,6 +39,10 @@ export const entries = pgTable(
     decidedBy: uuid('decided_by'),
     decidedAt: timestamp('decided_at', { withTimezone: true }),
     decisionReason: text('decision_reason'),
+    // the distributor's decision on a dealer's request, before head office sees it
+    distributorDecidedBy: uuid('distributor_decided_by'),
+    distributorDecidedAt: timestamp('distributor_decided_at', { withTimezone: true }),
+    distributorReason: text('distributor_reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

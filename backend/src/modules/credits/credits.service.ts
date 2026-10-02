@@ -1,4 +1,5 @@
 import { db, withTransaction, type Tx } from '../../database/client';
+import { findDealerById } from '../dealers/dealers.repository';
 import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
@@ -38,14 +39,18 @@ export async function issueInTx(tx: Tx, ctx: Ctx, input: { claim: Pick<Claim, 'i
   const user = requireUser(ctx);
   const issuedAt = ctx.now();
   const no = await nextFormattedRef(tx, 'CN', 'credit_note', monthKey(issuedAt));
-  const note = await repo.insertCreditNote(tx, { no, dealerId: input.claim.dealerId, claimId: input.claim.id, amount: null, issuedBy: user.id, issuedAt });
+  // Head office refunds the distributor; he settles with his dealer (client, 2 Oct 2026). A
+  // claim from a dealer's request is credited to that dealer's distributor.
+  const shop = await findDealerById(tx, input.claim.dealerId);
+  const payee = shop?.kind === 'dealer' && shop.distributorId ? shop.distributorId : input.claim.dealerId;
+  const note = await repo.insertCreditNote(tx, { no, dealerId: payee, claimId: input.claim.id, amount: null, issuedBy: user.id, issuedAt });
   await audit(tx, {
     ctx,
     action: 'credit_note.issued',
     entityType: 'credit_note',
     entityId: note.id,
     entityRef: note.no,
-    after: { status: 'issued', claimRef: input.claim.ref, dealerId: input.claim.dealerId },
+    after: { status: 'issued', claimRef: input.claim.ref, dealerId: payee, ...(payee !== input.claim.dealerId ? { forDealerId: input.claim.dealerId } : {}) },
     outcome: 'ok',
   });
   return note;

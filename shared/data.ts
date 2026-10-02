@@ -79,8 +79,15 @@ const IST = 5.5 * 60 * 60 * 1000;
 const istMonth = (iso: string) => new Date(Date.parse(iso) + IST).toISOString().slice(0, 7);
 
 /** A dealer's replacements by outcome: approved for refund, refused, still being checked. */
-export function refunds(state: State, dealerId: string) {
-  const reps = dealerEntries(state, dealerId).filter(e => e.type === 'Replacement');
+/**
+ * A distributor's own requests and his dealers' (client, 2 Oct 2026). In his app the store only
+ * ever holds those two, so every request that is not his own draft belongs to one of his dealers.
+ */
+export const networkEntries = (state: State, dealerId: string) => state.entries.filter(e => e.dealerId === dealerId || e.status !== 'Draft')
+  .sort((a, b) => (b.createdAt || b.date).localeCompare(a.createdAt || a.date));
+
+export function refunds(state: State, dealerId: string, withDealers = false) {
+  const reps = (withDealers ? networkEntries(state, dealerId) : dealerEntries(state, dealerId)).filter(e => e.type === 'Replacement');
   const month = istMonth(new Date().toISOString());
   const approved = reps.filter(approvedForRefund)
     .map(e => ({ entry: e, date: decisionOf(state, e.id)?.at || e.decidedAt || e.date }))
@@ -94,7 +101,8 @@ export function refunds(state: State, dealerId: string) {
 }
 
 /** Replacement requests whose old battery is still sitting in the shop. */
-export const toSendBack = (state: State, dealerId: string) => dealerEntries(state, dealerId).filter(e => e.type === 'Replacement' && ['Submitted', 'Under Review', 'Conflict', 'Approved'].includes(e.status) && (!e.returnState || e.returnState === 'At dealer') && e.items.some(i => i.oldSerial));
+// withDealers: a distributor sends back his dealers' old batteries too, once he has approved their requests
+export const toSendBack = (state: State, dealerId: string, withDealers = false) => (withDealers ? networkEntries(state, dealerId) : dealerEntries(state, dealerId)).filter(e => e.type === 'Replacement' && ['Submitted', 'Under Review', 'Conflict', 'Approved'].includes(e.status) && (!e.returnState || e.returnState === 'At dealer') && e.items.some(i => i.oldSerial));
 export const ageDays = (iso: string) => Math.max(0, Math.round((Date.parse(today()) - Date.parse(iso.slice(0, 10))) / 86400000));
 
 export function challanStatus(c: Challan, state: State): { label: string; status: string; sub: string } {

@@ -37,8 +37,19 @@ vi.mock('../returns/returns.repository', () => ({ findLinesByEntryItemIds: vi.fn
 
 vi.mock('../../utils/settings', () => ({ graceMonths: vi.fn(async () => 2), serialDigitLengths: vi.fn(async () => [7, 8]) }));
 
+// dealer-1 is a distributor; dealer-1a is a dealer under him (client, 2 Oct 2026)
 vi.mock('../dealers/dealers.repository', () => ({
-  findDealerById: vi.fn(async (_db: unknown, id: string) => (id === 'dealer-1' ? { id, status: 'active' } : id === 'dealer-suspended' ? { id, status: 'suspended' } : undefined)),
+  findDealerById: vi.fn(async (_db: unknown, id: string) => (id === 'dealer-1' ? { id, status: 'active', kind: 'distributor', distributorId: null, name: 'Felix Factory' }
+    : id === 'dealer-1a' ? { id, status: 'active', kind: 'dealer', distributorId: 'dealer-1', name: 'Patil Batteries' }
+    : id === 'dealer-2a' ? { id, status: 'active', kind: 'dealer', distributorId: 'dealer-2', name: 'Other dealer' }
+    : id === 'dealer-suspended' ? { id, status: 'suspended' } : undefined)),
+}));
+vi.mock('../dealers/dealers.service', () => ({
+  visibleShopIds: vi.fn(async (ctx: { user: { dealerId: string } }) => new Set(ctx.user.dealerId === 'dealer-1' ? ['dealer-1', 'dealer-1a'] : [ctx.user.dealerId])),
+  requireDistributor: vi.fn(async (ctx: { user: { dealerId: string } }) => {
+    if (ctx.user.dealerId !== 'dealer-1') throw Object.assign(new Error('Only a distributor can do this.'), { code: 'distributor_only', status: 403 });
+    return { id: 'dealer-1', name: 'Felix Factory', kind: 'distributor' };
+  }),
 }));
 
 vi.mock('../stock/stock.service', () => ({
@@ -60,6 +71,7 @@ vi.mock('./entries.repository', () => ({
   updateEntryStatus: vi.fn(),
   listEntries: vi.fn(),
   upsertPhoto: vi.fn(),
+  setDistributorDecision: vi.fn(),
   findPhotosByEntryId: vi.fn(),
 }));
 vi.mock('../../utils/storage', () => ({ putObject: vi.fn(), signedUrl: vi.fn(async (key: string) => `https://storage.example/${key}?sig=1`) }));
@@ -70,7 +82,7 @@ import * as claimsService from '../claims/claims.service';
 import * as returnsRepo from '../returns/returns.repository';
 import { postMovementInTx } from '../stock/stock.service';
 import * as repo from './entries.repository';
-import { addPhoto, approve, correctItem, create, getById, list, listPhotos, reject, reviewItem, settle } from './entries.service';
+import { addPhoto, approve, correctItem, create, distributorDecide, getById, list, listPhotos, reject, reviewItem, settle } from './entries.service';
 import { putObject } from '../../utils/storage';
 import type { Ctx } from '../../utils/context';
 import type { EntryCreateBody } from './entries.validation';
@@ -390,12 +402,14 @@ describe('getById — dealer scoping', () => {
 });
 
 describe('list', () => {
-  it("scopes a dealer caller to their own dealerId, ignoring what's asked", async () => {
+  it("scopes a shop to its own requests — a distributor also reads his dealers' — ignoring what's asked", async () => {
     vi.mocked(repo.listEntries).mockResolvedValue({ items: [], nextCursor: null } as never);
 
-    await list(dealerCtx, { limit: 50 });
+    await list(dealerCtx, { limit: 50, dealerId: 'dealer-9' } as never);
+    expect(repo.listEntries).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ dealerIds: ['dealer-1', 'dealer-1a'] }));
 
-    expect(repo.listEntries).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dealerId: 'dealer-1' }));
+    await list({ ...dealerCtx, user: { ...dealerCtx.user!, dealerId: 'dealer-1a' } }, { limit: 50 });
+    expect(repo.listEntries).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ dealerIds: ['dealer-1a'] }));
   });
 
   it('does not scope an admin caller to any dealer', async () => {
@@ -664,5 +678,50 @@ describe("approving a battery is the verdict, not the refund (client, 2 Oct 2026
     await settle(adminCtx, 'entry-1', { decision: 'approved', reason: 'Checked and approved together', itemId: 'item-1' });
     expect(claimsService.check).toHaveBeenCalled();
     expect(claimsService.decide).toHaveBeenCalledWith(adminCtx, 'cl-1', expect.objectContaining({ outcome: 'approved' }));
+  });
+});
+
+describe("a dealer's request goes to its distributor first (client, 2 Oct 2026)", () => {
+  const childCtx: Ctx = { ...dealerCtx, user: { ...dealerCtx.user!, id: 'user-1a', dealerId: 'dealer-1a' } };
+  const waiting = { id: 'entry-9', ref: 'ENT-26-10-0009', status: 'with_distributor', dealerId: 'dealer-1a', entryType: 'replacement' };
+
+  it("a dealer's request starts with its distributor; a distributor's own goes straight to head office", async () => {
+    vi.mocked(repo.insertEntry).mockResolvedValue({ id: 'entry-x', ref: 'ENT-26-10-0010' } as never);
+    vi.mocked(repo.insertEntryItem).mockResolvedValue({ id: 'item-x' } as never);
+    await create(childCtx, baseBody({ entryType: 'regular_sales', items: [{ modelId: 'M5', code: '26091234' }] }));
+    expect(repo.insertEntry).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ dealerId: 'dealer-1a', status: 'with_distributor' }));
+    await create(dealerCtx, baseBody({ entryType: 'regular_sales', items: [{ modelId: 'M5', code: '26091235' }] }));
+    expect(repo.insertEntry).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ dealerId: 'dealer-1', status: 'submitted' }));
+  });
+
+  it('the distributor approves it on to head office, with his reason recorded', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(waiting as never);
+    vi.mocked(repo.setDistributorDecision).mockResolvedValue({ ...waiting, status: 'submitted' } as never);
+    const r = await distributorDecide(dealerCtx, 'entry-9', 'approve', 'Battery checked at my shop');
+    expect(repo.setDistributorDecision).toHaveBeenCalledWith(expect.anything(), 'entry-9', { approve: true, by: 'user-1', reason: 'Battery checked at my shop' });
+    expect(r.status).toBe('submitted');
+  });
+
+  it('or refuses it, which ends it with the reason the dealer sees', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(waiting as never);
+    vi.mocked(repo.setDistributorDecision).mockResolvedValue({ ...waiting, status: 'rejected' } as never);
+    await distributorDecide(dealerCtx, 'entry-9', 'refuse', 'Physical damage, not covered');
+    expect(repo.setDistributorDecision).toHaveBeenCalledWith(expect.anything(), 'entry-9', expect.objectContaining({ approve: false }));
+  });
+
+  it("only HIS dealers' requests, only while they wait, and never by a dealer", async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...waiting, dealerId: 'dealer-2a' } as never);
+    await expect(distributorDecide(dealerCtx, 'entry-9', 'approve', 'Looks right to me')).rejects.toMatchObject({ code: 'entry_not_found', status: 404 });
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...waiting, status: 'submitted' } as never);
+    await expect(distributorDecide(dealerCtx, 'entry-9', 'approve', 'Looks right to me')).rejects.toMatchObject({ code: 'invalid_transition' });
+    await expect(distributorDecide(childCtx, 'entry-9', 'approve', 'Approving my own')).rejects.toMatchObject({ code: 'distributor_only' });
+    expect(repo.setDistributorDecision).not.toHaveBeenCalled();
+  });
+
+  it('head office cannot decide a request that is still with the distributor', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(waiting as never);
+    await expect(approve(adminCtx, 'entry-9', 'ok')).rejects.toMatchObject({ code: 'with_distributor', status: 409 });
+    await expect(settle(adminCtx, 'entry-9', { decision: 'approved', reason: 'Verified' })).rejects.toMatchObject({ code: 'with_distributor' });
+    await expect(reject(adminCtx, 'entry-9', 'Not covered')).rejects.toMatchObject({ code: 'with_distributor' });
   });
 });

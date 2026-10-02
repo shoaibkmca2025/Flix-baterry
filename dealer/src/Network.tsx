@@ -1,9 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Pressable } from 'react-native';
+import { View, Pressable, Image, Linking } from 'react-native';
+import { useStore } from '@felix/shared/store';
+import type { Entry } from '@felix/shared/domain';
+import { useSync } from '@felix/shared/api/sync';
+import { distributorDecide } from '@felix/shared/api/entries';
+import { listPhotos, type EntryPhoto } from '@felix/shared/api/photos';
 import { T } from '@felix/shared/ui/theme';
-import { X, B, Btn, Card, Chip, StatusChip, Field, Hint, Banner, Line, Avatar, Gap } from '@felix/shared/ui/kit';
+import { X, B, Mono, Btn, Card, Chip, StatusChip, Field, Hint, Banner, Line, Avatar, Gap, KV, SecT, Plate, PlateLab, PlateVal } from '@felix/shared/ui/kit';
 import { PickList } from '@felix/shared/ui/pick';
-import { dShort } from '@felix/shared/data';
+import { dLong, dShort, monthShort, tShort } from '@felix/shared/data';
 import { getAccessToken, dealerStatusLabel } from '@felix/shared/api/session';
 import { createMyDealer, listMyDealers, setMyDealerStatus, type ApiDealer } from '@felix/shared/api/dealers';
 import { ApiError, errorMessage } from '@felix/shared/api/client';
@@ -116,4 +121,100 @@ export function DistributorCard({ name, mobile, contact }: { name: string; mobil
     <View style={{ flex: 1 }}><X s={12} w={6} c={T.slate}>YOUR DISTRIBUTOR</X><X s={15} w={7}>{name}</X><X s={12.5} c={T.slate}>{contact ? `${contact} · ` : ''}+91 {grouped(mobile)}</X></View>
     <Chip tone="vio" icon="truck" label="Takes your old batteries" />
   </Card>;
+}
+
+/* ---------- a distributor reviews his dealers' requests (client, 2 Oct 2026) ---------- */
+
+/** The dealers under this distributor, by id — their names for the request lists. */
+function useMyDealerNames() {
+  const [names, setNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let alive = true;
+    getAccessToken().then(t => (t ? listMyDealers(t) : null)).then(r => { if (alive && r) setNames(Object.fromEntries(r.items.map(x => [x.id, x.name]))); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  return names;
+}
+
+const batteriesOf = (e: Entry) => { const it = e.items[0]; return `${it?.model || '—'} · ${it?.serial || it?.code?.slice(-4) || '····'}${e.items.length > 1 ? ` + ${e.items.length - 1} more` : ''}`; };
+
+/* d42 · requests from my dealers */
+export function D42() {
+  const d = useD(); const { state, dealerId } = useStore(); const { sync } = useSync();
+  const names = useMyDealerNames();
+  useEffect(() => { sync(true); }, []);
+  const theirs = state.entries.filter(e => e.dealerId !== dealerId && e.status !== 'Draft');
+  const waiting = theirs.filter(e => e.status === 'With distributor').sort((a, b) => (a.createdAt || a.date).localeCompare(b.createdAt || b.date));
+  const decided = theirs.filter(e => e.distributorDecidedAt).sort((a, b) => (b.distributorDecidedAt || '').localeCompare(a.distributorDecidedAt || '')).slice(0, 10);
+  const row = (e: Entry, i: number, arr: Entry[]) => <Line key={e.id} last={i === arr.length - 1} onPress={() => d.go('d43', e.id)} label={`Review ${e.id}`}
+    av={<Avatar n={e.type === 'Replacement' ? 'swap' : 'truck'} tone={e.status === 'With distributor' ? 'amber' : e.status === 'Rejected' ? 'red' : 'green'} />}
+    title={names[e.dealerId] || 'Your dealer'} sub={`${e.customer || 'No customer name'} · ${e.type} · ${batteriesOf(e)}`} sub2={<Mono>{e.id} · {dShort(e.date)}</Mono>}
+    right={<StatusChip status={e.status} label={e.status === 'Submitted' || e.status === 'Under Review' ? 'Sent to head office' : undefined} />} chev />;
+  return <Screen top={<AppBar title="Requests from my dealers" back="d07" />}>
+    <Banner tone="info" icon="people" style={{ marginBottom: 13 }}><B>Your dealers’ replacements and sales returns come to you first.</B> Check each one and its photos. Approving sends it to head office — and means you have the old battery from the dealer.</Banner>
+    <SecT title={`Waiting for you · ${waiting.length}`} />
+    <Card>{waiting.length ? waiting.map(row) : <X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>Nothing waiting. New requests from your dealers appear here.</X>}</Card>
+    {decided.length > 0 && <><SecT title="Recently decided by you" /><Card>{decided.map(row)}</Card></>}
+  </Screen>;
+}
+
+/* d43 · review one dealer request */
+export function D43({ p }: { p?: string }) {
+  const d = useD(); const { state } = useStore(); const { sync } = useSync();
+  const names = useMyDealerNames();
+  const e = state.entries.find(x => x.id === p);
+  const [photos, setPhotos] = useState<EntryPhoto[] | null>(null);
+  const [ask, setAsk] = useState<'approve' | 'refuse' | null>(null), [why, setWhy] = useState(''), [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!e?.apiId) { setPhotos([]); return; }
+    let alive = true;
+    getAccessToken().then(t => (t ? listPhotos(e.apiId!, t) : null)).then(r => { if (alive) setPhotos(r?.items ?? []); }).catch(() => { if (alive) setPhotos([]); });
+    return () => { alive = false; };
+  }, [e?.apiId]);
+  if (!e) return <Screen top={<AppBar title="Request" back="d42" />}><X c={T.slate}>This request is not in your list. Go back and open it again.</X></Screen>;
+  const rep = e.type === 'Replacement', waiting = e.status === 'With distributor';
+  const decide = async () => {
+    if (!ask || !e.apiId) return;
+    if (why.trim().length < 5) { d.toast('Give a short reason (at least 5 characters).'); return; }
+    const token = await getAccessToken(); if (!token) { d.toast('Your sign-in has ended. Sign in again.'); return; }
+    setBusy(true);
+    try {
+      await distributorDecide(e.apiId, ask, why.trim(), token);
+      d.toast(ask === 'approve' ? `${e.id} approved and sent to head office.` : `${e.id} refused. The dealer sees your reason.`);
+      setAsk(null); setWhy(''); await sync(true); d.back('d42');
+    } catch (ex) { d.toast(errorMessage(ex)); } finally { setBusy(false); }
+  };
+  const open = (uri: string) => { Linking.openURL(uri).catch(() => d.toast('The photo could not be opened here.')); };
+  const reasons = ask === 'approve' ? ['Battery checked, old battery received', 'Photos and serials match'] : ['Physical damage — not covered', 'Serial does not match the battery', 'Old battery not handed over'];
+  return <Screen top={<AppBar title={e.id} back="d42" right={<StatusChip status={e.status} />} />}
+    footer={waiting && e.apiId ? <View style={{ flexDirection: 'row', gap: 9 }}>
+      <Btn kind="ghost" icon="x" label="Refuse" color={T.terminal} borderColor="#F0C7BC" style={{ flex: 1 }} onPress={() => { setWhy(''); setAsk('refuse'); }} />
+      <Btn kind="primary" icon="check" label="Approve" style={{ flex: 1.4 }} onPress={() => { setWhy(''); setAsk('approve'); }} /></View> : undefined}
+    overlay={<Sheet open={!!ask} title={ask === 'approve' ? 'Approve and send to head office' : 'Refuse this request'} onClose={() => setAsk(null)}>
+      <X s={14} c={T.slate} style={{ marginBottom: 12 }}>{ask === 'approve' ? `Head office makes the final decision${rep ? ' once the old battery reaches the factory' : ''}. Approving also records that you have the old battery from the dealer.` : 'The request ends here. The dealer sees your reason in their app.'}</X>
+      <View style={{ flexDirection: 'row', gap: 7, flexWrap: 'wrap', marginBottom: 10 }}>{reasons.map(t =>
+        <Pressable key={t} accessibilityRole="button" onPress={() => setWhy(t)}><Chip tone={why === t ? 'info' : 'mute'} label={t} /></Pressable>)}</View>
+      <Field label="Reason" req value={why} onChange={setWhy} ph="Why you are deciding this" multiline />
+      <Btn kind={ask === 'approve' ? 'primary' : 'danger'} label={busy ? 'Saving…' : ask === 'approve' ? 'Approve and send' : 'Refuse request'} onPress={decide} disabled={busy} />
+    </Sheet>}>
+    {!waiting && <Banner tone={e.status === 'Rejected' ? 'bad' : 'ok'} icon={e.status === 'Rejected' ? 'x' : 'check'} style={{ marginBottom: 12 }}><B>{e.status === 'Rejected' ? 'Refused.' : 'Sent to head office.'}</B> {e.distributorReason || e.decisionReason || ''}</Banner>}
+    <Card><KV pairs={[['Dealer', names[e.dealerId] || 'Your dealer'], ['Customer', e.customer || '—'], ['Type', e.type], ['Date', dLong(e.date)], ['Sent', `${dShort(e.createdAt)}, ${tShort(e.createdAt)}`], ['Batteries', String(e.items.length)]]} /></Card>
+    {e.items.map((it, i) => {
+      const mine = photos?.filter(ph => (ph.itemSeq ?? 0) === i) ?? [];
+      return <Card key={it.id} style={{ marginTop: 11 }}>
+        <X s={14.5} w={7} style={{ marginBottom: 9 }}>Battery {i + 1} · {it.model}</X>
+        <Plate style={{ marginBottom: 11 }}>{rep ? <>
+          <PlateLab>OLD BATTERY OUT</PlateLab><PlateVal>{it.oldSerial || '—'}</PlateVal>
+          <X s={19} c={T.volt} style={{ textAlign: 'center', marginVertical: 4 }}>↓</X>
+          <PlateLab>NEW BATTERY IN</PlateLab><PlateVal color="#7FD3A9">{it.code || '—'}</PlateVal></> : <><PlateLab>RETURNED BATTERY</PlateLab><PlateVal>{it.code || '—'}</PlateVal></>}</Plate>
+        <KV pairs={[['Made', monthShort(it.mfg)], [rep ? 'Problem' : 'Remarks', (rep ? it.fault : it.remarks) || '—']]} />
+        <X s={12} w={7} c={T.slate} style={{ marginTop: 11, marginBottom: 7 }}>PHOTOS</X>
+        {photos === null ? <X s={13} c={T.slate}>Loading photos…</X>
+          : mine.length ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9 }}>{mine.map(ph => <Pressable key={ph.id} accessibilityRole="imagebutton" accessibilityLabel={`Open photo: ${ph.tag}`} onPress={() => open(ph.url)} style={{ width: 130 }}>
+              <Image source={{ uri: ph.url }} style={{ width: 130, height: 98, borderRadius: 9, backgroundColor: T.zinc2 }} resizeMode="cover" />
+              <X s={12} w={6} c={T.slate} style={{ marginTop: 4 }}>{ph.tag === 'New label' ? 'New battery' : ph.tag}</X></Pressable>)}</View>
+          : <X s={13} c={T.slate}>No photos for this battery.</X>}
+      </Card>;
+    })}
+  </Screen>;
 }

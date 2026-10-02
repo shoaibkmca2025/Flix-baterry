@@ -79,6 +79,7 @@ export function D19({ p }: { p?: string }) {
     {e.status === 'Rejected' && <Banner tone="bad" icon="x" style={{ marginBottom: 12 }}><B>Head office refused this entry.</B> {e.decisionReason || state.audits.find(a => a.ref === e.id && a.action === 'Reject entry')?.reason || 'Ask head office for the reason.'}</Banner>}
     {e.status === 'Pending sync' && <Banner tone="warn" icon="sync" style={{ marginBottom: 12 }}><B>Saved on this phone.</B> It is sent to head office when signal returns.</Banner>}
     {e.status === 'Draft' && <Banner tone="info" icon="pen" style={{ marginBottom: 12 }}><B>Not sent yet.</B> Continue where you left off.</Banner>}
+    {e.status === 'With distributor' && <Banner tone="info" icon="people" style={{ marginBottom: 12 }}><B>With your distributor.</B> They check it{rep ? ' and take the old battery from you' : ''}, then send it on to head office.</Banner>}
     {['Submitted', 'Under Review'].includes(e.status) && <Banner tone="info" icon="clock" style={{ marginBottom: 12 }}><B>With head office.</B> {rep ? 'The claim is decided once the old battery is back and checked.' : 'Head office confirms it shortly.'}</Banner>}
     {e.correction?.status === 'Pending' && <Banner tone="warn" icon="eye" style={{ marginBottom: 12 }}><B>Correction asked for.</B> “{e.correction.value}” — waiting for head office.</Banner>}
     <Card><CardH mono title={e.id} right={<StatusChip status={e.status} />} />

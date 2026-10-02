@@ -37,6 +37,7 @@ export type NewEntry = {
   signature: string | null;
   coverToldAt: Date | null;
   submittedBy: string;
+  status?: (typeof entryStatus.enumValues)[number]; // a dealer's request starts with_distributor
 };
 
 export async function insertEntry(tx: Tx, input: NewEntry) {
@@ -86,12 +87,31 @@ export async function updateEntryStatus(
   return row!;
 }
 
-export type EntryListFilter = { status?: (typeof entryStatus.enumValues)[number]; dealerId?: string; limit: number; cursor?: { createdAt: Date; id: string } };
+/** The distributor approves (→ submitted, head office's queue) or refuses (→ rejected) a dealer's request. */
+export async function setDistributorDecision(tx: Tx, id: string, input: { approve: boolean; by: string; reason: string }) {
+  const now = new Date();
+  const [row] = await tx
+    .update(entries)
+    .set({
+      status: input.approve ? 'submitted' : 'rejected',
+      distributorDecidedBy: input.by, distributorDecidedAt: now, distributorReason: input.reason,
+      // a refusal is the request's decision too — the dealer reads it like head office's
+      ...(input.approve ? {} : { decidedBy: input.by, decidedAt: now, decisionReason: input.reason }),
+      updatedAt: now,
+    })
+    .where(and(eq(entries.id, id), eq(entries.status, 'with_distributor')))
+    .returning();
+  return row;
+}
+
+// `dealerIds`: a distributor reads his own requests and his dealers'
+export type EntryListFilter = { status?: (typeof entryStatus.enumValues)[number]; dealerId?: string; dealerIds?: string[]; limit: number; cursor?: { createdAt: Date; id: string } };
 
 export async function listEntries(dbh: DbOrTx, filter: EntryListFilter) {
   const conditions = [
     filter.status ? eq(entries.status, filter.status) : undefined,
     filter.dealerId ? eq(entries.dealerId, filter.dealerId) : undefined,
+    filter.dealerIds ? inArray(entries.dealerId, filter.dealerIds.length ? filter.dealerIds : ['00000000-0000-0000-0000-000000000000']) : undefined,
     filter.cursor
       ? or(lt(entries.createdAt, filter.cursor.createdAt), and(eq(entries.createdAt, filter.cursor.createdAt), lt(entries.id, filter.cursor.id)))
       : undefined,

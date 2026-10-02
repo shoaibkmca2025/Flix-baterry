@@ -38,6 +38,19 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-10-02 · head office → distributor → dealer (Claude Code)
+**Worked on:** client: two levels below head office. Every existing shop is a distributor; he adds dealers under him; a dealer records replacements and sales returns and sends them to his distributor, who approves them on to head office (final decision) or refuses them; old batteries go dealer → distributor (by hand) → head office (distributor's challan); the refund goes head office → distributor → dealer. memory.md D-22. New-stock tracking deliberately left out (client).
+**Done:**
+- **Accounts (0017):** `dealers.kind` (distributor | dealer), `dealers.distributor_id` (a check keeps a dealer tied to one distributor), `registered_via` 'distributor'. `GET/POST /dealers/me/dealers`, `POST /dealers/me/dealers/:id/suspend|activate`. Sign-in returns a dealer's distributor (name, mobile); a dealer cannot sign in while its distributor is not active.
+- **Requests (0018):** `entry_status` 'with_distributor'; `entries.distributor_decided_by/at`, `distributor_reason`. A dealer's request starts with_distributor; `POST /entries/:id/distributor/approve|refuse` (his dealers' only, only while waiting, once). Head office approve / reject / settle answer 409 `with_distributor` until then. A distributor's entry and claim lists (and the sync snapshot) include his dealers'; he can read their photos.
+- **Old batteries & refund:** only a distributor dispatches (returns.dispatch, claims.dispatch) — his own and his dealers', and a dealer's only after he approved it (`not_approved_yet`). `credits.issueInTx` credits a dealer's claim to its distributor (audit `forDealerId`).
+- **Dealer app:** distributor — My dealers / Add a dealer, *Dealers' requests* (queue + review with photos + Approve / Refuse with reason), home alert, Send back and Refunds include his dealers'. Dealer — no Send back tab, *Your distributor* card, "hand your old battery to your distributor", status *With distributor*.
+- **Admin:** Distributors & dealers (type, distributor, dealer count, filter), a Dealers tab on a distributor, a banner on a dealer; a request page shows *With the dealer's distributor* and the distributor's decision.
+**Verified:** backend 297 (new: my dealers, dispatch by distributor only, request flow, head office blocked until forwarded, credit to distributor), shared 27, all typechecks, both web builds. **End to end on a throwaway Neon branch (deleted):** migrations 0016–0018 applied; distributor added a dealer → dealer's replacement `with_distributor` → distributor sees it, dealer sees only its own → dealer cannot dispatch, distributor cannot before approving → approved → submitted (once) → sent on the distributor's challan; a second refused → rejected with the reason.
+**Deploy:** `npm run deploy:all` (migrations 0017, 0018 + server + both apps).
+
+---
+
 ### 2026-10-02 · dealer photos reach head office; each battery is decided on its review page (Claude Code)
 **Worked on:** client: (1) no Approve / Reject on the Old battery returns list — open the battery, review it with the dealer's photos, then decide; (2) "Old battery … is not on record" warning on every replacement, though there is no record of old batteries to check.
 **Found:** photos never left the phone (no server field or storage, D-10 open), so a review page could not show them.
