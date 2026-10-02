@@ -290,6 +290,12 @@ export async function approve(ctx: Ctx, entryId: string, reason: string) {
   // Head office decides a replacement only once the old battery is physically at the factory
   // (client rule, 25 Sep 2026): they verify it offline, then approve or refuse.
   if (entry.entryType === 'replacement') await assertOldBatteriesArrived(items);
+  return approveItems(ctx, entry, items, reason);
+}
+
+/** The entry approval itself — stock, chains, claims for every battery on it. Callers check arrival first. */
+async function approveItems(ctx: Ctx, entry: NonNullable<Awaited<ReturnType<typeof repo.findEntryById>>>, items: Awaited<ReturnType<typeof repo.findItemsByEntryId>>, reason: string) {
+  const entryId = entry.id;
 
   return withTransaction(async (tx) => {
     const results = [];
@@ -343,19 +349,27 @@ export async function settle(ctx: Ctx, entryId: string, input: EntrySettleBody) 
   if (entry.status !== 'submitted' && entry.status !== 'approved') {
     throw new AppError('invalid_transition', 409, `This request is already ${entry.status}.`);
   }
-  await assertOldBatteriesArrived(await repo.findItemsByEntryId(db, entryId));
+  const items = await repo.findItemsByEntryId(db, entryId);
+  // one battery of the entry, or all of them
+  const target = input.itemId ? items.filter((it) => it.id === input.itemId) : items;
+  if (input.itemId && !target.length) throw new AppError('item_not_found', 404, 'That battery is not on this request.');
+  await assertOldBatteriesArrived(target);
 
   if (entry.status === 'submitted') {
-    if (input.decision === 'refused') {
+    // Refusing the only battery (or all of them) refuses the request itself, as before. A
+    // single battery of several is decided on its own claim, so the request is approved first
+    // — the new batteries are with the customers either way — and only that claim is refused.
+    if (input.decision === 'refused' && target.length === items.length) {
       const r = await reject(ctx, entryId, input.reason);
       return { entry: r, creditNotes: [] };
     }
-    await approve(ctx, entryId, input.reason);
+    await approveItems(ctx, entry, items, input.itemId ? `Each battery decided on its own at the factory. ${input.reason}` : input.reason);
   }
 
   const creditNotes = [];
+  const targetIds = new Set(target.map((it) => it.id));
   for (const it of await repo.findItemsByEntryId(db, entryId)) {
-    if (!it.claimId) continue;
+    if (!targetIds.has(it.id) || !it.claimId) continue;
     let claim = await claimsRepo.findClaimById(db, it.claimId);
     if (!claim) continue;
     if (claim.status === 'raised') claim = await claimsService.dispatch(ctx, claim.id);

@@ -122,6 +122,19 @@ export const needsNewBatteryPhoto = (e: Entry, i: number) => {
   return k < 0 || !e.evidence[k];
 };
 
+/**
+ * A replacement as head office handles it at the factory: one Entry per old battery, each with
+ * its own claim, stage, plant and decision (client, 2 Oct 2026). A one-battery entry is itself.
+ */
+export const batteryUnits = (e: Entry): Entry[] => e.type !== 'Replacement' || e.items.length < 2 ? [e] : e.items.map((it, i) => ({
+  ...e, items: [it], itemId: it.id, part: `battery ${i + 1} of ${e.items.length}`,
+  claimId: it.claimId, claimStatus: it.claimStatus, status: it.status ?? e.status,
+  returnState: it.returnState ?? e.returnState, returnNote: it.returnNote ?? e.returnNote,
+  decidedAt: it.decidedAt ?? e.decidedAt, decisionReason: it.decisionReason ?? e.decisionReason,
+}));
+/** The key that tells two batteries of one entry apart (an Entry's id is the request's). */
+export const unitKey = (e: Entry) => e.itemId ? `${e.id}#${e.itemId}` : e.id;
+
 export const firstProblem = (e: Entry, state: State) =>
   Object.values(validateEntry(e, state))[0] ?? e.items.find(i => i.exception)?.exception;
 

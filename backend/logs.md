@@ -38,6 +38,18 @@ Newest entry first. One entry per working session (or per meaningful milestone).
 
 ---
 
+### 2026-10-02 · old batteries are handled one by one at the factory (Claude Code)
+**Worked on:** client: a replacement with several batteries arrived as one row ("K80025090025, K80025090026" in one *Confirm it arrived*, one plant for both); head office wants to check and decide each battery on its own.
+**Found:** the server already keeps one claim and one challan line per battery, but the console collapsed them — `toEntry` kept only the FIRST battery's claim, so the second claim's stage and decision were invisible, and `entries.settle` decided every battery together, refusing until all had arrived.
+**Done:**
+- **Server:** `POST /entries/:id/settle` takes an optional `itemId` — only that battery must have arrived, and only its claim is decided. Refusing one battery of a still-submitted request approves the request (stock, chains, claims — the customers have the new batteries) and refuses only that claim; refusing the only/every battery still rejects the request. `approve` split into `approve` (checks every battery arrived) + `approveItems`. Without `itemId` nothing changes.
+- **Mapping:** each `Item` carries its own `claimId/claimStatus/status/returnState/returnNote/decision`; challan rows keep `itemId` (entry item) and `withChallanStages` stages each battery from its own line. A multi-battery request is *Under Review* while any battery is undecided, *Rejected* only if every one was refused, else *Approved*.
+- **Admin → Old battery returns:** `batteryUnits` (shared/data) turns a multi-battery replacement into one row per old battery ("battery 1 of 2"): its own *Confirm it arrived* + plant, *Set/Change plant*, *Approve / Reject*, and its own place under On the way / At the company / Claimed / Rejected and in the challan detail. *At dealers* stays per request (the batteries leave together). *Confirm all N arrived* on a challan still takes the whole van with one plant.
+**Verified:** backend 272 (new: settle by `itemId` — only that battery's arrival checked, only its claim decided, refusing one approves the request, unknown item 404), shared 24 (new: one row per battery), mapping checked with RN stubbed (per-battery claims, whole-request status, per-line stages), dealer + admin + backend typecheck, both web builds.
+**Deploy:** server + admin (`npm run deploy:api`, `npm run deploy:admin`). No migration.
+
+---
+
 ### 2026-10-02 · a new battery may be 7, 8 or 9 digits (Claude Code)
 **Worked on:** the client's revision to the new-battery rule — all three plants are in use on new stock, so the new-battery section must accept 7, 8 **and** 9 digits, not 8 only (supersedes the 27 Sep rule).
 **Changed:**

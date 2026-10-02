@@ -7,10 +7,10 @@ import { checkClaim, receiveClaim } from '@felix/shared/api/claims';
 import { receiveChallan, receiveLine, setLinePlant, stageLine } from '@felix/shared/api/returns';
 import { errorMessage } from '@felix/shared/api/client';
 import { useSync } from '@felix/shared/api/sync';
-import { Challan, Entry, anyDigitLengths, isValidDigits, lengthsLabel, today, uid } from '@felix/shared/domain';
+import { Challan, Entry, normalize, anyDigitLengths, isValidDigits, lengthsLabel, today, uid } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar, Plate, PlateLab, PlateVal, Tone, IconName } from '@felix/shared/ui/kit';
-import { ageDays, challanHtml, dLong, dShort } from '@felix/shared/data';
+import { ageDays, batteryUnits, challanHtml, dLong, dShort, unitKey } from '@felix/shared/data';
 import { saveHtmlDocument } from '@felix/shared/reports';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, Tabs, Dialog, ReasonDialog, Select, Empty, useA } from './ui';
 import { useDecisions } from './Entries';
@@ -118,20 +118,27 @@ export function Returns() {
   // at the factory and not yet decided: this is where head office approves or refuses (verified offline)
   const undecided = (e: Entry) => ['Submitted', 'Under Review'].includes(e.status);
   const dealerName = (d: string) => state.dealers.find(x => x.id === d)?.name || d;
-  const reps = state.entries.filter(e => e.type === 'Replacement' && !['Draft', 'Rejected', 'Cancelled', 'Pending sync'].includes(e.status));
-  const atDealer = reps.filter(e => !e.returnState || e.returnState === 'At dealer');
+  // A request's old batteries leave the dealer together, so "at dealers" is per request...
+  const repEntries = state.entries.filter(e => e.type === 'Replacement' && !['Draft', 'Rejected', 'Cancelled', 'Pending sync'].includes(e.status));
+  const atDealer = repEntries.filter(e => !e.returnState || e.returnState === 'At dealer');
+  // ...but from the van onwards each old battery is its own row: it arrives, gets its plant and
+  // is approved or rejected on its own (client, 2 Oct 2026). See batteryUnits.
+  const units = state.entries.filter(e => e.type === 'Replacement' && !['Draft', 'Cancelled', 'Pending sync'].includes(e.status)).flatMap(batteryUnits);
+  const reps = units.filter(e => e.status !== 'Rejected');
   const onWay = reps.filter(e => e.returnState === 'In transit');
   // at the factory: still waiting for head office's decision; once approved it moves to "Claimed"
   const AT_FACTORY = ['Received', 'Testing', 'Repaired', 'Scrapped', 'Closed'];
   const atCompany = reps.filter(e => e.status !== 'Approved' && AT_FACTORY.includes(e.returnState || ''));
   const claimed = reps.filter(e => e.status === 'Approved' && AT_FACTORY.includes(e.returnState || ''));
-  const rejected = state.entries.filter(e => e.type === 'Replacement' && e.status === 'Rejected');
+  const rejected = units.filter(e => e.status === 'Rejected');
   const challanOf = (e: Entry) => state.challans.find(c => c.entryIds.includes(e.id));
   // Plants come from the server; the preview that runs without one has none, and asks for none.
   const plants = state.plants ?? [], activePlants = plants.filter(p => p.active);
   const plantById = (id?: string) => plants.find(p => p.id === id);
   /** The entry's old batteries as challan lines — where the server keeps each one's stage and plant. */
-  const linesOf = (e: Entry) => state.challans.flatMap(c => c.rows).filter(r => r.ref === e.id && r.lineId);
+  // one battery of several: only its own line (by the entry item, else by its number)
+  const linesOf = (e: Entry) => state.challans.flatMap(c => c.rows).filter(r => r.ref === e.id && r.lineId
+    && (!e.itemId || (r.itemId ? r.itemId === e.itemId : normalize(r.serial) === normalize(e.items[0]?.oldSerial || ''))));
   const plantOf = (e: Entry) => plantById(linesOf(e).find(r => r.plantId)?.plantId);
   const codesOf = (e: Entry) => e.items.map(it => it.oldSerial).filter(Boolean).join(', ');
   const openAct = (x: NonNullable<typeof act>) => { setPlantName(''); setPlantErr(''); setAct(x); };
@@ -212,9 +219,9 @@ export function Returns() {
   const row = (e: Entry, i: number, arr: Entry[], showActions = true) => {
     const [l, t, ic]: [string, Tone, IconName] = e.status === 'Rejected' ? ['Rejected', 'bad', 'x'] : stageChip(e.returnState);
     const arrived = !!e.returnState && !['At dealer', 'In transit'].includes(e.returnState) && linesOf(e).length > 0;
-    return <Line key={e.id} last={i === arr.length - 1} onPress={() => a.go('entry', e.id)} av={<Avatar n={ic} tone={t === 'vio' ? 'vio' : t === 'live' ? 'green' : t === 'mute' ? 'mute' : t === 'bad' ? 'red' : 'amber'} />}
+    return <Line key={unitKey(e)} last={i === arr.length - 1} onPress={() => a.go('entry', e.id)} av={<Avatar n={ic} tone={t === 'vio' ? 'vio' : t === 'live' ? 'green' : t === 'mute' ? 'mute' : t === 'bad' ? 'red' : 'amber'} />}
       title={<Mono>{e.items.map(it => it.oldSerial).filter(Boolean).join(', ') || '—'}</Mono>}
-      sub={`${e.items[0]?.model} · ${e.id} · ${dealerName(e.dealerId)} · ${e.status === 'Approved' ? 'approved' : e.status === 'Rejected' ? 'refused' : e.status === 'Conflict' ? 'serial exception' : 'waiting for your decision'}${arrived && plants.length ? ` · ${plantOf(e) ? `made at ${plantOf(e)!.name}` : 'plant not set'}` : ''}`}
+      sub={`${e.items[0]?.model} · ${e.id}${e.part ? ` (${e.part})` : ''} · ${dealerName(e.dealerId)} · ${e.status === 'Approved' ? 'approved' : e.status === 'Rejected' ? 'refused' : e.status === 'Conflict' ? 'serial exception' : 'waiting for your decision'}${arrived && plants.length ? ` · ${plantOf(e) ? `made at ${plantOf(e)!.name}` : 'plant not set'}` : ''}`}
       right={<View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: a.wide ? 420 : 170 }}>
         <Chip tone={t} icon={ic} label={l} />
         {showActions && canEdit && (STAGE_NEXT[e.returnState || ''] || []).filter(([to]) => !(to === 'Closed' && undecided(e))).map(([to, label, kind]) => <Btn key={to} kind={kind === 'danger' ? 'ghost' : kind} sm label={label} color={kind === 'danger' ? T.terminal : undefined} borderColor={kind === 'danger' ? '#F0C7BC' : undefined} onPress={() => openAct({ entries: [e], to, label })} />)}
@@ -239,15 +246,15 @@ export function Returns() {
    * challan shows only those batteries, and any that came without a challan are listed apart.
    */
   const challanView = (only?: Entry[], empty: { icon: IconName; title: string; text: string } = { icon: 'truck', title: 'No challans yet', text: 'When a dealer dispatches old batteries, their challan appears here.' }, pick: (c: Challan) => boolean = () => true) => {
-    const inView = (ref: string) => !only || only.some(e => e.id === ref);
-    const pool = (only ? state.challans.filter(c => c.entryIds.some(inView)) : state.challans).filter(pick);
+    const inView = (ref: string, itemId?: string) => !only || only.some(e => e.id === ref && (!e.itemId || !itemId || e.itemId === itemId));
+    const pool = (only ? state.challans.filter(c => c.entryIds.some(ref => inView(ref))) : state.challans).filter(pick);
     const withChallans = state.dealers.filter(d => pool.some(c => c.dealerId === d.id) || only?.some(e => e.dealerId === d.id && !challanOf(e)));
     const cs = pool.filter(c => dealerF === 'All' || dealerName(c.dealerId) === dealerF).sort((x, y) => y.at.localeCompare(x.at));
     const days = [...new Set(cs.map(c => dLong(c.at)))].map(day => ({ day, list: cs.filter(c => dLong(c.at) === day) })); // the local day, as the page shows it
     const loose = (only ?? []).filter(e => !challanOf(e) && (dealerF === 'All' || dealerName(e.dealerId) === dealerF));
     const sel = pool.find(c => c.no === selChallan);
     const count = (n: number) => `${n} ${n === 1 ? 'battery' : 'batteries'}`;
-    const shown = (c: Challan) => only ? `${c.rows.filter(r => inView(r.ref)).length} of ${count(c.rows.length)}` : count(c.rows.length);
+    const shown = (c: Challan) => only ? `${c.rows.filter(r => inView(r.ref, r.itemId)).length} of ${count(c.rows.length)}` : count(c.rows.length);
     const chip = (c: Challan) => c.receivedAt ? <Chip tone="live" icon="box" label={`Arrived ${dShort(c.receivedAt)}`} /> : <Chip tone="vio" icon="truck" label="On the way" />;
     const dealerCount = new Set(cs.map(c => c.dealerId)).size;
     const list = <Stack>
@@ -264,7 +271,9 @@ export function Returns() {
       {loose.length > 0 && <Box title="Not on a challan" right={<X s={12} c={T.slate}>{count(loose.length)}</X>}><View style={{ paddingHorizontal: 14 }}>{loose.map((e, i, arr) => row(e, i, arr, false))}</View></Box>}
     </Stack>;
     if (!sel) return a.wide ? <Cols weights={[1, 1.45]}>{list}<Box><Empty icon={only ? empty.icon : 'truck'} title="Choose a challan" text={only ? 'Its batteries in this list show here.' : 'Its batteries, their stage and the approve / reject buttons show here.'} /></Box></Cols> : list;
-    const entries = sel.entryIds.filter(inView).map(ref => state.entries.find(e => e.id === ref)).filter((e): e is Entry => !!e);
+    // each old battery on the challan, as its own row
+    const entries = sel.entryIds.flatMap(ref => { const e = state.entries.find(x => x.id === ref); return e ? batteryUnits(e) : []; })
+      .filter(u => !only || only.some(o => unitKey(o) === unitKey(u)));
     const unmatched = only ? [] : sel.rows.filter(r => !entries.some(e => e.id === r.ref));
     const stillOnWay = only ? [] : entries.filter(e => e.returnState === 'In transit');
     const download = async () => {
@@ -342,7 +351,7 @@ export function Returns() {
         return apply(act.entries, act.to, r, plant?.id, act.whole);
       }}
       suggestions={act?.to === 'Received' ? ['Scanned in at Nashik warehouse'] : act?.to === 'Testing' ? ['Sent to the test bench'] : act?.to === 'Repaired' ? ['Cells replaced, holds charge'] : act?.to === 'Scrapped' ? ['Dead cells — not repairable', 'Cracked case'] : act?.to === 'Closed' ? ['Checked and closed'] : act?.to === 'In transit' ? ['Company van pickup'] : []}
-      intro={act ? `${act.entries.length} ${act.entries.length === 1 ? 'battery' : 'batteries'} · ${act.entries.map(e => e.id).join(', ')}` : undefined}>
+      intro={act ? `${act.entries.length} ${act.entries.length === 1 ? 'battery' : 'batteries'} · ${[...new Set(act.entries.map(e => e.part ? `${e.id} (${e.part})` : e.id))].join(', ')}` : undefined}>
       {act && needsPlant ? <>
         {/* the plant is read off the label, so the label's number is right above the choice */}
         {!act.whole && act.entries.length === 1 ? <Plate style={{ marginBottom: 13 }}><PlateLab>Number on the battery</PlateLab><PlateVal size={19}>{codesOf(act.entries[0]!) || '—'}</PlateVal></Plate> : null}
@@ -363,10 +372,10 @@ export function Returns() {
       }}>
       <Select label="Plant that made this battery" req value={plantName} ph="Choose the plant" options={activePlants.map(p => ({ v: p.name }))} onChange={v => { setPlantName(v); setPlantErr(''); }} error={plantErr} />
     </ReasonDialog>
-    <ReasonDialog open={decide?.kind === 'approve'} title={`Approve ${decide?.e.id || ''}`} confirm="Approve" kind="blue" onClose={() => setDecide(null)}
+    <ReasonDialog open={decide?.kind === 'approve'} title={`Approve ${decide ? (decide.e.itemId ? codesOf(decide.e) : decide.e.id) : ''}`} confirm="Approve" kind="blue" onClose={() => setDecide(null)}
       suggestions={['Verified at the factory — manufacturing defect', 'Checked offline, warranty valid']} intro="The old battery is at the factory. Approving records the replacement with the original cover dates, and the dealer is shown it is approved for refund."
       onConfirm={r => decide ? dec.approve(decide.e, r) : false} />
-    <ReasonDialog open={decide?.kind === 'reject'} title={`Reject ${decide?.e.id || ''}`} confirm="Reject" kind="danger" onClose={() => setDecide(null)}
+    <ReasonDialog open={decide?.kind === 'reject'} title={`Reject ${decide ? (decide.e.itemId ? codesOf(decide.e) : decide.e.id) : ''}`} confirm="Reject" kind="danger" onClose={() => setDecide(null)}
       suggestions={['Physical damage — not covered', 'No fault found on testing', 'Serial does not match the label']} intro="The dealer sees this reason in their app."
       onConfirm={r => decide ? dec.reject(decide.e, r) : false} />
     <ReasonDialog open={!!handover} title="Confirm customer handover" confirm="Confirm handover" onClose={() => setHandover(null)} suggestions={['Given to the customer at the counter']} intro="Records that the customer received the new battery."

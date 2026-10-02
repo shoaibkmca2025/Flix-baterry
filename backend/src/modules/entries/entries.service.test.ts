@@ -463,6 +463,43 @@ describe('replacement decisions wait for the old battery to reach the factory', 
     expect(claimsService.check).toHaveBeenCalledWith(adminCtx, 'claim-1', expect.objectContaining({ disqualify: true, reason: 'Not a manufacturing fault' }));
   });
 
+  describe('one battery of several, decided on its own (itemId)', () => {
+    const two = [{ ...item, claimId: 'claim-1' }, { ...item, id: 'item-2', seq: 1, batteryCode: '26090002', oldBatteryCode: '26010098', claimId: 'claim-2' }];
+
+    it('needs only THAT battery to have arrived, and decides only its claim', async () => {
+      vi.mocked(repo.findEntryById).mockResolvedValue({ ...entry, status: 'approved' } as never);
+      vi.mocked(repo.findItemsByEntryId).mockResolvedValue(two as never);
+      vi.mocked(returnsRepo.findLinesByEntryItemIds).mockResolvedValue([{ entryItemId: 'item-2', stage: 'received' }] as never);
+      vi.mocked(claimsRepo.findClaimById).mockResolvedValue({ id: 'claim-2', status: 'checked' } as never);
+      vi.mocked(claimsService.decide).mockResolvedValue({ claim: { id: 'claim-2', status: 'approved' }, creditNote: { no: 'CN-1', amount: null } } as never);
+
+      await settle(adminCtx, 'entry-1', { decision: 'approved', reason: 'Verified', itemId: 'item-2' });
+
+      expect(returnsRepo.findLinesByEntryItemIds).toHaveBeenCalledWith(expect.anything(), ['item-2']); // item-1 may still be on the way
+      expect(claimsRepo.findClaimById).toHaveBeenCalledTimes(1);
+      expect(claimsService.decide).toHaveBeenCalledWith(adminCtx, 'claim-2', { outcome: 'approved', reason: 'Verified' });
+    });
+
+    it('refusing one battery of a submitted request approves the request and refuses only that claim', async () => {
+      vi.mocked(repo.findEntryById).mockResolvedValue(entry as never);
+      vi.mocked(repo.findItemsByEntryId).mockResolvedValue(two as never);
+      vi.mocked(returnsRepo.findLinesByEntryItemIds).mockResolvedValue([{ entryItemId: 'item-1', stage: 'received' }] as never);
+      vi.mocked(claimsRepo.findClaimById).mockResolvedValue({ id: 'claim-1', status: 'received' } as never);
+
+      await settle(adminCtx, 'entry-1', { decision: 'refused', reason: 'Physical damage', itemId: 'item-1' }).catch(() => {});
+
+      expect(repo.updateEntryStatus).not.toHaveBeenCalledWith(expect.anything(), 'entry-1', expect.objectContaining({ status: 'rejected' }));
+      expect(returnsRepo.findLinesByEntryItemIds).toHaveBeenCalledWith(expect.anything(), ['item-1']);
+      expect(batteriesRepo.findBatteryByCode).toHaveBeenCalled(); // the request's approval ran (stock, chains, claims)
+    });
+
+    it('a battery that is not on the request is refused', async () => {
+      vi.mocked(repo.findEntryById).mockResolvedValue(entry as never);
+      vi.mocked(repo.findItemsByEntryId).mockResolvedValue(two as never);
+      await expect(settle(adminCtx, 'entry-1', { decision: 'approved', reason: 'ok', itemId: 'item-9' })).rejects.toMatchObject({ code: 'item_not_found', status: 404 });
+    });
+  });
+
   it('settle only takes replacements', async () => {
     vi.mocked(repo.findEntryById).mockResolvedValue({ ...entry, entryType: 'sales_return' } as never);
     await expect(settle(adminCtx, 'entry-1', { decision: 'approved', reason: 'ok' })).rejects.toMatchObject({ code: 'not_a_replacement' });

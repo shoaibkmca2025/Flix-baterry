@@ -42,9 +42,12 @@ export type EntryDecisionBody = z.infer<typeof EntryDecisionBody>;
 
 // the final decision on a replacement once its old battery is at the factory (entries.settle)
 // Approving is "approved for refund" — no amount (memory.md D-20).
+// `itemId` decides ONE battery of a multi-battery replacement on its own (client, 2 Oct 2026);
+// without it, every battery on the entry is decided together.
 export const EntrySettleBody = z.object({
   decision: z.enum(['approved', 'refused']),
   reason,
+  itemId: z.string().uuid().optional(),
 });
 export type EntrySettleBody = z.infer<typeof EntrySettleBody>;
 

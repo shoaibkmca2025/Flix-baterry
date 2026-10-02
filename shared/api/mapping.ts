@@ -59,8 +59,13 @@ export function entryStatusOf(e: EntryWithItems, claim: ApiClaim | undefined): E
   return 'Under Review';
 }
 
-function toItem(it: EntryWithItems['items'][number], e: EntryWithItems, batteries: Map<string, ApiBattery>): Item {
+const findingOf = (claim: ApiClaim | undefined) => claim?.findingCode ? `Finding: ${claim.findingCode}${claim.conditionNote ? ` · ${claim.conditionNote}` : ''}` : undefined;
+
+function toItem(it: EntryWithItems['items'][number], e: EntryWithItems, batteries: Map<string, ApiBattery>, claims: Map<string, ApiClaim>): Item {
   const b = batteries.get(it.batteryCode);
+  // each old battery has its own claim, so its own stage and decision (client, 2 Oct 2026)
+  const claim = it.claimId ? claims.get(it.claimId) : undefined;
+  const rep = e.entryType === 'replacement';
   return {
     id: it.id,
     model: it.modelId,
@@ -73,11 +78,32 @@ function toItem(it: EntryWithItems['items'][number], e: EntryWithItems, batterie
     wr: it.oldBatteryCode ?? '',
     remarks: it.remarks ?? '',
     fault: it.faultCode ? (FAULT_LABEL[it.faultCode] ?? it.faultCode) : undefined,
+    ...(rep ? {
+      claimId: claim?.id,
+      claimStatus: claim?.status,
+      status: entryStatusOf(e, claim),
+      returnState: e.status === 'approved' ? returnStageOf(claim) : undefined,
+      returnNote: findingOf(claim),
+      decidedAt: claim?.decidedAt ?? e.decidedAt ?? undefined,
+      decisionReason: claim?.decisionReason ?? e.decisionReason ?? undefined,
+    } : {}),
   };
 }
 
+/**
+ * A replacement with several batteries is decided battery by battery, so the request as a
+ * whole is "Under Review" while any of them is undecided, "Rejected" only when every one was
+ * refused, and "Approved" once each is decided and at least one approved.
+ */
+function wholeStatus(e: EntryWithItems, claims: (ApiClaim | undefined)[]): Entry['status'] {
+  const each = (claims.length ? claims : [undefined]).map((c) => entryStatusOf(e, c));
+  if (each.some((s) => s !== 'Approved' && s !== 'Rejected')) return each.find((s) => s !== 'Approved' && s !== 'Rejected')!;
+  return each.every((s) => s === 'Rejected') ? 'Rejected' : 'Approved';
+}
+
 export function toEntry(e: EntryWithItems, claims: Map<string, ApiClaim>, batteries: Map<string, ApiBattery>): Entry {
-  const claim = e.items.map((it) => (it.claimId ? claims.get(it.claimId) : undefined)).find(Boolean);
+  const itemClaims = e.items.map((it) => (it.claimId ? claims.get(it.claimId) : undefined));
+  const claim = itemClaims.find(Boolean);
   return {
     id: e.ref,
     apiId: e.id,
@@ -88,15 +114,15 @@ export function toEntry(e: EntryWithItems, claims: Map<string, ApiClaim>, batter
     place: e.place,
     order: '',
     remarks: e.remarks ?? '',
-    items: e.items.map((it) => toItem(it, e, batteries)),
-    status: entryStatusOf(e, claim),
+    items: e.items.map((it) => toItem(it, e, batteries, claims)),
+    status: e.entryType === 'replacement' ? wholeStatus(e, itemClaims.filter(Boolean)) : entryStatusOf(e, claim),
     evidence: [],
     gps: e.gps ?? undefined,
     signature: e.signature ?? undefined,
     createdAt: e.createdAt,
     retries: 0,
     returnState: e.entryType === 'replacement' && e.status === 'approved' ? returnStageOf(claim) : undefined,
-    returnNote: claim?.findingCode ? `Finding: ${claim.findingCode}${claim.conditionNote ? ` · ${claim.conditionNote}` : ''}` : undefined,
+    returnNote: findingOf(claim),
     coverTold: e.coverToldAt ? 'yes' : undefined,
     claimId: claim?.id,
     claimStatus: claim?.status,
@@ -159,7 +185,7 @@ export function toChallan(c: ChallanResult, refOf: (entryId: string) => string):
     no: c.no, serverId: c.id, dealerId: c.dealerId, at: c.dispatchedAt, vehicle: c.vehicleNo ?? '', driver: c.driverName ?? '',
     receivedAt: c.receivedAt ?? undefined,
     entryIds: [...new Set(c.lines.map((l) => refOf(l.entryId)))],
-    rows: c.lines.map((l) => ({ serial: l.batteryCode, model: l.modelId, ref: refOf(l.entryId), fault: l.faultCode ? (FAULT_LABEL[l.faultCode] ?? l.faultCode) : '—', lineId: l.id, stage: RETURN_STAGE[l.stage], plantId: l.plantId ?? undefined, stagedAt: l.stagedAt ?? undefined })),
+    rows: c.lines.map((l) => ({ serial: l.batteryCode, model: l.modelId, ref: refOf(l.entryId), fault: l.faultCode ? (FAULT_LABEL[l.faultCode] ?? l.faultCode) : '—', lineId: l.id, itemId: l.entryItemId, stage: RETURN_STAGE[l.stage], plantId: l.plantId ?? undefined, stagedAt: l.stagedAt ?? undefined })),
   };
 }
 
@@ -175,11 +201,17 @@ export function withChallanStages(entries: Entry[], challans: Challan[]): Entry[
     const cur = best.get(r.ref);
     if (!cur || STAGE_ORDER.indexOf(r.stage) > STAGE_ORDER.indexOf(cur.state)) best.set(r.ref, { state: r.stage, note: `Challan ${c.no}${c.vehicle ? ` · ${c.vehicle}` : ''}` });
   }
+  // and the same, battery by battery, from that battery's own challan line
+  const byItem = new Map<string, { state: string; note: string }>();
+  for (const c of challans) for (const r of c.rows) if (r.stage && r.itemId) byItem.set(r.itemId, { state: r.stage, note: `Challan ${c.no}${c.vehicle ? ` · ${c.vehicle}` : ''}` });
+  const furthest = <T extends { returnState?: string; returnNote?: string }>(x: T, line?: { state: string; note: string }): T => {
+    if (!line) return x;
+    const further = !x.returnState || STAGE_ORDER.indexOf(line.state) >= STAGE_ORDER.indexOf(x.returnState);
+    return further ? { ...x, returnState: line.state, returnNote: x.returnNote ? `${line.note} · ${x.returnNote}` : line.note } : x;
+  };
   return entries.map((e) => {
-    const line = best.get(e.id);
-    if (!line) return e;
-    const further = !e.returnState || STAGE_ORDER.indexOf(line.state) >= STAGE_ORDER.indexOf(e.returnState);
-    return further ? { ...e, returnState: line.state, returnNote: e.returnNote ? `${line.note} · ${e.returnNote}` : line.note } : e;
+    const items = e.type === 'Replacement' ? e.items.map((it) => furthest(it, byItem.get(it.id))) : e.items;
+    return furthest({ ...e, items }, best.get(e.id));
   });
 }
 

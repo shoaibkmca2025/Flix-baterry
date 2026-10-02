@@ -71,7 +71,7 @@ export function useDecisions() {
   const settleLive = async (e: Entry, decision: 'approved' | 'refused', reason: string) => {
     const token = await getAccessToken(); if (!token) return notInV1();
     try {
-      await settleEntry(e.apiId!, decision, reason, token);
+      await settleEntry(e.apiId!, decision, reason, token, e.itemId); // e.itemId: one battery of several
       a.toast(decision === 'refused' ? 'Refused. The dealer sees the reason in their app.' : 'Approved for refund. The dealer sees it in their app.');
     } catch (err) { a.toast(errorMessage(err)); return false; }
     finally { sync(true); }
