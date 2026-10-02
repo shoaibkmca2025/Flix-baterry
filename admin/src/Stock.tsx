@@ -301,24 +301,24 @@ export function Returns() {
         {/* Settling belongs in its own tab: on Pending challans the job is to get batteries
             checked and decided, and a Settle button there invites finishing a challan that is
             still half-undecided (client, 2 Oct 2026). */}
-        {canEdit && tab === 'settle' && passed.length > 0 && <Btn kind="primary" sm icon="check" label={`Settle ${passed.length} approved ${passed.length === 1 ? 'battery' : 'batteries'}`} onPress={() => setClaimOn(sel)} />}
+        {canEdit && tab === 'settle' && passed.length > 0 && <Btn kind="primary" sm icon="check" label={`Claim ${passed.length} approved ${passed.length === 1 ? 'battery' : 'batteries'}`} onPress={() => setClaimOn(sel)} />}
         {canEdit && !sel.receivedAt && stillOnWay.length ? <Btn kind="blue" sm icon="box" label={`Confirm all ${stillOnWay.length} arrived`} onPress={() => openAct({ entries: stillOnWay, to: 'Received', label: `Confirm challan ${sel.no} arrived`, whole: sel.serverId })} /> : chip(sel)}</View>}>
-      <View style={{ paddingHorizontal: 14, paddingTop: 11 }}><KV cols={a.wide ? 3 : 2} pairs={[['Dealer', dealerName(sel.dealerId)], ['Sent', dLong(sel.at)], ['Arrived', sel.receivedAt ? dLong(sel.receivedAt) : 'Not yet'], ['Vehicle', sel.vehicle || '—'], ['Collected by', sel.driver || '—'], [only ? (tab === 'rejected' ? 'Rejected' : 'Claimed') : 'Batteries', only ? `${entries.length} of ${sel.rows.length}` : String(sel.rows.length)]]} /></View>
+      <View style={{ paddingHorizontal: 14, paddingTop: 11 }}><KV cols={a.wide ? 3 : 2} pairs={[['Dealer', dealerName(sel.dealerId)], ['Sent', dLong(sel.at)], ['Arrived', sel.receivedAt ? dLong(sel.receivedAt) : 'Not yet'], ['Vehicle', sel.vehicle || '—'], ['Collected by', sel.driver || '—'], [only ? (tab === 'rejected' ? 'Rejected' : tab === 'claimed' ? 'Settled' : 'Approved') : 'Batteries', only ? `${entries.length} of ${sel.rows.length}` : String(sel.rows.length)]]} /></View>
       {!only && (passed.length + claimedRows.length + rejectedRows.length > 0) && <View style={{ paddingHorizontal: 14, paddingTop: 11 }}>
         <Kpis cols={3} items={[
-          { v: String(passed.length + claimedRows.length), l: passed.length ? `Approved · ${passed.length} to settle` : 'Approved · all settled' },
+          { v: String(passed.length + claimedRows.length), l: passed.length ? `Approved · ${passed.length} to claim` : 'Approved · all settled' },
           { v: String(rejectedRows.length), l: 'Rejected', tone: rejectedRows.length ? 'bad' : undefined },
           { v: String(waiting.length), l: 'Not checked yet', tone: waiting.length ? 'flag' : undefined },
         ]} />
         {passed.length > 0 && <Banner tone="ok" icon="check" style={{ marginTop: 11 }}>
-          <B>{passed.length} approved {passed.length === 1 ? 'battery is' : 'batteries are'} waiting to be settled.</B> {tab === 'settle'
-            ? `Settling marks ${passed.length === 1 ? 'it' : 'them all'} claimed in one go. ${passed.length === 1 ? 'It stays' : 'They stay'} under Approved — settling records that the claim is done, it does not move ${passed.length === 1 ? 'it' : 'them'} anywhere. Anything refused, or still to check, is left alone.`
-            : 'Settle them from the Settle tab.'}</Banner>}
+          <B>{passed.length} approved {passed.length === 1 ? 'battery is' : 'batteries are'} waiting to be claimed.</B> {tab === 'settle'
+            ? `Claiming marks ${passed.length === 1 ? 'it' : 'them all'} settled in one go. ${passed.length === 1 ? 'It stays' : 'They stay'} under Approved — this records that the claim is done, it does not move ${passed.length === 1 ? 'it' : 'them'} anywhere. Anything refused, or still to check, is left alone.`
+            : 'Claim them from the Claim tab.'}</Banner>}
         {[['Approved', [...claimedRows, ...passed], 'live'], ['Rejected', rejectedRows, 'bad'], ['Not checked yet', waiting, 'mute']].filter(([, g]) => (g as typeof sel.rows).length).map(([title, g, tone]) => <View key={title as string} style={{ marginTop: 11 }}>
           <X s={12} w={7} c={T.slate} style={{ letterSpacing: 0.4, marginBottom: 6 }}>{(title as string).toUpperCase()} · {(g as typeof sel.rows).length}</X>
           {(g as typeof sel.rows).map(r => <View key={r.lineId || r.serial} style={{ flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 5, flexWrap: 'wrap' }}>
             <Chip tone={tone as Tone} icon={tone === 'live' ? 'check' : tone === 'bad' ? 'x' : 'clock'} mono label={r.serial} />
-            <X s={12.5} c={T.slate} style={{ flexShrink: 1 }}>{r.model}{r.outcome === 'passed' ? ' · waiting to be settled' : r.outcome === 'claimed' ? ' · claimed' : ''}{r.outcomeReason ? ` · ${r.outcomeReason}` : ''}</X>
+            <X s={12.5} c={T.slate} style={{ flexShrink: 1 }}>{r.model}{r.outcome === 'passed' ? ' · waiting to be claimed' : r.outcome === 'claimed' ? ' · settled' : ''}{r.outcomeReason ? ` · ${r.outcomeReason}` : ''}</X>
           </View>)}
         </View>)}
       </View>}
@@ -331,18 +331,18 @@ export function Returns() {
     return a.wide ? <Cols weights={[1, 1.45]}>{list}{detail}</Cols>
       : <Stack><Btn kind="ghost" sm label={only ? '← Back to the list' : '← All challans'} style={{ alignSelf: 'flex-start' }} onPress={() => setSelChallan(null)} />{detail}</Stack>;
   };
-  return <Page title="Old battery returns" sub="Every replaced battery, from the dealer’s shop to claimed or rejected"
-    tabs={<Tabs value={tab} onChange={t => { setTab(t); setSelChallan(null); }} items={[['challans', `Pending challans ${pendingChallans.length}`], ['done', `Completed challans ${doneChallans.length}`], ['way', `On the way ${onWay.length}`], ['dealers', `At dealers ${atDealer.length}`], ['approved', `Approved ${approved.length}`], ['rejected', `Rejected ${rejected.length}`], ['settle', `Settle ${approved.length}`], ['claimed', `Claimed ${claimed.length}`]]} />}>
+  return <Page title="Old battery returns" sub="Every replaced battery, from the dealer’s shop to settled or rejected"
+    tabs={<Tabs value={tab} onChange={t => { setTab(t); setSelChallan(null); }} items={[['challans', `Pending challans ${pendingChallans.length}`], ['done', `Completed challans ${doneChallans.length}`], ['way', `On the way ${onWay.length}`], ['dealers', `At dealers ${atDealer.length}`], ['approved', `Approved ${approved.length}`], ['rejected', `Rejected ${rejected.length}`], ['settle', `Claim ${approved.length}`], ['claimed', `Settled ${claimed.length}`]]} />}>
     <Kpis cols={a.wide ? 4 : 2} items={[{ v: String(atDealer.length), l: 'Still at dealers', tone: 'flag', onPress: () => setTab('dealers') }, { v: String(onWay.length), l: 'On the way', onPress: () => setTab('way') }, { v: String(receivedThisMonth), l: 'Arrived this month' }, { v: String(atDealer.filter(e => ageDays(e.date) > 30).length), l: 'At a dealer over 30 days', tone: 'bad', onPress: () => setTab('dealers') }]} />
     <View style={{ height: 14 }} />
     {tab === 'challans' && challanView(undefined, { icon: 'truck', title: 'Nothing pending', text: 'Every challan has arrived and every battery on it is approved or refused. New challans appear here when a dealer dispatches old batteries.' }, c => !challanDone(c))}
     {tab === 'done' && challanView(undefined, { icon: 'check', title: 'No completed challans yet', text: 'A challan moves here once it has arrived and every battery on it is approved or refused.' }, challanDone)}
-    {tab === 'approved' && challanView(approved, { icon: 'check', title: 'Nothing approved yet', text: 'A battery shows here, under its challan, once you approve it. Settle it to finish the claim.' })}
+    {tab === 'approved' && challanView(approved, { icon: 'check', title: 'Nothing approved yet', text: 'A battery shows here, under its challan, once you approve it. Claim it to finish.' })}
     {tab === 'settle' && <Stack>
-      <Banner tone="ok" icon="check"><B>One challan at a time.</B> Open a challan below and press Settle — every approved battery on it is marked claimed together. Refused batteries, and any still to be checked, are left alone.</Banner>
-      {challanView(approved, { icon: 'check', title: 'Nothing to settle', text: 'Approve some batteries first — then settle them together, one challan at a time.' })}
+      <Banner tone="ok" icon="check"><B>One challan at a time.</B> Open a challan below and press Claim — every approved battery on it is marked settled together. Refused batteries, and any still to be checked, are left alone.</Banner>
+      {challanView(approved, { icon: 'check', title: 'Nothing to claim', text: 'Approve some batteries first — then claim them together, one challan at a time.' })}
     </Stack>}
-    {tab === 'claimed' && challanView(claimed, { icon: 'check', title: 'Nothing claimed yet', text: 'A battery shows here once it has been approved and settled.' })}
+    {tab === 'claimed' && challanView(claimed, { icon: 'check', title: 'Nothing settled yet', text: 'A battery shows here once it has been approved and claimed.' })}
     {tab === 'rejected' && challanView(rejected, { icon: 'x', title: 'Nothing rejected', text: 'A battery you refuse shows here, under its challan, with the reason the dealer sees.' })}
     {tab === 'way' && <Stack>
       <Banner tone="info" icon="truck"><B>Scanning in is not approving.</B> Confirm each battery as it comes off the van and choose the plant that made it, then approve or reject it once it has been checked.</Banner>
@@ -385,9 +385,9 @@ export function Returns() {
     {/* the Claim button (client, 2 Oct 2026): every battery on the challan that passed its check,
         approved for refund in one go. The server decides only claims sitting at 'checked', so a
         second click cannot pay twice — it reports how many it skipped and why. */}
-    <ReasonDialog open={!!claimOn} title={`Settle ${claimOn?.no || ''}`} confirm="Mark them claimed" kind="primary"
+    <ReasonDialog open={!!claimOn} title={`Claim ${claimOn?.no || ''}`} confirm="Mark them settled" kind="primary"
       suggestions={['Checked at the factory — manufacturing defect confirmed', 'Warranty verified against the first sale']}
-      intro={`Marks every approved battery on this challan as claimed. They stay under Approved — this records that the claim is settled. Anything refused, or still to be checked, is left exactly as it is.`}
+      intro={`Marks every approved battery on this challan as settled. They stay under Approved — this records that the claim is done. Anything refused, or still to be checked, is left exactly as it is.`}
       onClose={() => setClaimOn(null)}
       onConfirm={r => {
         const c = claimOn;
@@ -398,7 +398,7 @@ export function Returns() {
           if (!token) { a.toast('Sign in again to approve refunds.'); return; }
           try {
             const res = await claimChallan(c.serverId!, r, token);
-            a.toast(`${res.claimed} ${res.claimed === 1 ? 'battery' : 'batteries'} settled on ${res.challanNo} — still under Approved, now marked claimed${res.skipped ? ` · ${res.skipped} left alone` : ''}.`);
+            a.toast(`${res.claimed} ${res.claimed === 1 ? 'battery' : 'batteries'} claimed on ${res.challanNo} — still under Approved, now marked settled${res.skipped ? ` · ${res.skipped} left alone` : ''}.`);
           } catch (err) { a.toast(errorMessage(err)); }
           finally { sync(true); }
         })();
