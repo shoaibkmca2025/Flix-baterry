@@ -17,7 +17,7 @@
     "test": "tsx --test shared/tests/*.test.ts",
     "build:web:dealer": "npm run build:web --workspace dealer",
     "build:web:admin": "npm run build:web --workspace admin",
-    "deploy:api": "git pull --ff-only && npm run db:migrate --prefix backend && neon deploy --env backend/.env",
+    "deploy:api": "git pull --ff-only && npm install --prefix backend && npm run db:migrate --prefix backend && neon deploy --env backend/.env",
     "deploy:dealer": "git pull --ff-only && npm run build:web:dealer && cd dealer && npx wrangler deploy",
     "deploy:admin": "git pull --ff-only && npm run build:web:admin && cd admin && npx wrangler deploy",
     "deploy:all": "npm run deploy:api && npm run deploy:dealer && npm run deploy:admin"

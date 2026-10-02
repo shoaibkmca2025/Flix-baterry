@@ -388,7 +388,7 @@ function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code:
 export function D11() {
   const { f, d, upd, item, saveDraft } = useFlow(); const { state } = useStore();
   const token = useAccessToken();
-  const [scan, setScan] = useState(false), [errs, setErrs] = useState<Record<string, string>>({});
+  const [errs, setErrs] = useState<Record<string, string>>({});
   const del = useDeleteEntry(f?.entry, 'd07');
   if (!f) return null;
   const e = f.entry, i = f.cur, it = e.items[i];
@@ -415,20 +415,20 @@ export function D11() {
     if (Object.keys(mine).length) { saveDraft(); d.toast('Saved as a draft. Fix the marked field now, or come back to it from My requests.'); return; }
     saveDraft(); d.go('d13');
   };
-  const oldPhoto = photoOf(e, tagFor('Old battery', i));
   const oldChosen = state.models.find(m => m.id === it.oldModel);
   return <Screen top={<AppBar title="Old battery" back={i > 0 ? 'd12' : 'd10'} right={<Chip tone="mute" mono label={e.id} />} />}
-    overlay={<>{del.sheet}<ScanSheet open={scan} title="Scan the old battery" onClose={() => setScan(false)} onCode={c => { setOld(c); d.setFlow(x => x && { ...x, scanned: { ...x.scanned, [`old-${i}`]: true } }); d.toast('Scanned. Check the number matches the label.'); }} /></>}>
+    overlay={del.sheet}>
     <Steps labels={REP_STEPS} now={1} />
     <Gap h={14} />
-    <Banner tone="info" icon="batt" style={{ marginBottom: 14 }}>Start with the battery the customer brought back: choose its model, then its code, then type the number on the label — or scan the label to fill all three.</Banner>
+    <Banner tone="info" icon="batt" style={{ marginBottom: 14 }}>Start with the battery the customer brought back: choose its model, then its code, then type the number on the label.</Banner>
     <PlateModelPicker value={it.oldModel || ''} error={errs.oldModel} label="Old battery"
       onChange={v => { item({ oldModel: v, ...(it.model === newItem().model || it.model === it.oldModel ? { model: v } : {}) }); setErrs(x => ({ ...x, oldModel: '' })); }} />
     <Field label={`Old battery serial number (${lengthsLabel(lengths)})`} req mr="जुनी बॅटरी" mono numeric maxLength={maxLen} value={it.oldSerial} onChange={setOld}
       readonly={!oldChosen} ph={oldChosen ? 'Digits on the label' : 'Choose the model and code first'} error={errs.oldSerial}
       hint={looking ? 'Checking warranty…' : undefined} hintIcon="clock"
-      tail={<><CapBtn n="scan" tone="alt" label="Scan old battery" onPress={() => setScan(true)} /><CapBtn n="cam" tone={oldPhoto ? 'done' : 'dark'} label="Photograph old battery label" onPress={async () => { const u = await takePhoto(d.toast); if (u) { upd(withPhoto(e, tagFor('Old battery', i), u)); d.toast('Photo saved. Check the number above matches it.'); } }} />
-</>} />
+        /* No scan and no photo for the old battery (client, 2 Oct 2026): it is typed from the label.
+         The battery itself goes back to head office to be opened and checked, so neither a scan
+         nor a photo of it decides anything here. The NEW battery keeps both. */ />
     <FullCodeLine modelId={it.oldModel} code={it.oldSerial} lengths={lengths} />
     <OldBatteryInfo code={it.oldSerial} lookup={lookup} looking={looking} token={token} fallbackModel={it.oldModel} />
     <View style={{ marginBottom: 13 }}><Label text="What is the problem?" req mr="काय बिघडले" /></View>
@@ -630,14 +630,18 @@ export function D15() {
   useEffect(() => { if (f && !f.entry.gps && !tried.current) addLocation(); }, []);
   if (!f) return null;
   const e = f.entry, i = f.cur, rep = e.type === 'Replacement';
-  const tiles = rep ? ['Old battery', 'New label', 'New battery', 'Fitted in vehicle'] : ['Returned battery', 'Label', 'Condition', 'Other'];
+  // No 'Old battery' tile on a replacement (client, 2 Oct 2026) — the old battery is neither
+  // scanned nor photographed anywhere in the app now; head office opens and checks it instead.
+  const tiles = rep ? ['New label', 'New battery', 'Fitted in vehicle'] : ['Returned battery', 'Label', 'Condition', 'Other'];
   const g = parseGps(e.gps);
   return <Screen top={<AppBar title="Photos and proof" back={rep ? 'd31' : 'd13'} right={<Chip tone="mute" label="Step 3 of 3" />} />}>
     <Banner tone="info" icon="cam" style={{ marginBottom: 13 }}>{rep ? 'Only the photo of the new battery (its label) is required. The rest are optional — add them if they help settle a warranty argument later.' : 'Photos settle arguments later. Add the returned battery and its label.'}</Banner>
-    {[0, 2].map(r => <View key={r} style={{ flexDirection: 'row', gap: 9, marginTop: r ? 9 : 0 }}>{tiles.slice(r, r + 2).map(t => {
+    {[0, 2].map(r => tiles.slice(r, r + 2).length === 0 ? null : <View key={r} style={{ flexDirection: 'row', gap: 9, marginTop: r ? 9 : 0 }}>{tiles.slice(r, r + 2).map(t => {
       const tag = tagFor(t, i), uri = photoOf(e, tag);
       return <Photo key={t} label={uri ? `${t} ✓` : t} uri={uri} onPress={async () => { const u = await takePhoto(d.toast); if (u) upd(withPhoto(e, tag, u)); }} />;
-    })}</View>)}
+    })}
+    {/* an odd number of tiles: keep the last one half-width instead of letting it stretch */}
+    {tiles.slice(r, r + 2).length === 1 && <View style={{ flex: 1 }} />}</View>)}
     {e.items.length > 1 && <Hint icon="batt">Photos for item {i + 1} of {e.items.length}.</Hint>}
     <SecT title="Location" />
     <Card>
