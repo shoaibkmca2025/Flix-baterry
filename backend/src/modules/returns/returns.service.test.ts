@@ -20,7 +20,7 @@ vi.mock('../entries/entries.repository', () => ({
 vi.mock('../claims/claims.repository', () => ({ findClaimById: vi.fn() }));
 vi.mock('../batteries/batteries.repository', () => ({ setBatteryPlant: vi.fn() }));
 vi.mock('../masters/masters.repository', () => ({ findPlantById: vi.fn() }));
-vi.mock('../claims/claims.service', () => ({ dispatch: vi.fn(), receive: vi.fn() }));
+vi.mock('../claims/claims.service', () => ({ dispatch: vi.fn(), receive: vi.fn(), decide: vi.fn() }));
 
 vi.mock('./returns.repository', () => ({
   findChallanById: vi.fn(),
@@ -35,6 +35,7 @@ vi.mock('./returns.repository', () => ({
   setLinePlant: vi.fn(),
   listChallans: vi.fn(),
   listLines: vi.fn(),
+  findClaimStateByEntryItemIds: vi.fn(),
 }));
 
 import * as batteriesRepo from '../batteries/batteries.repository';
@@ -44,7 +45,7 @@ import { audit } from '../../utils/audit';
 import * as claimsService from '../claims/claims.service';
 import * as entriesRepo from '../entries/entries.repository';
 import * as repo from './returns.repository';
-import { dispatch, receive, receiveLine, setLinePlant, stage } from './returns.service';
+import { claimChecked, dispatch, getById, receive, receiveLine, setLinePlant, stage } from './returns.service';
 import { ChallanReceiveBody, LineReceiveBody } from './returns.validation';
 import type { Ctx } from '../../utils/context';
 
@@ -335,5 +336,59 @@ describe('stage — processing after arrival follows the chain', () => {
   it('refuses a skipped step', async () => {
     vi.mocked(repo.findLineById).mockResolvedValue({ id: 'line-1', stage: 'in_transit', batteryCode: '26030777' } as never);
     await expect(stage(adminCtx, 'line-1', { stage: 'closed', reason: 'Skipping ahead' })).rejects.toMatchObject({ code: 'invalid_transition' });
+  });
+});
+
+describe('the Claim button — one challan, every battery that passed', () => {
+  // 4 batteries went back: two passed their check, one was refused, one is still on the van
+  const lines = [
+    { id: 'l1', challanId: 'ch-1', entryItemId: 'it-1', batteryCode: 'M526030001' },
+    { id: 'l2', challanId: 'ch-1', entryItemId: 'it-2', batteryCode: 'M526030002' },
+    { id: 'l3', challanId: 'ch-1', entryItemId: 'it-3', batteryCode: 'M526030003' },
+    { id: 'l4', challanId: 'ch-1', entryItemId: 'it-4', batteryCode: 'M526030004' },
+  ];
+  const states = [
+    { entryItemId: 'it-1', claimId: 'cl-1', status: 'checked', decisionReason: null, conditionNote: 'Cells gone' },
+    { entryItemId: 'it-2', claimId: 'cl-2', status: 'checked', decisionReason: null, conditionNote: null },
+    { entryItemId: 'it-3', claimId: 'cl-3', status: 'refused', decisionReason: 'Physical damage', conditionNote: null },
+    { entryItemId: 'it-4', claimId: 'cl-4', status: 'awaiting_return', decisionReason: null, conditionNote: null },
+  ];
+  beforeEach(() => {
+    vi.mocked(repo.findChallanById).mockResolvedValue({ id: 'ch-1', no: 'CHL-26-09-0039', dealerId: 'dealer-1' } as never);
+    vi.mocked(repo.findLinesByChallanId).mockResolvedValue(lines as never);
+    vi.mocked(repo.findClaimStateByEntryItemIds).mockResolvedValue(states as never);
+    vi.mocked(claimsService.decide).mockImplementation((async (_ctx: unknown, id: string) =>
+      ({ claim: { id }, creditNote: { no: `CN-${id}` } })) as never);
+  });
+
+  it('approves for refund only the batteries that passed their check', async () => {
+    const r = await claimChecked(adminCtx, 'ch-1', { reason: 'Checked at the factory — all good' });
+    expect(r.claimed).toBe(2);
+    expect(r.skipped).toBe(2); // the refused one and the one still travelling
+    expect(r.creditNotes.map(c => c.no)).toEqual(['CN-cl-1', 'CN-cl-2']);
+    // the refused battery and the one still on the van are never touched
+    const decided = vi.mocked(claimsService.decide).mock.calls.map(c => c[1]);
+    expect(decided).toEqual(['cl-1', 'cl-2']);
+  });
+
+  it('clicking it a second time pays nobody twice', async () => {
+    // after the first click those two are 'approved', so nothing is left at 'checked'
+    vi.mocked(repo.findClaimStateByEntryItemIds).mockResolvedValue(
+      states.map(s => (s.status === 'checked' ? { ...s, status: 'approved' } : s)) as never);
+    await expect(claimChecked(adminCtx, 'ch-1', { reason: 'Second click by mistake' }))
+      .rejects.toMatchObject({ code: 'nothing_to_claim' });
+    expect(claimsService.decide).not.toHaveBeenCalled();
+  });
+
+  it('a dealer cannot approve their own batteries for refund', async () => {
+    await expect(claimChecked(dealerCtx, 'ch-1', { reason: 'Please pay me' })).rejects.toMatchObject({ code: 'unauthenticated' });
+    expect(claimsService.decide).not.toHaveBeenCalled();
+  });
+
+  it('groups every battery on the challan by what happened to it, for both sides to read', async () => {
+    const r = await getById(adminCtx, 'ch-1');
+    expect(r.lines.map(l => l.outcome)).toEqual(['passed', 'passed', 'rejected', 'travelling']);
+    // the refusal reason travels with the line, so the dealer is told why
+    expect(r.lines[2]!.outcomeReason).toBe('Physical damage');
   });
 });

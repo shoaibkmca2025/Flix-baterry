@@ -4,7 +4,7 @@ import { useStore } from '@felix/shared/store';
 import { getAccessToken } from '@felix/shared/api/session';
 import { postMovement, type BatteryState } from '@felix/shared/api/stock';
 import { checkClaim, receiveClaim } from '@felix/shared/api/claims';
-import { receiveChallan, receiveLine, setLinePlant, stageLine } from '@felix/shared/api/returns';
+import { claimChallan, receiveChallan, receiveLine, setLinePlant, stageLine } from '@felix/shared/api/returns';
 import { errorMessage } from '@felix/shared/api/client';
 import { useSync } from '@felix/shared/api/sync';
 import { Challan, Entry, normalize, anyDigitLengths, isValidDigits, lengthsLabel, today, uid } from '@felix/shared/domain';
@@ -237,6 +237,9 @@ export function Returns() {
    */
   // An entry the store has not loaded is NOT treated as decided: filing a challan under
   // "Completed" on a request nobody has seen would hide it from the queue for good.
+  // the Claim button: one click approves for refund every battery on this challan that passed
+  // its check (client, 2 Oct 2026)
+  const [claimOn, setClaimOn] = useState<Challan | null>(null);
   const challanDone = (c: Challan) => !!c.receivedAt && c.entryIds.every(id => ['Approved', 'Rejected'].includes(state.entries.find(x => x.id === id)?.status ?? ''));
   const pendingChallans = state.challans.filter(c => !challanDone(c)), doneChallans = state.challans.filter(challanDone);
   /**
@@ -276,6 +279,11 @@ export function Returns() {
       .filter(u => !only || only.some(o => unitKey(o) === unitKey(u)));
     const unmatched = only ? [] : sel.rows.filter(r => !entries.some(e => e.id === r.ref));
     const stillOnWay = only ? [] : entries.filter(e => e.returnState === 'In transit');
+    // A challan is how both sides think about a batch: "10 went back, 7 are approved." Each line
+    // carries its own outcome, so group by it (client, 2 Oct 2026). 'passed' is what the Claim
+    // button acts on: checked and good, but not yet approved for refund.
+    const group = (...want: string[]) => sel.rows.filter(r => want.includes(r.outcome ?? 'travelling'));
+    const passed = group('passed'), claimedRows = group('claimed'), rejectedRows = group('rejected'), waiting = group('travelling', 'arrived');
     const download = async () => {
       const dealer = state.dealers.find(x => x.id === sel.dealerId);
       if (!dealer) { a.toast('The dealer for this challan is not loaded yet. Refresh and try again.'); return; }
@@ -285,8 +293,25 @@ export function Returns() {
     const detail = <Box title={`${sel.no} · ${dealerName(sel.dealerId)}`}
       right={<View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
         <Btn kind="ghost" sm icon="down" label="Download challan" onPress={download} />
+        {canEdit && passed.length > 0 && <Btn kind="primary" sm icon="check" label={`Claim ${passed.length} approved ${passed.length === 1 ? 'battery' : 'batteries'}`} onPress={() => setClaimOn(sel)} />}
         {canEdit && !sel.receivedAt && stillOnWay.length ? <Btn kind="blue" sm icon="box" label={`Confirm all ${stillOnWay.length} arrived`} onPress={() => openAct({ entries: stillOnWay, to: 'Received', label: `Confirm challan ${sel.no} arrived`, whole: sel.serverId })} /> : chip(sel)}</View>}>
       <View style={{ paddingHorizontal: 14, paddingTop: 11 }}><KV cols={a.wide ? 3 : 2} pairs={[['Dealer', dealerName(sel.dealerId)], ['Sent', dLong(sel.at)], ['Arrived', sel.receivedAt ? dLong(sel.receivedAt) : 'Not yet'], ['Vehicle', sel.vehicle || '—'], ['Collected by', sel.driver || '—'], [only ? (tab === 'rejected' ? 'Rejected' : 'Claimed') : 'Batteries', only ? `${entries.length} of ${sel.rows.length}` : String(sel.rows.length)]]} /></View>
+      {!only && (passed.length + claimedRows.length + rejectedRows.length > 0) && <View style={{ paddingHorizontal: 14, paddingTop: 11 }}>
+        <Kpis cols={3} items={[
+          { v: String(passed.length + claimedRows.length), l: passed.length ? `Approved · ${passed.length} to claim` : 'Approved' },
+          { v: String(rejectedRows.length), l: 'Rejected', tone: rejectedRows.length ? 'bad' : undefined },
+          { v: String(waiting.length), l: 'Not checked yet', tone: waiting.length ? 'flag' : undefined },
+        ]} />
+        {passed.length > 0 && <Banner tone="ok" icon="check" style={{ marginTop: 11 }}>
+          <B>{passed.length} {passed.length === 1 ? 'battery has' : 'batteries have'} passed the check.</B> Claim approves {passed.length === 1 ? 'it' : 'them all'} for refund in one go. Anything refused, or still to check, is left alone.</Banner>}
+        {[['Approved', [...claimedRows, ...passed], 'live'], ['Rejected', rejectedRows, 'bad'], ['Not checked yet', waiting, 'mute']].filter(([, g]) => (g as typeof sel.rows).length).map(([title, g, tone]) => <View key={title as string} style={{ marginTop: 11 }}>
+          <X s={12} w={7} c={T.slate} style={{ letterSpacing: 0.4, marginBottom: 6 }}>{(title as string).toUpperCase()} · {(g as typeof sel.rows).length}</X>
+          {(g as typeof sel.rows).map(r => <View key={r.lineId || r.serial} style={{ flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 5, flexWrap: 'wrap' }}>
+            <Chip tone={tone as Tone} icon={tone === 'live' ? 'check' : tone === 'bad' ? 'x' : 'clock'} mono label={r.serial} />
+            <X s={12.5} c={T.slate} style={{ flexShrink: 1 }}>{r.model}{r.outcome === 'passed' ? ' · waiting for the claim' : ''}{r.outcomeReason ? ` · ${r.outcomeReason}` : ''}</X>
+          </View>)}
+        </View>)}
+      </View>}
       <View style={{ paddingHorizontal: 14 }}>
         {entries.map((e, i, arr) => row(e, i, unmatched.length ? [...arr, e] : arr, !only))}
         {unmatched.map((r, i) => <Line key={r.lineId || r.serial} last={i === unmatched.length - 1} av={<Avatar n="batt" tone="mute" />}
@@ -360,6 +385,27 @@ export function Returns() {
           hint={act.whole ? 'Every battery arriving now is counted under this plant. If they come from different plants, confirm them one by one instead.' : 'Read it from the number on the battery’s label.'} />
       </> : null}
     </ReasonDialog>
+    {/* the Claim button (client, 2 Oct 2026): every battery on the challan that passed its check,
+        approved for refund in one go. The server decides only claims sitting at 'checked', so a
+        second click cannot pay twice — it reports how many it skipped and why. */}
+    <ReasonDialog open={!!claimOn} title={`Claim ${claimOn?.no || ''}`} confirm="Approve them" kind="primary"
+      suggestions={['Checked at the factory — manufacturing defect confirmed', 'Warranty verified against the first sale']}
+      intro={`Approves every battery on this challan that passed its check. Anything refused, or still to be checked, is left exactly as it is.`}
+      onClose={() => setClaimOn(null)}
+      onConfirm={r => {
+        const c = claimOn;
+        if (!c?.serverId) { a.toast('This challan is not on the server yet.'); return false; }
+        if (!canEdit) { a.toast('Read-only access — records cannot be changed.'); return false; }
+        void (async () => {
+          const token = await getAccessToken();
+          if (!token) { a.toast('Sign in again to approve refunds.'); return; }
+          try {
+            const res = await claimChallan(c.serverId!, r, token);
+            a.toast(`${res.claimed} ${res.claimed === 1 ? 'battery' : 'batteries'} approved on ${res.challanNo}${res.skipped ? ` · ${res.skipped} left alone (refused, or not checked yet)` : ''}.`);
+          } catch (err) { a.toast(errorMessage(err)); }
+          finally { sync(true); }
+        })();
+      }} />
     <ReasonDialog open={!!retag} title={`Plant for ${retag ? codesOf(retag) : ''}`} confirm="Save plant" kind="blue" onClose={() => setRetag(null)}
       suggestions={['Misread the label', 'Arrived before plants were tracked']}
       intro="Changes which plant this battery is counted under. The old and the new plant both stay in the audit log."

@@ -6,7 +6,7 @@ import { useStore } from '@felix/shared/store';
 import { Challan, Entry } from '@felix/shared/domain';
 import { printHtml, escapeHtml, saveHtmlDocument } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
-import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, BigOk, CheckBox, Kpis, Plate, PlateLab, PlateVal, AvTone, IconName } from '@felix/shared/ui/kit';
+import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, BigOk, CheckBox, Kpis, Plate, PlateLab, PlateVal, AvTone, Tone, IconName } from '@felix/shared/ui/kit';
 import { Screen, AppBar, useD } from './shell';
 import { getAccessToken } from '@felix/shared/api/session';
 import { createChallan } from '@felix/shared/api/returns';
@@ -157,6 +157,30 @@ export function D35() {
 }
 
 /* d36 · challan document */
+/**
+ * How this challan came back: which batteries head office approved and which it refused. The
+ * dealer sends 10 and wants the answer as a batch, not ten separate requests to go hunting
+ * through (client, 2 Oct 2026). Nothing shows until head office has decided something.
+ */
+function ChallanOutcome({ c }: { c: Challan }) {
+  const group = (...want: string[]) => c.rows.filter(r => want.includes(r.outcome ?? 'travelling'));
+  // 'passed' has been checked and is good but not yet approved for refund — to the dealer that is
+  // not yet a yes, so it sits with the batteries still being looked at rather than under Approved.
+  const approved = group('claimed'), rejected = group('rejected'), waiting = group('travelling', 'arrived', 'passed');
+  if (!approved.length && !rejected.length) return null; // nothing decided yet — the challan copy below says it is on its way
+  const Group = ({ title, rows, tone, icon, chip, av }: { title: string; rows: Challan['rows']; tone: Tone; icon: IconName; chip: string; av: AvTone }) =>
+    !rows.length ? null : <Card style={{ marginBottom: 11 }}>
+      <CardH title={`${title} · ${rows.length}`} right={<Chip tone={tone} icon={icon} label={chip} />} />
+      {rows.map((r, i) => <Line key={r.lineId || r.serial} last={i === rows.length - 1} titleMono title={r.serial}
+        sub={`${r.model}${r.outcomeReason ? ` · ${r.outcomeReason}` : ''}`} av={<Avatar n={icon} tone={av} />} />)}
+    </Card>;
+  return <View style={{ marginBottom: 13 }}>
+    <Group title="Approved" rows={approved} tone="live" icon="check" chip="Approved" av="green" />
+    <Group title="Not approved" rows={rejected} tone="bad" icon="x" chip="Refused" av="red" />
+    <Group title="Still being checked" rows={waiting} tone="mute" icon="clock" chip="With the company" av="mute" />
+  </View>;
+}
+
 function ChallanDoc({ c }: { c: Challan }) {
   const { state } = useStore(); const dealer = state.dealers.find(x => x.id === c.dealerId)!;
   const cell = { borderWidth: 1, borderColor: T.zinc3, paddingVertical: 5, paddingHorizontal: 6, marginRight: -1, marginBottom: -1 } as const;
@@ -206,6 +230,7 @@ export function D36({ p }: { p?: string }) {
   };
   return <Screen tab="truck" top={<AppBar title="Challan" back="d34" backP={c.no} right={<Chip tone="mute" mono label={c.no} />} />}>
     <Banner tone="ok" icon="doc" style={{ marginBottom: 13 }}><B>Made for you when you tapped dispatch.</B> Nothing to write out. Keep a copy, give one to the driver.</Banner>
+    <ChallanOutcome c={c} />
     <ChallanDoc c={c} />
     <BtnRow style={{ marginTop: 13 }}><Btn kind="primary" icon="down" label="Download" onPress={download} /><Btn kind="ghost" icon="phone" label="Share" onPress={share} /></BtnRow>
     <Hint icon="shield" style={{ marginTop: 11 }}>The same challan is on the company’s screen already. If the driver loses the paper, nothing is lost.</Hint>

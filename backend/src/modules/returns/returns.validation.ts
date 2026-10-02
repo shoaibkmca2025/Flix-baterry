@@ -54,3 +54,10 @@ export const ChallanListQuery = z.object({
   cursor: z.string().optional(),
 });
 export type ChallanListQuery = z.infer<typeof ChallanListQuery>;
+
+// The Claim button: approve for refund every battery on a challan that passed its check
+// (client, 2 Oct 2026). One reason covers the lot — it is one decision, taken once.
+export const ChallanClaimBody = z.object({
+  reason: z.string().trim().min(5, 'Give a short reason (at least 5 characters).'),
+});
+export type ChallanClaimBody = z.infer<typeof ChallanClaimBody>;

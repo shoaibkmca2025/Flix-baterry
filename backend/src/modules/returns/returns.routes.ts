@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../../middleware/auth';
 import { requirePermission } from '../../middleware/rbac';
 import * as controller from './returns.controller';
-import { ChallanCreateBody, ChallanListQuery, ChallanReceiveBody, LinePlantBody, LineReceiveBody, LineStageBody, ReturnLineListQuery } from './returns.validation';
+import { ChallanClaimBody, ChallanCreateBody, ChallanListQuery, ChallanReceiveBody, LinePlantBody, LineReceiveBody, LineStageBody, ReturnLineListQuery } from './returns.validation';
 
 // M-19 returns — modules.md. Mounted at /api/v1/challans.
 export async function registerReturnRoutes(app: FastifyInstance) {
@@ -15,6 +15,13 @@ export async function registerReturnRoutes(app: FastifyInstance) {
     '/:id/receive',
     { preHandler: [requireAuth, requirePermission('returns.receive')], schema: { body: ChallanReceiveBody } },
     controller.receive,
+  );
+  // the Claim button: approve for refund every battery on this challan that passed its check
+  // (client, 2 Oct 2026). Deciding a claim is what it does, so it needs that right.
+  app.post<{ Params: { id: string }; Body: ChallanClaimBody }>(
+    '/:id/claim',
+    { preHandler: [requireAuth, requirePermission('claims.decide')], schema: { body: ChallanClaimBody } },
+    controller.claim,
   );
   // one battery off the van, tagged with the plant that made it (D-19)
   app.post<{ Params: { lineId: string }; Body: LineReceiveBody }>(

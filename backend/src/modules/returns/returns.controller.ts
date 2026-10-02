@@ -1,7 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { buildCtx } from '../../middleware/context';
 import * as service from './returns.service';
-import type { ChallanCreateBody, ChallanListQuery, ChallanReceiveBody, LinePlantBody, LineReceiveBody, LineStageBody, ReturnLineListQuery } from './returns.validation';
+import type { ChallanClaimBody, ChallanCreateBody, ChallanListQuery, ChallanReceiveBody, LinePlantBody, LineReceiveBody, LineStageBody, ReturnLineListQuery } from './returns.validation';
 
 export async function dispatch(request: FastifyRequest<{ Body: ChallanCreateBody }>, reply: FastifyReply) {
   reply.status(201).send(await service.dispatch(buildCtx(request), request.body));
@@ -33,4 +33,9 @@ export async function receiveLine(request: FastifyRequest<{ Params: { lineId: st
 
 export async function setLinePlant(request: FastifyRequest<{ Params: { lineId: string }; Body: LinePlantBody }>, reply: FastifyReply) {
   reply.status(200).send(await service.setLinePlant(buildCtx(request), request.params.lineId, request.body));
+}
+
+export async function claim(request: FastifyRequest<{ Params: { id: string }; Body: ChallanClaimBody }>, reply: FastifyReply) {
+  const result = await service.claimChecked(buildCtx(request), request.params.id, request.body);
+  reply.status(200).send(result);
 }

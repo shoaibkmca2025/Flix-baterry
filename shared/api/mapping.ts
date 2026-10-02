@@ -207,7 +207,7 @@ export function toChallan(c: ChallanResult, refOf: (entryId: string) => string):
     no: c.no, serverId: c.id, dealerId: c.dealerId, at: c.dispatchedAt, vehicle: c.vehicleNo ?? '', driver: c.driverName ?? '',
     receivedAt: c.receivedAt ?? undefined,
     entryIds: [...new Set(c.lines.map((l) => refOf(l.entryId)))],
-    rows: c.lines.map((l) => ({ serial: l.batteryCode, model: l.modelId, ref: refOf(l.entryId), fault: faultLabel(l.faultCode) ?? '—', lineId: l.id, itemId: l.entryItemId, stage: RETURN_STAGE[l.stage], plantId: l.plantId ?? undefined, stagedAt: l.stagedAt ?? undefined })),
+    rows: c.lines.map((l) => ({ serial: l.batteryCode, model: l.modelId, ref: refOf(l.entryId), fault: faultLabel(l.faultCode) ?? '—', lineId: l.id, itemId: l.entryItemId, stage: RETURN_STAGE[l.stage], plantId: l.plantId ?? undefined, stagedAt: l.stagedAt ?? undefined, outcome: l.outcome, outcomeReason: l.outcomeReason ?? undefined })),
   };
 }
 

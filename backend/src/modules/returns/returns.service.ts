@@ -9,7 +9,7 @@ import * as claimsService from '../claims/claims.service';
 import * as entriesRepo from '../entries/entries.repository';
 import * as mastersRepo from '../masters/masters.repository';
 import * as repo from './returns.repository';
-import type { ChallanCreateBody, ChallanListQuery, ChallanReceiveBody, LinePlantBody, LineReceiveBody, LineStageBody, ReturnLineListQuery } from './returns.validation';
+import type { ChallanClaimBody, ChallanCreateBody, ChallanListQuery, ChallanReceiveBody, LinePlantBody, LineReceiveBody, LineStageBody, ReturnLineListQuery } from './returns.validation';
 
 // M-19 returns (modules.md), V1: a dealer hands old batteries to the van (dispatch), head
 // office confirms each battery arrived and tags the plant that made it (receiveLine — or
@@ -244,11 +244,74 @@ export async function listLines(ctx: Ctx, query: ReturnLineListQuery) {
   return repo.listLines(db, { plantId: query.plantId, stage: query.stage, dealerId, limit: query.limit, cursor: decodeCursor(query.cursor) });
 }
 
+/**
+ * What a returned battery's claim is doing, in the words the challan screens use. The dealer and
+ * head office both think per challan — "10 went back, 7 are approved" — so every line carries its
+ * own outcome and the screens group by it (client, 2 Oct 2026).
+ *
+ * 'passed' is the gap the Claim button fills: the engineer has checked the battery and it is good,
+ * but nobody has approved it for refund yet. 'claimed' is after that — the credit note exists.
+ */
+export type LineOutcome = 'travelling' | 'arrived' | 'passed' | 'claimed' | 'rejected';
+const OUTCOME: Record<string, LineOutcome> = {
+  raised: 'travelling', awaiting_return: 'travelling', received: 'arrived',
+  checked: 'passed', approved: 'claimed', refused: 'rejected',
+};
+
+async function withOutcomes(lines: Awaited<ReturnType<typeof repo.findLinesByChallanId>>) {
+  const states = await repo.findClaimStateByEntryItemIds(db, lines.map((l) => l.entryItemId));
+  const byItem = new Map(states.map((s) => [s.entryItemId, s]));
+  return lines.map((l) => {
+    const s = byItem.get(l.entryItemId);
+    return {
+      ...l,
+      claimId: s?.claimId ?? null,
+      // no claim yet means the request itself has not been approved — the battery is still travelling
+      outcome: (s?.status ? OUTCOME[s.status] : undefined) ?? 'travelling',
+      outcomeReason: s?.decisionReason ?? s?.conditionNote ?? null,
+    };
+  });
+}
+
 export async function getById(ctx: Ctx, id: string) {
   const user = requireUser(ctx);
   const challan = await repo.findChallanById(db, id);
   if (!challan || (user.scope === 'dealer' && challan.dealerId !== user.dealerId)) throw new AppError('challan_not_found', 404, 'Challan not found.');
-  return { ...challan, lines: await repo.findLinesByChallanId(db, id) };
+  return { ...challan, lines: await withOutcomes(await repo.findLinesByChallanId(db, id)) };
+}
+
+/**
+ * Approve for refund every battery on this challan that passed its check, in one go.
+ *
+ * Head office works a challan battery by battery, then approves the ones that passed together —
+ * so this is the Claim button (client, 2 Oct 2026). Only claims sitting at 'checked' move: a
+ * battery still travelling, not yet checked, already refused or already claimed is left exactly
+ * as it is and counted in `skipped`, so clicking twice cannot double-pay a dealer.
+ */
+export async function claimChecked(ctx: Ctx, id: string, input: ChallanClaimBody) {
+  if (!ctx.user || ctx.user.scope !== 'admin') throw new AppError('unauthenticated', 401, 'Sign in required.');
+  const challan = await repo.findChallanById(db, id);
+  if (!challan) throw new AppError('challan_not_found', 404, 'Challan not found.');
+
+  const lines = await repo.findLinesByChallanId(db, id);
+  const states = await repo.findClaimStateByEntryItemIds(db, lines.map((l) => l.entryItemId));
+  const ready = states.filter((s) => s.claimId && s.status === 'checked');
+  if (!ready.length) {
+    throw new AppError('nothing_to_claim', 422, 'No battery on this challan is waiting to be approved for refund. Check them first.');
+  }
+
+  const creditNotes: { no: string }[] = [];
+  for (const s of ready) {
+    const decided = await claimsService.decide(ctx, s.claimId!, { outcome: 'approved', reason: input.reason });
+    if (decided.creditNote) creditNotes.push(decided.creditNote);
+  }
+  return {
+    challanNo: challan.no,
+    claimed: ready.length,
+    skipped: states.length - ready.length,
+    creditNotes,
+    lines: await withOutcomes(lines),
+  };
 }
 
 function decodeCursor(cursor?: string) {

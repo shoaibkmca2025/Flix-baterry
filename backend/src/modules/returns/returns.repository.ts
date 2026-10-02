@@ -1,6 +1,8 @@
 import { and, asc, desc, eq, inArray, isNull, lt, ne, or } from 'drizzle-orm';
 import { db, type Tx } from '../../database/client';
 import { challanLines, challans } from '../../models/returns.model';
+import { entryItems } from '../../models/entries.model';
+import { warrantyClaims } from '../../models/claims.model';
 
 type DbOrTx = typeof db | Tx;
 
@@ -25,6 +27,27 @@ export function findLineById(dbh: DbOrTx, id: string) {
 export function findLinesByEntryItemIds(dbh: DbOrTx, entryItemIds: string[]) {
   if (!entryItemIds.length) return Promise.resolve([] as Awaited<ReturnType<typeof findLinesByChallanId>>);
   return dbh.select().from(challanLines).where(inArray(challanLines.entryItemId, entryItemIds));
+}
+
+/**
+ * What head office decided about each returned battery, read through the entry item the line
+ * points at. A challan is the unit the dealer and the factory both think in — "10 went, 7 came
+ * back approved" — but the decision lives on the claim, two hops away (client, 2 Oct 2026).
+ */
+export async function findClaimStateByEntryItemIds(dbh: DbOrTx, entryItemIds: string[]) {
+  if (!entryItemIds.length) return [];
+  return dbh
+    .select({
+      entryItemId: entryItems.id,
+      claimId: warrantyClaims.id,
+      status: warrantyClaims.status,
+      decisionReason: warrantyClaims.decisionReason,
+      conditionNote: warrantyClaims.conditionNote,
+      creditNoteId: warrantyClaims.creditNoteId,
+    })
+    .from(entryItems)
+    .leftJoin(warrantyClaims, eq(warrantyClaims.id, entryItems.claimId))
+    .where(inArray(entryItems.id, entryItemIds));
 }
 
 export type NewChallan = typeof challans.$inferInsert;
