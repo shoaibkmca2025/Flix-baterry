@@ -294,6 +294,52 @@ function ApplyCorrection({ e, onClose }: { e: Entry; onClose: () => void }) {
   </Dialog>;
 }
 
+/**
+ * Model first, then the code (plates) that model is made in — never one combined list.
+ *
+ * A battery's identity is the code AND the model together (memory.md D-13): "M 1000" and
+ * "S 1000" are different batteries that share their digits. The dealer app has always asked for
+ * them separately; head office was picking from one merged dropdown of ids like "U1800", which
+ * is neither what is printed on the battery nor what the dealer sees (client, 2 Oct 2026).
+ *
+ * Same rule as the dealer app: choosing a model narrows the codes to the ones it is actually
+ * made in, and a model made in only one code fills it in with nothing to ask.
+ */
+function PlateModelSelect({ value, onChange, label = 'Battery', req, error, optional }: {
+  value: string; onChange: (id: string) => void; label?: string; req?: boolean; error?: string; optional?: string;
+}) {
+  const { state } = useStore();
+  const active = state.models.filter(m => m.active && m.plate && m.modelNo);
+  const cur = state.models.find(m => m.id === value);
+  const [modelNo, setModelNo] = useState(cur?.modelNo ?? '');
+  useEffect(() => { if (cur?.modelNo) setModelNo(cur.modelNo); }, [value]);
+
+  const printed = (m: typeof active[number]) => `${m.brand === 'gold_power' ? 'GP ' : ''}${m.plate}`;
+  const byModelNo = (a: typeof active[number], b: typeof active[number]) =>
+    (Number(a.modelNo) || 9e9) - (Number(b.modelNo) || 9e9) || (a.modelNo ?? '').localeCompare(b.modelNo ?? '');
+  const modelNos = [...new Set([...active].sort(byModelNo).map(m => m.modelNo!))];
+  const codesOf = (n: string) => active.filter(m => m.modelNo === n);
+  const forModel = codesOf(modelNo);
+  const chosen = cur && cur.modelNo === modelNo ? printed(cur) : '';
+
+  const pickModel = (n: string) => {
+    setModelNo(n);
+    const cs = codesOf(n);
+    if (cs.length === 1) { onChange(cs[0]!.id); return; }  // only one code: nothing to ask
+    if (!cur || cur.modelNo !== n) onChange('');           // the old code is not made in this model
+  };
+  return <Cols>
+    <Select label={`${label} model`} req={req} value={modelNo} ph={optional ?? 'Choose the model (1000, 1500…)'}
+      options={modelNos.map(n => ({ v: n, sub: codesOf(n).length === 1 ? `code ${printed(codesOf(n)[0]!)} · ${codesOf(n)[0]!.months} months cover` : `${codesOf(n).length} codes · ${codesOf(n).map(printed).join(', ')}` }))}
+      onChange={pickModel} error={modelNo ? undefined : error} />
+    <Select label={`${label} code`} req={req && !!modelNo} value={chosen}
+      ph={modelNo ? `Choose from ${forModel.length} code${forModel.length === 1 ? '' : 's'}` : 'Choose the model first'}
+      options={forModel.map(m => ({ v: printed(m), sub: `${m.plateCount ? `${m.plateCount} plates` : 'Tubular series'}${m.brand === 'gold_power' ? ' · Gold Power' : ''} · ${m.months} months cover${m.capacity ? ` · ${m.capacity}` : ''}` }))}
+      onChange={v => { const picked = forModel.find(m => printed(m) === v); if (picked) onChange(picked.id); }}
+      error={modelNo ? error : undefined} hint={cur && cur.modelNo === modelNo && !error ? `${printed(cur)} ${cur.modelNo} · ${cur.months} months cover${state.graceMonths ? ` + ${state.graceMonths} grace` : ''}` : undefined} />
+  </Cols>;
+}
+
 /* ---------- entry detail ---------- */
 /** A photo as the review page shows it: the dealer's, from the server — or, for a request recorded here, from this device. */
 type ShownPhoto = { key: string; uri: string; tag: string; itemSeq: number | null };
@@ -628,8 +674,8 @@ export function NewEntry({ id }: { id?: string }) {
             <Cols>
               <Field label={`Serial number (${lengthsLabel(newLengths)})`} req mono numeric maxLength={newMax} value={it.code} onChange={v => { const code = v.replace(/\D/g, '').slice(0, newMax); const b = isValidDigits(code, newLengths) ? findBattery(state, code) : undefined; item(i, { code, ...deriveCode(code, modelIds, newLengths), ...(b ? { model: b.model } : {}) }); }} error={k('code')} ph="e.g. 26080311"
                 tail={<CapBtn n="scan" tone="alt" label={`Scan battery ${i + 1}`} onPress={() => setScan(i)} />} hint="Leading zeros are kept exactly as printed." hintIcon="lock" />
-              <Select label="Model" req value={it.model} options={state.models.filter(m => m.active).map(m => ({ v: m.id, sub: `${m.type} · ${m.capacity}` }))} onChange={model => item(i, { model })} />
             </Cols>
+            <PlateModelSelect label="New battery" req value={it.model} error={k('model')} onChange={model => item(i, { model })} />
             <Cols>
               {/* whatever follows the YYMM: 3 digits on a 7-digit code, 4 on an 8, 5 on a 9 */}
               <Field label="Short serial" req mono numeric maxLength={newMax - 4} value={it.serial} onChange={serial => item(i, { serial })} error={k('serial')} hint="Filled from the code." hintIcon="lock" />
@@ -639,8 +685,8 @@ export function NewEntry({ id }: { id?: string }) {
               <Field label={rep ? 'Old battery serial' : 'Old battery serial (optional)'} req={rep} mono numeric maxLength={oldMax} value={it.oldSerial} onChange={v => item(i, { oldSerial: v.replace(/\D/g, '').slice(0, oldMax) })} error={k('oldSerial')} ph="The battery that came back" />
               {/* the OLD battery's own model decides its warranty term — the dealer app asks for it,
                   so the console must too, or the cover is worked out from the wrong term */}
-              {rep ? <Select label="Old battery model" value={it.oldModel || ''} options={state.models.map(m => ({ v: m.id, sub: `${m.type} · ${m.capacity}` }))} onChange={oldModel => item(i, { oldModel })} hint="Leave blank if it is the same model as the new one." /> : null}
             </Cols>
+            {rep ? <PlateModelSelect label="Old battery" value={it.oldModel || ''} error={k('oldModel')} optional="Same as the new battery" onChange={oldModel => item(i, { oldModel })} /> : null}
             {/* The server refuses a replacement without a fault, so without this the console could
                 not record one at all (client, 2 Oct 2026). Same list as the dealer app. */}
             {rep ? <View style={{ marginBottom: 13 }}>
