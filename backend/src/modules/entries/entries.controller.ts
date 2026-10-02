@@ -1,7 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { buildCtx } from '../../middleware/context';
 import * as service from './entries.service';
-import type { EntryCreateBody, EntryDecisionBody, EntryListQuery, EntryPhotoBody, EntrySettleBody } from './entries.validation';
+import type { EntryCreateBody, EntryDecisionBody, EntryItemCorrectBody, EntryItemReviewBody, EntryListQuery, EntryPhotoBody, EntrySettleBody } from './entries.validation';
 
 export async function create(request: FastifyRequest<{ Body: EntryCreateBody }>, reply: FastifyReply) {
   const result = await service.create(buildCtx(request), request.body);
@@ -40,5 +40,15 @@ export async function addPhoto(request: FastifyRequest<{ Params: { id: string };
 
 export async function listPhotos(request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
   const result = await service.listPhotos(buildCtx(request), request.params.id);
+  reply.status(200).send(result);
+}
+
+export async function reviewItem(request: FastifyRequest<{ Params: { id: string; itemId: string }; Body: EntryItemReviewBody }>, reply: FastifyReply) {
+  const result = await service.reviewItem(buildCtx(request), request.params.id, request.params.itemId, request.body);
+  reply.status(200).send(result);
+}
+
+export async function correctItem(request: FastifyRequest<{ Params: { id: string; itemId: string }; Body: EntryItemCorrectBody }>, reply: FastifyReply) {
+  const result = await service.correctItem(buildCtx(request), request.params.id, request.params.itemId, request.body);
   reply.status(200).send(result);
 }

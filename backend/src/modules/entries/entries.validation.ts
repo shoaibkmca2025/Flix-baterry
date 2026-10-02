@@ -51,6 +51,24 @@ export const EntrySettleBody = z.object({
 });
 export type EntrySettleBody = z.infer<typeof EntrySettleBody>;
 
+// One battery at a time (client, 2 Oct 2026). Marking a battery as being looked at needs no
+// reason — it records intent, not a decision — so the note is optional.
+export const EntryItemReviewBody = z.object({ note: z.string().trim().max(500).optional() });
+export type EntryItemReviewBody = z.infer<typeof EntryItemReviewBody>;
+
+// Correcting one battery's serials. Every field but the reason is optional: a correction that
+// only fixes the old battery leaves the new one exactly as the dealer sent it.
+export const EntryItemCorrectBody = z.object({
+  code: z.string().trim().min(1).optional(),
+  modelId: z.string().trim().min(1).optional(),
+  oldCode: z.string().trim().min(1).optional(),
+  oldModelId: z.string().trim().min(1).optional(),
+  reason,
+}).refine((v) => v.code || v.modelId || v.oldCode || v.oldModelId, {
+  message: 'Change at least one of the battery number, its model, or the old battery.',
+});
+export type EntryItemCorrectBody = z.infer<typeof EntryItemCorrectBody>;
+
 export const EntryListQuery = z.object({
   status: z.enum(['submitted', 'approved', 'rejected'] as const).optional(),
   dealerId: z.string().uuid().optional(), // admins only; a dealer's scope always comes from the token

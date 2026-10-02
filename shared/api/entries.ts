@@ -66,6 +66,11 @@ export type EntryItemResult = {
   batteryId: string | null;
   oldBatteryId: string | null;
   claimId: string | null;
+  // head office works a request battery by battery (client, 2 Oct 2026)
+  reviewStartedAt: string | null;
+  reviewNote: string | null;
+  correctedAt: string | null;
+  correctionReason: string | null;
 };
 export type EntryWithItems = EntryResult & { items: EntryItemResult[] };
 
@@ -81,6 +86,22 @@ export function approveEntry(id: string, reason: string, accessToken: string) {
 }
 export function rejectEntry(id: string, reason: string, accessToken: string) {
   return apiPost<EntryResult>(`/entries/${id}/reject`, { reason }, { accessToken });
+}
+
+/** Mark ONE battery as being looked at. A note about work in progress, not a decision — the
+ * request's own status does not move, and the other batteries on it are untouched. */
+export function reviewEntryItem(id: string, itemId: string, note: string | undefined, accessToken: string) {
+  return apiPost<EntryItemResult>(`/entries/${id}/items/${itemId}/review`, note ? { note } : {}, { accessToken });
+}
+
+/** Rewrite ONE battery's serials. Only while the request is still open; the server re-checks the
+ * corrected values against exactly the rules the dealer's entry had to pass. */
+export function correctEntryItem(
+  id: string, itemId: string,
+  change: { code?: string; modelId?: string; oldCode?: string; oldModelId?: string; reason: string },
+  accessToken: string,
+) {
+  return apiPost<EntryItemResult>(`/entries/${id}/items/${itemId}/correct`, change, { accessToken });
 }
 
 /** Head office's one decision on a replacement once its old battery is at the factory (entries.settle). */

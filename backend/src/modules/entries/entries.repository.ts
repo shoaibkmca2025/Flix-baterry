@@ -67,6 +67,16 @@ export async function updateEntryItemLinks(tx: Tx, id: string, links: { batteryI
   return row!;
 }
 
+export function findItemById(dbh: DbOrTx, id: string) {
+  return dbh.select().from(entryItems).where(eq(entryItems.id, id)).then((r) => r[0]);
+}
+
+/** One battery on a request: marked as being looked at, or its serials rewritten. */
+export async function updateEntryItem(tx: Tx, id: string, set: Partial<typeof entryItems.$inferInsert>) {
+  const [row] = await tx.update(entryItems).set(set).where(eq(entryItems.id, id)).returning();
+  return row!;
+}
+
 export async function updateEntryStatus(
   tx: Tx,
   id: string,

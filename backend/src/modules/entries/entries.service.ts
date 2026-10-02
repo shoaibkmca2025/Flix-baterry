@@ -15,7 +15,7 @@ import { findDealerById } from '../dealers/dealers.repository';
 import { postMovementInTx } from '../stock/stock.service';
 import * as returnsRepo from '../returns/returns.repository';
 import * as repo from './entries.repository';
-import type { EntryCreateBody, EntryListQuery, EntryPhotoBody, EntrySettleBody } from './entries.validation';
+import type { EntryCreateBody, EntryItemCorrectBody, EntryItemReviewBody, EntryListQuery, EntryPhotoBody, EntrySettleBody } from './entries.validation';
 
 // This module is the real, permanent home for what three temporary endpoints used to do
 // separately (POST /batteries/sell, POST /batteries/replace, POST /claims) — see logs.md
@@ -469,4 +469,117 @@ export async function listPhotos(ctx: Ctx, entryId: string) {
       contentType: r.contentType, sizeBytes: r.sizeBytes, createdAt: r.createdAt, url: await signedUrl(r.objectKey),
     }))),
   };
+}
+
+/* ---------- one battery at a time (client, 2 Oct 2026) ----------
+ * Head office works a multi-battery replacement battery by battery: each one is approved or
+ * refused on its own card, so "I am looking at this one" and "this one's serial is wrong" have
+ * to be per battery too. Both act on an entry_item, never on the whole request.
+ */
+
+/** Admin-only, and the request must still be open: both of these describe work in progress. */
+async function openItem(ctx: Ctx, entryId: string, itemId: string) {
+  if (!ctx.user || ctx.user.scope !== 'admin') throw new AppError('unauthenticated', 401, 'Sign in required.');
+  const entry = await repo.findEntryById(db, entryId);
+  if (!entry) throw new AppError('entry_not_found', 404, 'Entry not found.');
+  const item = await repo.findItemById(db, itemId);
+  // belongs-to check, not just "exists": an id from another request must not reach through here
+  if (!item || item.entryId !== entry.id) throw new AppError('item_not_found', 404, 'That battery is not on this request.');
+  if (entry.status !== 'submitted') {
+    throw new AppError('invalid_transition', 409, `This request is already ${entry.status} — a battery on it cannot be changed.`);
+  }
+  return { entry, item, user: ctx.user };
+}
+
+/** Mark one battery as being looked at. Repeatable: a second call re-dates it and keeps the note. */
+export async function reviewItem(ctx: Ctx, entryId: string, itemId: string, input: EntryItemReviewBody) {
+  const { entry, item, user } = await openItem(ctx, entryId, itemId);
+  return withTransaction(async (tx) => {
+    const updated = await repo.updateEntryItem(tx, item.id, {
+      reviewStartedAt: ctx.now(),
+      reviewStartedBy: user.id,
+      reviewNote: input.note ?? null,
+    });
+    await audit(tx, {
+      ctx, action: 'entry.item.review_started', entityType: 'entry_item', entityId: item.id, entityRef: entry.ref,
+      before: { reviewStartedAt: item.reviewStartedAt }, after: { reviewStartedAt: updated.reviewStartedAt },
+      reason: input.note ?? 'Review started', outcome: 'ok',
+    });
+    return updated;
+  });
+}
+
+/**
+ * Rewrite one battery's serials. Only while the request is still 'submitted' — once it is
+ * approved a battery row exists and a warranty chain hangs off these codes, and rewriting them
+ * then would silently re-point that history at a different battery.
+ *
+ * Every check `create` makes is made again here, against the corrected values: the length rule
+ * for the kind of battery it is, the month, that the (plate, model) is one the factory makes,
+ * that old and new are not the same battery, and that the corrected code does not collide with
+ * another battery already on this request.
+ */
+export async function correctItem(ctx: Ctx, entryId: string, itemId: string, input: EntryItemCorrectBody) {
+  const { entry, item, user } = await openItem(ctx, entryId, itemId);
+
+  const [modelRows, setting, siblings] = await Promise.all([
+    batteriesRepo.listModels(db), serialDigitLengths(db), repo.findItemsByEntryId(db, entry.id),
+  ]);
+  const modelIds = modelRows.map((m) => m.id);
+  const lengths = anyDigitLengths(setting);
+  const codeLengths: readonly number[] = entry.entryType === 'sales_return' ? lengths : NEW_BATTERY_DIGIT_LENGTHS;
+
+  // what the correction leaves the item as: a field left out keeps what is already stored
+  const enteredCode = input.code ?? item.batteryCodeEntered;
+  const enteredOld = input.oldCode ?? item.oldBatteryCodeEntered;
+
+  const newDerived = deriveCode(enteredCode, modelIds, codeLengths);
+  if (!newDerived.valid) {
+    const says = entry.entryType === 'sales_return'
+      ? `Use ${lengthsSentence(lengths)} that starts with the YYMM it was made.`
+      : `A new battery has ${lengthsSentence(NEW_BATTERY_DIGIT_LENGTHS)} that starts with the YYMM it was made.`;
+    throw new AppError('format_mismatch', 422, says, { field: 'code' });
+  }
+  const oldDerived = enteredOld ? deriveCode(enteredOld, modelIds, lengths) : null;
+  if (enteredOld && !oldDerived!.valid) {
+    throw new AppError('format_mismatch', 422, `Use ${lengthsSentence(lengths)} that starts with the YYMM it was made.`, { field: 'oldCode' });
+  }
+
+  const modelId = newDerived.modelId ?? input.modelId ?? item.modelId;
+  const oldModelId = enteredOld ? (input.oldModelId ?? oldDerived?.modelId ?? item.oldModelId ?? modelId) : null;
+  for (const [field, id] of [['modelId', modelId], ['oldModelId', oldModelId]] as const) {
+    if (!id) continue;
+    const model = await batteriesRepo.findModelById(db, id);
+    if (!model) throw new AppError('model_unknown', 422, `${id} is not a known plate + model combination.`, { field });
+    if (!model.active && field === 'modelId') throw new AppError('model_inactive', 422, `${id} is no longer sold.`, { field });
+  }
+
+  const batteryCode = fullCode(modelId, newDerived.normalised);
+  const oldBatteryCode = oldDerived ? fullCode(oldModelId!, oldDerived.normalised) : null;
+  if (oldBatteryCode && oldBatteryCode === batteryCode) {
+    throw new AppError('old_equals_new', 422, 'Old and new batteries must be different.', { field: 'oldCode' });
+  }
+  if (siblings.some((s) => s.id !== item.id && s.batteryCode === batteryCode)) {
+    throw new AppError('duplicate_serial', 422, 'Another battery on this request already has that number.', { field: 'code' });
+  }
+
+  return withTransaction(async (tx) => {
+    const before = { batteryCode: item.batteryCode, oldBatteryCode: item.oldBatteryCode, modelId: item.modelId, oldModelId: item.oldModelId };
+    const updated = await repo.updateEntryItem(tx, item.id, {
+      modelId,
+      batteryCode,
+      batteryCodeEntered: enteredCode,
+      oldBatteryCode,
+      oldBatteryCodeEntered: enteredOld ?? null,
+      oldModelId,
+      correctedAt: ctx.now(),
+      correctedBy: user.id,
+      correctionReason: input.reason,
+    });
+    await audit(tx, {
+      ctx, action: 'entry.item.corrected', entityType: 'entry_item', entityId: item.id, entityRef: entry.ref,
+      before, after: { batteryCode, oldBatteryCode, modelId, oldModelId }, reason: input.reason, outcome: 'ok',
+    });
+    return updated;
+  });
 }

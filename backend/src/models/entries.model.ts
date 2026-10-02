@@ -68,6 +68,17 @@ export const entryItems = pgTable(
     batteryId: uuid('battery_id'),
     oldBatteryId: uuid('old_battery_id'),
     claimId: uuid('claim_id'),
+    // Head office works a multi-battery replacement battery by battery, so "I am looking at this
+    // one" and "this one's serial was wrong" belong to the ITEM, not the request (client,
+    // 2 Oct 2026). Both are nullable: an item that was never reviewed or corrected carries null.
+    reviewStartedAt: timestamp('review_started_at', { withTimezone: true }),
+    reviewStartedBy: uuid('review_started_by'),
+    reviewNote: text('review_note'),
+    // A correction rewrites this item's serials in place. Only allowed while the entry is still
+    // 'submitted': once approved a battery row exists and a chain is built off these codes.
+    correctedAt: timestamp('corrected_at', { withTimezone: true }),
+    correctedBy: uuid('corrected_by'),
+    correctionReason: text('correction_reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('entry_items_entry_idx').on(t.entryId)],

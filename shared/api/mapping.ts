@@ -86,6 +86,11 @@ function toItem(it: EntryWithItems['items'][number], e: EntryWithItems, batterie
       decidedAt: claim?.decidedAt ?? e.decidedAt ?? undefined,
       decisionReason: claim?.decisionReason ?? e.decisionReason ?? undefined,
     } : {}),
+    // per-battery working state, on every entry type
+    reviewStartedAt: it.reviewStartedAt ?? undefined,
+    reviewNote: it.reviewNote ?? undefined,
+    correctedAt: it.correctedAt ?? undefined,
+    correctionReason: it.correctionReason ?? undefined,
   };
 }
 

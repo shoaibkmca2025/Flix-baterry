@@ -10,7 +10,7 @@ import { listPhotos, splitTag, uploadEntryPhotos } from '@felix/shared/api/photo
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
 import { getAccessToken } from '@felix/shared/api/session';
-import { approveEntry as apiApproveEntry, createEntry as apiCreateEntry, rejectEntry as apiRejectEntry, settleEntry, type EntryCreateInput, type EntryType } from '@felix/shared/api/entries';
+import { approveEntry as apiApproveEntry, correctEntryItem, createEntry as apiCreateEntry, rejectEntry as apiRejectEntry, reviewEntryItem, settleEntry, type EntryCreateInput, type EntryType } from '@felix/shared/api/entries';
 import { buildEntryBody } from '@felix/shared/api/entry-body';
 import { checkClaim, decideClaim } from '@felix/shared/api/claims';
 import { errorMessage } from '@felix/shared/api/client';
@@ -114,6 +114,27 @@ export function useDecisions() {
       void rejectLive(e, reason);
     },
     review: (e: Entry, reason: string) => live(e) ? notInV1() : status(e, 'Under Review', 'Start review', reason, 'Marked as under review.'),
+    /**
+     * One battery at a time (client, 2 Oct 2026). Head office decides a multi-battery replacement
+     * battery by battery, so "I am looking at this one" and "this one's serial is wrong" act on
+     * the item, never the request: the other batteries and the request's own status do not move.
+     */
+    reviewOne: async (e: Entry, itemId: string, note: string) => {
+      if (!guard()) return false;
+      if (!live(e)) return notInV1();
+      const token = await getAccessToken(); if (!token) return notInV1();
+      try { await reviewEntryItem(e.apiId!, itemId, note, token); a.toast('Marked as being looked at. Only this battery.'); }
+      catch (err) { a.toast(errorMessage(err)); return false; }
+      finally { sync(true); }
+    },
+    correctOne: async (e: Entry, itemId: string, change: { code?: string; oldCode?: string }, reason: string) => {
+      if (!guard()) return false;
+      if (!live(e)) return notInV1();
+      const token = await getAccessToken(); if (!token) return notInV1();
+      try { await correctEntryItem(e.apiId!, itemId, { ...change, reason }, token); a.toast('Corrected. Only this battery changed.'); }
+      catch (err) { a.toast(errorMessage(err)); return false; }
+      finally { sync(true); }
+    },
     voidEntry: (e: Entry, reason: string) => live(e) ? notInV1() : status(e, 'Cancelled', 'Void / archive entry', reason, 'Voided. It stays searchable and in the audit log.'),
     requestCorrection: (e: Entry, value: string, reason: string) => {
       if (!guard()) return false;
@@ -269,6 +290,11 @@ export function EntryDetail({ id }: { id?: string }) {
   // the dealer's photos, read from the server with signed links (D-10)
   const [serverPhotos, setServerPhotos] = useState<ShownPhoto[] | null>(null);
   const [one, setOne] = useState<{ u: Entry; kind: 'approve' | 'reject' } | null>(null);
+  // review / correct act on ONE battery (client, 2 Oct 2026) — the card's item, not the request
+  const [workOn, setWorkOn] = useState<{ itemId: string; n: number; kind: 'review' | 'correct'; code: string; oldSerial: string } | null>(null);
+  const [fixCode, setFixCode] = useState(''), [fixOld, setFixOld] = useState('');
+  // a corrected serial is held to the same lengths as the original (7, 8 or 9 for a new battery)
+  const newMaxLen = Math.max(...NEW_BATTERY_DIGIT_LENGTHS), oldMaxLen = Math.max(...anyDigitLengths(state.serialDigitLengths));
   useEffect(() => {
     if (!e?.apiId) { setServerPhotos(null); return; }
     let alive = true;
@@ -307,9 +333,11 @@ export function EntryDetail({ id }: { id?: string }) {
     actions={<>
       {canEdit && pending && awaitingOldBattery(e) && <Chip tone="warn" icon={e.returnState === 'In transit' ? 'truck' : 'shop'} label={`${whereIsOld(e)} — decide once it arrives`} />}
       {canEdit && pending && !perBattery && !awaitingOldBattery(e) && e.status !== 'Conflict' && <Btn kind="blue" sm icon="check" label="Approve" onPress={() => setAct('approve')} />}
-      {canEdit && pending && e.status !== 'Under Review' && <Btn kind="ghost" sm icon="eye" label="Start review" onPress={() => setAct('review')} />}
+      {/* entry-wide review and correction exist only for local demo data; a server-backed request
+          is reviewed and corrected one battery at a time, on each card below (client, 2 Oct 2026) */}
+      {canEdit && pending && !e.apiId && e.status !== 'Under Review' && <Btn kind="ghost" sm icon="eye" label="Start review" onPress={() => setAct('review')} />}
       {canEdit && pending && !perBattery && !awaitingOldBattery(e) && <Btn kind="ghost" sm icon="x" label="Refuse" color={T.terminal} borderColor="#F0C7BC" onPress={() => setAct('reject')} />}
-      {canEdit && !['Cancelled', 'Corrected'].includes(e.status) && <Btn kind="ghost" sm icon="pen" label="Correct it" onPress={() => setApply(true)} />}
+      {canEdit && !e.apiId && !['Cancelled', 'Corrected'].includes(e.status) && <Btn kind="ghost" sm icon="pen" label="Correct it" onPress={() => setApply(true)} />}
       <Btn kind="ghost" sm icon="down" label="Print acknowledgement" onPress={() => { if (dealer) printEntry(e, dealer).catch(() => a.toast('Printing is not available on this device.')); }} />
     </>}>
     <View style={{ marginBottom: 14 }}>{banner}</View>
@@ -325,6 +353,9 @@ export function EntryDetail({ id }: { id?: string }) {
           return <Card key={it.id} style={i === focusIdx ? { borderColor: T.steel, borderWidth: 2 } : undefined}>
             <CardH title={`Battery ${i + 1} · ${it.model}`} right={<View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               {perBattery && <Chip tone={u.status === 'Approved' ? 'live' : u.status === 'Rejected' ? 'bad' : 'warn'} icon={u.status === 'Approved' ? 'check' : u.status === 'Rejected' ? 'x' : 'clock'} label={u.status === 'Approved' ? 'Approved' : u.status === 'Rejected' ? 'Rejected' : 'To decide'} />}
+              {/* this battery's own working state — it says nothing about the others */}
+              {it.reviewStartedAt && <Chip tone="vio" icon="eye" label="Being checked" />}
+              {it.correctedAt && <Chip tone="info" icon="pen" label="Corrected" />}
               <Chip tone={ct} icon="shield" label={cl} /></View>} />
             <Plate style={{ marginBottom: 11 }}>{it.oldSerial ? <><PlateLab>OLD BATTERY OUT</PlateLab><PlateVal>{it.oldSerial}</PlateVal><X s={19} c={T.volt} style={{ textAlign: 'center', marginVertical: 4 }}>↓</X><PlateLab>NEW BATTERY IN</PlateLab><PlateVal color="#7FD3A9">{it.code}</PlateVal></> : <><PlateLab>BATTERY</PlateLab><PlateVal>{it.code}</PlateVal></>}</Plate>
             <KV cols={a.wide ? 3 : 2} pairs={[['Short serial', it.serial, 'mono'], ['Made', monthShort(it.mfg)], ['Cover ends', cover ? dLong(cover.expiry) : 'Not on record'], ['Replacement month', it.rpl || '—'], ['Return month', it.rtn || '—'], ['WR reference', it.wr || '—', 'mono'], ['Reported fault', it.fault || '—'], ['Remarks', it.remarks || '—']]} />
@@ -343,6 +374,16 @@ export function EntryDetail({ id }: { id?: string }) {
                   <Btn kind="blue" sm icon="check" label="Approve this battery" onPress={() => setOne({ u, kind: 'approve' })} />
                   <Btn kind="ghost" sm icon="x" label="Reject this battery" color={T.terminal} borderColor="#F0C7BC" onPress={() => setOne({ u, kind: 'reject' })} /></View> : null}
             </View>}
+            {/* Reviewing and correcting are per battery (client, 2 Oct 2026). Server-backed
+                requests only: these call the API, which is the only place they exist. */}
+            {canEdit && pending && e.apiId && <View style={{ flexDirection: 'row', gap: 9, marginTop: 11, flexWrap: 'wrap' }}>
+              <Btn kind="ghost" sm icon="eye" label={it.reviewStartedAt ? 'Update the check note' : 'Check this battery'}
+                onPress={() => { setWorkOn({ itemId: it.id, n: i + 1, kind: 'review', code: it.code, oldSerial: it.oldSerial }); }} />
+              <Btn kind="ghost" sm icon="pen" label="Correct this battery"
+                onPress={() => { setFixCode(it.code); setFixOld(it.oldSerial); setWorkOn({ itemId: it.id, n: i + 1, kind: 'correct', code: it.code, oldSerial: it.oldSerial }); }} />
+            </View>}
+            {it.reviewNote && <Hint icon="eye" style={{ marginTop: 9 }}>Check note: {it.reviewNote}</Hint>}
+            {it.correctionReason && <Hint icon="pen" style={{ marginTop: 4 }}>Corrected: {it.correctionReason}</Hint>}
             <View style={{ flexDirection: 'row', gap: 9, marginTop: 11, flexWrap: 'wrap' }}>
               <Btn kind="ghost" sm icon="link" label="Battery & chain" onPress={() => a.go('battery', it.code)} />
               {it.oldSerial && old && <Btn kind="ghost" sm icon="batt" label="Old battery" onPress={() => a.go('battery', it.oldSerial)} />}
@@ -386,7 +427,30 @@ export function EntryDetail({ id }: { id?: string }) {
       intro={`Only this battery (${one?.u.part || ''}) is approved for refund. Cover dates carry over from the first sale.`} />
     <ReasonDialog open={one?.kind === 'reject'} title={`Reject ${one ? one.u.items[0]?.oldSerial || one.u.id : ''}`} confirm="Reject" kind="danger" suggestions={REJECT_REASONS} onClose={() => setOne(null)} onConfirm={r => one ? dec.reject(one.u, r) : false}
       intro={`Only this battery (${one?.u.part || ''}) is rejected. The dealer sees this reason in their app.`} />
-    <ReasonDialog open={act === 'review'} title="Start a review" confirm="Mark under review" suggestions={['Waiting for the old battery to arrive', 'Checking the label photo', 'Calling the dealer']} onClose={() => setAct('')} onConfirm={r => dec.review(e, r)} />
+    {/* review / correct ONE battery (client, 2 Oct 2026) */}
+    <ReasonDialog open={workOn?.kind === 'review'} title={`Check battery ${workOn?.n ?? ''}`} confirm="Mark as being checked"
+      suggestions={['Waiting for the old battery to arrive', 'Checking the label photo', 'Opening it on the bench', 'Calling the dealer']}
+      onClose={() => setWorkOn(null)} onConfirm={r => { if (!workOn) return false; void dec.reviewOne(e, workOn.itemId, r); }}
+      intro={`Only battery ${workOn?.n ?? ''} is marked. The request stays where it is and the other batteries are untouched.`} />
+    <ReasonDialog open={workOn?.kind === 'correct'} title={`Correct battery ${workOn?.n ?? ''}`} confirm="Save the correction"
+      disabled={fixCode.trim() === (workOn?.code ?? '') && fixOld.trim() === (workOn?.oldSerial ?? '')}
+      onClose={() => setWorkOn(null)}
+      onConfirm={r => {
+        if (!workOn) return false;
+        // send only what actually changed, so a correction to one serial leaves the other alone
+        const change: { code?: string; oldCode?: string } = {};
+        if (fixCode.trim() && fixCode.trim() !== workOn.code) change.code = fixCode.trim();
+        if (fixOld.trim() && fixOld.trim() !== workOn.oldSerial) change.oldCode = fixOld.trim();
+        void dec.correctOne(e, workOn.itemId, change, r);
+      }}
+      intro="Only this battery's numbers change. The server checks them exactly as it checked the dealer's — length, month, model, and no clash with another battery on this request.">
+      <Field label="New battery serial" mono numeric maxLength={newMaxLen} value={fixCode} onChange={v => setFixCode(v.replace(/\D/g, '').slice(0, newMaxLen))}
+        hint={fixCode.trim() !== (workOn?.code ?? '') ? `was ${workOn?.code}` : undefined} hintIcon="pen" />
+      {!!workOn?.oldSerial && <Field label="Old battery serial" mono numeric maxLength={oldMaxLen} value={fixOld} onChange={v => setFixOld(v.replace(/\D/g, '').slice(0, oldMaxLen))}
+        hint={fixOld.trim() !== (workOn?.oldSerial ?? '') ? `was ${workOn?.oldSerial}` : undefined} hintIcon="pen" />}
+    </ReasonDialog>
+    {/* entry-wide review only exists for local demo data — the server has no such thing */}
+    {!e.apiId && <ReasonDialog open={act === 'review'} title="Start a review" confirm="Mark under review" suggestions={['Waiting for the old battery to arrive', 'Checking the label photo', 'Calling the dealer']} onClose={() => setAct('')} onConfirm={r => dec.review(e, r)} />}
     <ReasonDialog open={act === 'reject'} title={`Refuse ${e.id}`} confirm="Refuse" kind="danger" suggestions={REJECT_REASONS} onClose={() => setAct('')} onConfirm={r => dec.reject(e, r)} intro="The dealer sees this reason in their app." />
     <ReasonDialog open={act === 'void'} title="Void / archive this entry" confirm="Void entry" kind="danger" onClose={() => setAct('')} onConfirm={r => dec.voidEntry(e, r)} intro="It leaves live totals and reports, but stays fully readable in search, history and the audit log." />
     <ReasonDialog open={act === 'decline'} title="Decline the correction" confirm="Decline" kind="danger" onClose={() => setAct('')} onConfirm={r => dec.declineCorrection(e, r)} />

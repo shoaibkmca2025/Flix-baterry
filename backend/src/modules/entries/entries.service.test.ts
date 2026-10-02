@@ -50,6 +50,8 @@ vi.mock('../stock/stock.service', () => ({
 
 vi.mock('./entries.repository', () => ({
   findEntryById: vi.fn(),
+  findItemById: vi.fn(),
+  updateEntryItem: vi.fn(),
   findItemsByEntryId: vi.fn(),
   findItemsByEntryIds: vi.fn().mockResolvedValue([]),
   insertEntry: vi.fn(),
@@ -68,7 +70,7 @@ import * as claimsService from '../claims/claims.service';
 import * as returnsRepo from '../returns/returns.repository';
 import { postMovementInTx } from '../stock/stock.service';
 import * as repo from './entries.repository';
-import { addPhoto, approve, create, getById, list, listPhotos, reject, settle } from './entries.service';
+import { addPhoto, approve, correctItem, create, getById, list, listPhotos, reject, reviewItem, settle } from './entries.service';
 import { putObject } from '../../utils/storage';
 import type { Ctx } from '../../utils/context';
 import type { EntryCreateBody } from './entries.validation';
@@ -549,5 +551,81 @@ describe('photos the dealer attached (D-10)', () => {
     const r = await listPhotos(adminCtx, 'entry-1');
 
     expect(r.items).toEqual([expect.objectContaining({ id: 'photo-1', itemId: 'item-2', itemSeq: 1, tag: 'New label', url: 'https://storage.example/entries/entry-1/a.jpg?sig=1' })]);
+  });
+});
+
+describe('one battery at a time — review and correct', () => {
+  const entry = { id: 'entry-1', ref: 'ENT-26-09-0114', entryType: 'replacement', status: 'submitted' };
+  const item = { id: 'item-1', entryId: 'entry-1', seq: 0, modelId: 'M5', batteryCode: 'M526090001', batteryCodeEntered: '26090001',
+    oldBatteryCode: 'M526040001', oldBatteryCodeEntered: '26040001', oldModelId: 'M5', reviewStartedAt: null };
+
+  beforeEach(() => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(entry as never);
+    vi.mocked(repo.findItemById).mockResolvedValue(item as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([item] as never);
+    vi.mocked(repo.updateEntryItem).mockImplementation((async (_tx: unknown, id: string, set: object) => ({ ...item, id, ...set })) as never);
+    vi.mocked(batteriesRepo.findModelById).mockImplementation((async (_db: unknown, id: string) =>
+      (['M5', 'M2200', 'N2200'].includes(id) ? { id, warrantyMonths: 24, active: true } : undefined)) as never);
+  });
+
+  it('marks ONE battery as under review, leaving the request and the other batteries alone', async () => {
+    const r = await reviewItem(adminCtx, 'entry-1', 'item-1', { note: 'Opening it on the bench' });
+    expect(r.reviewStartedAt).toEqual(now());
+    expect(r.reviewStartedBy).toBe('admin-1');
+    expect(r.reviewNote).toBe('Opening it on the bench');
+    // the ENTRY is untouched: a review is a note about work, not a decision
+    expect(repo.updateEntryStatus).not.toHaveBeenCalled();
+  });
+
+  it('a dealer cannot review or correct a battery', async () => {
+    await expect(reviewItem(dealerCtx, 'entry-1', 'item-1', {})).rejects.toMatchObject({ code: 'unauthenticated' });
+    await expect(correctItem(dealerCtx, 'entry-1', 'item-1', { code: '26090002', reason: 'typo' })).rejects.toMatchObject({ code: 'unauthenticated' });
+  });
+
+  it('an item id from another request is refused, not silently acted on', async () => {
+    vi.mocked(repo.findItemById).mockResolvedValue({ ...item, entryId: 'entry-OTHER' } as never);
+    await expect(reviewItem(adminCtx, 'entry-1', 'item-1', {})).rejects.toMatchObject({ code: 'item_not_found' });
+  });
+
+  it('neither is allowed once the request has been decided', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...entry, status: 'approved' } as never);
+    await expect(reviewItem(adminCtx, 'entry-1', 'item-1', {})).rejects.toMatchObject({ code: 'invalid_transition' });
+    await expect(correctItem(adminCtx, 'entry-1', 'item-1', { code: '26090002', reason: 'typo' })).rejects.toMatchObject({ code: 'invalid_transition' });
+  });
+
+  it('corrects one battery, rewriting its code and recording who and why', async () => {
+    const r = await correctItem(adminCtx, 'entry-1', 'item-1', { code: '26090099', reason: 'Dealer read the label wrong' });
+    expect(r.batteryCode).toBe('M526090099');
+    expect(r.batteryCodeEntered).toBe('26090099');
+    expect(r.oldBatteryCode).toBe('M526040001'); // untouched — only the new battery was corrected
+    expect(r.correctedBy).toBe('admin-1');
+    expect(r.correctionReason).toBe('Dealer read the label wrong');
+  });
+
+  it('corrects only the OLD battery when that is what was wrong', async () => {
+    const r = await correctItem(adminCtx, 'entry-1', 'item-1', { oldCode: '26040077', reason: 'Old serial mistyped' });
+    expect(r.oldBatteryCode).toBe('M526040077');
+    expect(r.batteryCode).toBe('M526090001'); // the new battery is left exactly as the dealer sent it
+  });
+
+  it('a correction is held to the same rules as the original entry', async () => {
+    // a new battery must still be 7, 8 or 9 digits
+    await expect(correctItem(adminCtx, 'entry-1', 'item-1', { code: '260900', reason: 'too short' }))
+      .rejects.toMatchObject({ code: 'format_mismatch', field: 'code' });
+    // ...and must still carry a month that exists
+    await expect(correctItem(adminCtx, 'entry-1', 'item-1', { code: '26990001', reason: 'bad month' }))
+      .rejects.toMatchObject({ code: 'format_mismatch' });
+    // ...and cannot be made the same battery as the old one
+    await expect(correctItem(adminCtx, 'entry-1', 'item-1', { code: '26040001', reason: 'same as old' }))
+      .rejects.toMatchObject({ code: 'old_equals_new' });
+    // ...and cannot collide with another battery already on this request
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([item, { ...item, id: 'item-2', batteryCode: 'M526090099' }] as never);
+    await expect(correctItem(adminCtx, 'entry-1', 'item-1', { code: '26090099', reason: 'clash' }))
+      .rejects.toMatchObject({ code: 'duplicate_serial' });
+  });
+
+  it('a correction naming a model the factory does not make is refused', async () => {
+    await expect(correctItem(adminCtx, 'entry-1', 'item-1', { code: '26090002', modelId: 'NOPE', reason: 'unknown model' }))
+      .rejects.toMatchObject({ code: 'model_unknown' });
   });
 });
