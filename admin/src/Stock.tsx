@@ -293,22 +293,22 @@ export function Returns() {
     const detail = <Box title={`${sel.no} · ${dealerName(sel.dealerId)}`}
       right={<View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
         <Btn kind="ghost" sm icon="down" label="Download challan" onPress={download} />
-        {canEdit && passed.length > 0 && <Btn kind="primary" sm icon="check" label={`Claim ${passed.length} approved ${passed.length === 1 ? 'battery' : 'batteries'}`} onPress={() => setClaimOn(sel)} />}
+        {canEdit && passed.length > 0 && <Btn kind="primary" sm icon="check" label={`Settle ${passed.length} approved ${passed.length === 1 ? 'battery' : 'batteries'}`} onPress={() => setClaimOn(sel)} />}
         {canEdit && !sel.receivedAt && stillOnWay.length ? <Btn kind="blue" sm icon="box" label={`Confirm all ${stillOnWay.length} arrived`} onPress={() => openAct({ entries: stillOnWay, to: 'Received', label: `Confirm challan ${sel.no} arrived`, whole: sel.serverId })} /> : chip(sel)}</View>}>
       <View style={{ paddingHorizontal: 14, paddingTop: 11 }}><KV cols={a.wide ? 3 : 2} pairs={[['Dealer', dealerName(sel.dealerId)], ['Sent', dLong(sel.at)], ['Arrived', sel.receivedAt ? dLong(sel.receivedAt) : 'Not yet'], ['Vehicle', sel.vehicle || '—'], ['Collected by', sel.driver || '—'], [only ? (tab === 'rejected' ? 'Rejected' : 'Claimed') : 'Batteries', only ? `${entries.length} of ${sel.rows.length}` : String(sel.rows.length)]]} /></View>
       {!only && (passed.length + claimedRows.length + rejectedRows.length > 0) && <View style={{ paddingHorizontal: 14, paddingTop: 11 }}>
         <Kpis cols={3} items={[
-          { v: String(passed.length + claimedRows.length), l: passed.length ? `Approved · ${passed.length} to claim` : 'Approved' },
+          { v: String(passed.length + claimedRows.length), l: passed.length ? `Approved · ${passed.length} to settle` : 'Approved · all settled' },
           { v: String(rejectedRows.length), l: 'Rejected', tone: rejectedRows.length ? 'bad' : undefined },
           { v: String(waiting.length), l: 'Not checked yet', tone: waiting.length ? 'flag' : undefined },
         ]} />
         {passed.length > 0 && <Banner tone="ok" icon="check" style={{ marginTop: 11 }}>
-          <B>{passed.length} {passed.length === 1 ? 'battery has' : 'batteries have'} passed the check.</B> Claim approves {passed.length === 1 ? 'it' : 'them all'} for refund in one go. Anything refused, or still to check, is left alone.</Banner>}
+          <B>{passed.length} approved {passed.length === 1 ? 'battery is' : 'batteries are'} waiting to be settled.</B> Settling marks {passed.length === 1 ? 'it' : 'them all'} claimed in one go. {passed.length === 1 ? 'It stays' : 'They stay'} under Approved — settling records that the claim is done, it does not move {passed.length === 1 ? 'it' : 'them'} anywhere. Anything refused, or still to check, is left alone.</Banner>}
         {[['Approved', [...claimedRows, ...passed], 'live'], ['Rejected', rejectedRows, 'bad'], ['Not checked yet', waiting, 'mute']].filter(([, g]) => (g as typeof sel.rows).length).map(([title, g, tone]) => <View key={title as string} style={{ marginTop: 11 }}>
           <X s={12} w={7} c={T.slate} style={{ letterSpacing: 0.4, marginBottom: 6 }}>{(title as string).toUpperCase()} · {(g as typeof sel.rows).length}</X>
           {(g as typeof sel.rows).map(r => <View key={r.lineId || r.serial} style={{ flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 5, flexWrap: 'wrap' }}>
             <Chip tone={tone as Tone} icon={tone === 'live' ? 'check' : tone === 'bad' ? 'x' : 'clock'} mono label={r.serial} />
-            <X s={12.5} c={T.slate} style={{ flexShrink: 1 }}>{r.model}{r.outcome === 'passed' ? ' · waiting for the claim' : ''}{r.outcomeReason ? ` · ${r.outcomeReason}` : ''}</X>
+            <X s={12.5} c={T.slate} style={{ flexShrink: 1 }}>{r.model}{r.outcome === 'passed' ? ' · waiting to be settled' : r.outcome === 'claimed' ? ' · claimed' : ''}{r.outcomeReason ? ` · ${r.outcomeReason}` : ''}</X>
           </View>)}
         </View>)}
       </View>}
@@ -388,9 +388,9 @@ export function Returns() {
     {/* the Claim button (client, 2 Oct 2026): every battery on the challan that passed its check,
         approved for refund in one go. The server decides only claims sitting at 'checked', so a
         second click cannot pay twice — it reports how many it skipped and why. */}
-    <ReasonDialog open={!!claimOn} title={`Claim ${claimOn?.no || ''}`} confirm="Approve them" kind="primary"
+    <ReasonDialog open={!!claimOn} title={`Settle ${claimOn?.no || ''}`} confirm="Mark them claimed" kind="primary"
       suggestions={['Checked at the factory — manufacturing defect confirmed', 'Warranty verified against the first sale']}
-      intro={`Approves every battery on this challan that passed its check. Anything refused, or still to be checked, is left exactly as it is.`}
+      intro={`Marks every approved battery on this challan as claimed. They stay under Approved — this records that the claim is settled. Anything refused, or still to be checked, is left exactly as it is.`}
       onClose={() => setClaimOn(null)}
       onConfirm={r => {
         const c = claimOn;
@@ -401,7 +401,7 @@ export function Returns() {
           if (!token) { a.toast('Sign in again to approve refunds.'); return; }
           try {
             const res = await claimChallan(c.serverId!, r, token);
-            a.toast(`${res.claimed} ${res.claimed === 1 ? 'battery' : 'batteries'} approved on ${res.challanNo}${res.skipped ? ` · ${res.skipped} left alone (refused, or not checked yet)` : ''}.`);
+            a.toast(`${res.claimed} ${res.claimed === 1 ? 'battery' : 'batteries'} settled on ${res.challanNo} — still under Approved, now marked claimed${res.skipped ? ` · ${res.skipped} left alone` : ''}.`);
           } catch (err) { a.toast(errorMessage(err)); }
           finally { sync(true); }
         })();

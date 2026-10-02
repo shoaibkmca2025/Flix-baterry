@@ -5,7 +5,7 @@ import { Entry, Item, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approveEntry, 
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
-import { approvedForRefund, batteryUnits, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanShort, tShort, monthShort } from '@felix/shared/data';
+import { approvedForRefund, batteryUnits, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, tShort, monthShort } from '@felix/shared/data';
 import { listPhotos, splitTag, uploadEntryPhotos } from '@felix/shared/api/photos';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
@@ -390,9 +390,9 @@ export function EntryDetail({ id }: { id?: string }) {
               {it.oldSerial && expiry ? <View style={{ marginTop: 9, paddingTop: 9, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.14)' }}>
                 <PlateLab>{daysLeft !== null && daysLeft < 0 ? 'WARRANTY EXPIRED' : 'WARRANTY LEFT'}</PlateLab>
                 <X s={15} w={7} c={daysLeft !== null && daysLeft < 0 ? '#FFB3A3' : '#7FD3A9'}>
-                  {daysLeft !== null && daysLeft < 0 ? `Ran out ${dLong(expiry)}` : `${spanShort(span(today(), expiry))} left · to ${dLong(expiry)}`}
+                  {daysLeft !== null && daysLeft < 0 ? `Expired ${-daysLeft} ${daysLeft === -1 ? 'day' : 'days'} ago · ${dLong(expiry)}` : `${spanLong(span(today(), expiry))} left`}
                 </X>
-                <X s={11.5} c={T.deepText} style={{ marginTop: 2 }}>{cover ? 'From the warranty record.' : `Worked out from the label — made ${monthShort(oldMfg)}, ${oldTerm} months cover. Not on record.`}</X>
+                <X s={11.5} c={T.deepText} style={{ marginTop: 2 }}>{`Cover to ${dLong(expiry)} · `}{cover ? 'from the warranty record.' : `worked out from the label — made ${monthShort(oldMfg)}, ${oldTerm} months cover. Not on record.`}</X>
               </View> : null}</Plate>
             <KV cols={a.wide ? 3 : 2} pairs={[['Short serial', it.serial, 'mono'], ['Made', monthShort(it.mfg)], ['Cover ends', cover ? dLong(cover.expiry) : 'Not on record'], ['Replacement month', it.rpl || '—'], ['Return month', it.rtn || '—'], ['WR reference', it.wr || '—', 'mono'], ['Reported fault', it.fault || '—'], ['Remarks', it.remarks || '—']]} />
             {it.oldSerial && !old && <Banner tone="warn" icon="eye" style={{ marginTop: 11 }}>Old serial {it.oldSerial} is not on record — check it against the paper register. No cover dates are guessed.</Banner>}
