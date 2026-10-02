@@ -26,12 +26,21 @@ export type NewDealer = {
   pin: string;
   place: string | null;
   address: string;
-  registeredVia: 'self' | 'admin';
+  registeredVia: 'self' | 'admin' | 'distributor';
+  // a dealer created by its distributor: active at once, under that distributor
+  kind?: 'distributor' | 'dealer';
+  distributorId?: string | null;
+  status?: 'pending_approval' | 'active';
 };
 
 export async function insertDealer(tx: Tx, input: NewDealer) {
-  const [row] = await tx.insert(dealers).values({ ...input, status: 'pending_approval' }).returning();
+  const [row] = await tx.insert(dealers).values({ status: 'pending_approval', ...input }).returning();
   return row!;
+}
+
+/** A distributor's dealers, newest first. */
+export function findDealersByDistributor(dbh: DbOrTx, distributorId: string) {
+  return dbh.select().from(dealers).where(eq(dealers.distributorId, distributorId)).orderBy(desc(dealers.createdAt));
 }
 
 // users is owned by the (not yet built) `users` module — this insert is temporary here,
@@ -42,7 +51,7 @@ export type NewDealerUser = {
   name: string;
   mobile: string;
   email: string | null;
-  passwordHash: string;
+  passwordHash: string | null; // a dealer created by its distributor signs in with the mobile code only
 };
 
 export function findUsersByDealerId(dbh: DbOrTx, dealerId: string) {

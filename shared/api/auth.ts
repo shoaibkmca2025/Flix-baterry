@@ -26,6 +26,9 @@ export type VerifyOtpLoginResult = {
     place: string | null;
     address: string;
     status: 'pending_approval' | 'active' | 'rejected' | 'suspended';
+    kind?: 'distributor' | 'dealer';
+    distributorId?: string | null;
+    distributor?: { id: string; name: string; mobile: string; contactPerson: string };
   } | null;
 };
 export type VerifyOtpVerifiedResult = { verifiedToken: string };

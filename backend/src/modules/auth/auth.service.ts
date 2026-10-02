@@ -133,7 +133,7 @@ export async function verifyOtp(ctx: Ctx, input: OtpVerifyBody) {
     if (!user || user.status !== 'active') {
       throw new AppError('user_blocked', 403, 'This account is not active.');
     }
-    let dealer = null;
+    let dealer: (NonNullable<Awaited<ReturnType<typeof repo.findDealerById>>> & { distributor?: { id: string; name: string; mobile: string; contactPerson: string } }) | null | undefined = null;
     if (user.dealerId) {
       dealer = await repo.findDealerById(db, user.dealerId);
       if (!dealer) {
@@ -145,6 +145,17 @@ export async function verifyOtp(ctx: Ctx, input: OtpVerifyBody) {
         throw new AppError('dealer_not_active', 403, `This shop is ${dealer.status.replace('_', ' ')}.`, {
           details: { status: dealer.status, dealerId: dealer.id, reason: dealer.statusReason },
         });
+      }
+      // A dealer works through its distributor (client, 2 Oct 2026): the app shows who to hand
+      // old batteries to, and a dealer cannot work while its distributor is not active.
+      if (dealer.kind === 'dealer' && dealer.distributorId) {
+        const dist = await repo.findDealerById(db, dealer.distributorId);
+        if (!dist || dist.status !== 'active') {
+          throw new AppError('dealer_not_active', 403, 'Your distributor’s account is not active. Contact your distributor or Felix Batteries head office.', {
+            details: { status: 'suspended', dealerId: dealer.id, reason: 'Distributor not active' },
+          });
+        }
+        dealer = { ...dealer, distributor: { id: dist.id, name: dist.name, mobile: dist.mobile, contactPerson: dist.contactPerson } };
       }
     }
 

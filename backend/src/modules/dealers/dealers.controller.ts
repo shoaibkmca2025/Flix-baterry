@@ -3,6 +3,7 @@ import { buildCtx } from '../../middleware/context';
 import * as service from './dealers.service';
 import type {
   DealerApproveBody,
+  DealerCreateBody,
   DealerListQuery,
   DealerProfileUpdateBody,
   DealerReasonBody,
@@ -52,4 +53,21 @@ export async function list(request: FastifyRequest<{ Querystring: DealerListQuer
 export async function getById(request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
   const result = await service.getById(buildCtx(request), request.params.id);
   reply.status(200).send(result);
+}
+
+// a distributor's own dealers
+export async function listMyDealers(request: FastifyRequest, reply: FastifyReply) {
+  reply.status(200).send(await service.listMyDealers(buildCtx(request)));
+}
+
+export async function createMyDealer(request: FastifyRequest<{ Body: DealerCreateBody }>, reply: FastifyReply) {
+  reply.status(201).send(await service.createMyDealer(buildCtx(request), request.body));
+}
+
+export async function suspendMyDealer(request: FastifyRequest<{ Params: { id: string }; Body: DealerReasonBody }>, reply: FastifyReply) {
+  reply.status(200).send(await service.setMyDealerStatus(buildCtx(request), request.params.id, 'suspended', request.body));
+}
+
+export async function activateMyDealer(request: FastifyRequest<{ Params: { id: string }; Body: DealerReasonBody }>, reply: FastifyReply) {
+  reply.status(200).send(await service.setMyDealerStatus(buildCtx(request), request.params.id, 'active', request.body));
 }

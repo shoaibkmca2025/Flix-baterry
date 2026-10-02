@@ -15,6 +15,21 @@ export const DealerRegisterBody = z.object({
 });
 export type DealerRegisterBody = z.infer<typeof DealerRegisterBody>;
 
+// A distributor adds a dealer under him (client, 2 Oct 2026). The dealer signs in with this
+// mobile number and the SMS code, so no password is set here.
+export const DealerCreateBody = z.object({
+  name: z.string().trim().min(1, 'Enter the shop name.'),
+  contactPerson: z.string().trim().min(1, 'Enter the owner or contact person.'),
+  mobile: z.string().regex(/^\d{10}$/, 'Enter the 10-digit mobile number.'),
+  email: z.string().email().optional().or(z.literal('')),
+  city: z.string().trim().min(1, 'Choose the city.'),
+  state: z.string().trim().min(1, 'Enter the state.'),
+  pin: z.string().regex(/^\d{6}$/, '6 digits.'),
+  place: z.string().trim().optional(),
+  address: z.string().trim().min(1, 'Enter the full shop address.'),
+});
+export type DealerCreateBody = z.infer<typeof DealerCreateBody>;
+
 // rules.md §6 — reason is mandatory for every decision endpoint, at least 5 characters.
 const reason = z.string().trim().min(5, 'Give a short reason (at least 5 characters).');
 

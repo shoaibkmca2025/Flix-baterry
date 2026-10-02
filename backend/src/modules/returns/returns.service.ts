@@ -8,6 +8,7 @@ import * as claimsRepo from '../claims/claims.repository';
 import * as claimsService from '../claims/claims.service';
 import * as entriesRepo from '../entries/entries.repository';
 import * as mastersRepo from '../masters/masters.repository';
+import { distributorShopIds } from '../dealers/dealers.service';
 import * as repo from './returns.repository';
 import type { ChallanClaimBody, ChallanCreateBody, ChallanListQuery, ChallanReceiveBody, LinePlantBody, LineReceiveBody, LineStageBody, ReturnLineListQuery } from './returns.validation';
 
@@ -34,8 +35,11 @@ function requireAdmin(ctx: Ctx) {
 
 export async function dispatch(ctx: Ctx, input: ChallanCreateBody) {
   const user = requireUser(ctx);
-  if (user.scope !== 'dealer' || !user.dealerId) throw new AppError('permission_denied', 403, 'Only a dealer can dispatch old batteries.');
+  if (user.scope !== 'dealer' || !user.dealerId) throw new AppError('permission_denied', 403, 'Only a distributor can dispatch old batteries.');
+  // Only a distributor dispatches — his own old batteries and those his dealers handed him
+  // (client, 2 Oct 2026). A dealer gets 403 distributor_only here.
   const dealerId = user.dealerId;
+  const shops = await distributorShopIds(ctx);
 
   const ids = [...new Set(input.entryIds)];
   const found = await entriesRepo.findEntriesByIds(db, ids);
@@ -43,7 +47,7 @@ export async function dispatch(ctx: Ctx, input: ChallanCreateBody) {
   for (const id of ids) {
     const e = byId.get(id);
     // 404 not 403 for another dealer's entry — no existence leak (I-3)
-    if (!e || e.dealerId !== dealerId) throw new AppError('entry_not_found', 404, 'Entry not found.');
+    if (!e || !shops.has(e.dealerId)) throw new AppError('entry_not_found', 404, 'Entry not found.');
     if (e.entryType !== 'replacement') throw new AppError('nothing_to_dispatch', 422, `${e.ref} is not a replacement — there is no old battery to send back.`);
     if (e.status === 'rejected') throw new AppError('nothing_to_dispatch', 422, `${e.ref} was refused — nothing to send back.`);
   }

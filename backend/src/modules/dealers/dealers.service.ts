@@ -8,7 +8,8 @@ import { invalidateAccountStatus } from '../users/users.service';
 import { verifyVerifiedToken } from '../auth/auth.tokens';
 import { findCityByName } from '../masters/masters.repository';
 import * as repo from './dealers.repository';
-import type { DealerApproveBody, DealerListQuery, DealerProfileUpdateBody, DealerReasonBody, DealerRegisterBody } from './dealers.validation';
+import type { DealerApproveBody, DealerCreateBody, DealerListQuery, DealerProfileUpdateBody, DealerReasonBody, DealerRegisterBody } from './dealers.validation';
+import { findUserByMobile } from '../users/users.repository';
 
 function decodeCursor(cursor?: string) {
   if (!cursor) return undefined;
@@ -203,4 +204,68 @@ export async function getById(ctx: Ctx, dealerId: string) {
   const dealer = await repo.findDealerById(db, dealerId);
   if (!dealer) throw new AppError('dealer_not_found', 404, 'Dealer not found.');
   return dealer;
+}
+
+// --- a distributor's own dealers (client, 2 Oct 2026) ------------------------
+// Head office → distributor → dealer. A distributor adds the dealers under him from the app;
+// they are active at once and sign in with their mobile number and the SMS code.
+
+/** The signed-in user's shop, which must be an active distributor. */
+export async function requireDistributor(ctx: Ctx) {
+  requireDealerUser(ctx);
+  const shop = await repo.findDealerById(db, ctx.user.dealerId);
+  if (!shop || shop.kind !== 'distributor') throw new AppError('distributor_only', 403, 'Only a distributor can do this.');
+  return shop;
+}
+
+export async function listMyDealers(ctx: Ctx) {
+  const me = await requireDistributor(ctx);
+  return { items: await repo.findDealersByDistributor(db, me.id) };
+}
+
+export async function createMyDealer(ctx: Ctx, input: DealerCreateBody) {
+  const me = await requireDistributor(ctx);
+  if (await repo.findDealerByMobile(db, input.mobile) || await findUserByMobile(db, input.mobile)) {
+    throw new AppError('mobile_taken', 409, 'This mobile number already has an account.', { field: 'mobile' });
+  }
+  const city = await findCityByName(db, input.city);
+  if (!city) throw new AppError('city_invalid', 422, 'Choose a city from the list.', { field: 'city' });
+
+  return withTransaction(async (tx) => {
+    const d = await repo.insertDealer(tx, {
+      name: input.name, contactPerson: input.contactPerson, mobile: input.mobile, email: input.email || null,
+      cityId: city.id, state: input.state, pin: input.pin, place: input.place || null, address: input.address,
+      registeredVia: 'distributor', kind: 'dealer', distributorId: me.id, status: 'active',
+    });
+    await repo.insertDealerUser(tx, { dealerId: d.id, name: input.contactPerson, mobile: input.mobile, email: input.email || null, passwordHash: null });
+    await audit(tx, { ctx, action: 'dealer.created_by_distributor', entityType: 'dealer', entityId: d.id, entityRef: d.name, after: { kind: 'dealer', distributorId: me.id, distributor: me.name }, outcome: 'ok' });
+    return d;
+  });
+}
+
+/** Suspend or re-activate one of MY dealers. Suspending signs them out at once. */
+export async function setMyDealerStatus(ctx: Ctx, dealerId: string, to: 'suspended' | 'active', input: DealerReasonBody) {
+  const me = await requireDistributor(ctx);
+  const dealer = await repo.findDealerById(db, dealerId);
+  if (!dealer || dealer.distributorId !== me.id) throw new AppError('dealer_not_found', 404, 'Dealer not found.'); // I-3: no existence leak
+  const from = to === 'suspended' ? 'active' : 'suspended';
+  if (dealer.status !== from) throw new AppError('invalid_transition', 409, `This dealer is already ${dealer.status}.`);
+
+  return withTransaction(async (tx) => {
+    const after = await repo.updateDealerStatus(tx, dealerId, { status: to, statusReason: input.reason, statusChangedBy: ctx.user!.id });
+    invalidateAccountStatus();
+    if (to === 'suspended') for (const u of await repo.findUsersByDealerId(tx, dealerId)) await revokeAllSessionsForUser(tx, u.id, 'dealer_suspended');
+    await audit(tx, { ctx, action: to === 'suspended' ? 'dealer.suspended' : 'dealer.activated', entityType: 'dealer', entityId: dealerId, entityRef: dealer.name, before: { status: dealer.status }, after: { status: to }, reason: input.reason, outcome: 'ok' });
+    return after;
+  });
+}
+
+/**
+ * The shops a distributor acts for: his own and every dealer under him. Old batteries from
+ * any of them leave on his challan (dealers hand theirs over by hand and cannot dispatch).
+ */
+export async function distributorShopIds(ctx: Ctx) {
+  const me = await requireDistributor(ctx);
+  const mine = await repo.findDealersByDistributor(db, me.id);
+  return new Set([me.id, ...mine.map((d) => d.id)]);
 }

@@ -14,6 +14,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { cities } from './masters.model';
 
@@ -24,7 +25,10 @@ const citext = customType<{ data: string }>({ dataType: () => 'citext' });
 // architecture.md §8.3 IDENTITY ------------------------------------------------------------
 
 export const dealerStatus = pgEnum('dealer_status', ['pending_approval', 'active', 'rejected', 'suspended']);
-export const registeredVia = pgEnum('registered_via', ['self', 'admin']);
+export const registeredVia = pgEnum('registered_via', ['self', 'admin', 'distributor']);
+// Head office → distributor → dealer (client, 2 Oct 2026). Every shop that registered before
+// then is a distributor; a dealer is created by its distributor and belongs to exactly one.
+export const dealerKind = pgEnum('dealer_kind', ['distributor', 'dealer']);
 
 // dealers owns this table (modules.md §4). `city_id` needs `cities` (masters.model.ts) to exist first.
 export const dealers = pgTable(
@@ -49,11 +53,20 @@ export const dealers = pgTable(
     // fk -> users; added once users exists below (same-file forward reference via callback).
     statusChangedBy: uuid('status_changed_by'),
     registeredVia: registeredVia('registered_via').notNull(),
+    kind: dealerKind('kind').notNull().default('distributor'),
+    // set for a dealer (its distributor), null for a distributor
+    distributorId: uuid('distributor_id').references((): AnyPgColumn => dealers.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
-  (t) => [index('dealers_status_idx').on(t.status), index('dealers_city_idx').on(t.cityId)],
+  (t) => [
+    index('dealers_status_idx').on(t.status),
+    index('dealers_city_idx').on(t.cityId),
+    index('dealers_distributor_idx').on(t.distributorId),
+    // a dealer always has its distributor; a distributor never has one
+    check('dealers_kind_parent_ck', sql`(${t.kind} = 'dealer') = (${t.distributorId} is not null)`),
+  ],
 );
 
 export const userScope = pgEnum('user_scope', ['dealer', 'admin']);

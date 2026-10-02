@@ -46,8 +46,11 @@ const TABS: [IconName, string, string][] = [['home', 'Home', 'd07'], ['truck', '
 export type TabKey = 'home' | 'truck' | 'list' | 'search' | 'user';
 function TabBar({ cur }: { cur: TabKey }) {
   const d = useD(), tr = useTr(), inset = useSafeAreaInsets();
+  // a dealer hands old batteries to its distributor, so it has no "Send back" (client, 2 Oct 2026)
+  const { state, dealerId } = useStore();
+  const tabs = state.dealers.find(x => x.id === dealerId)?.kind === 'Dealer' ? TABS.filter(t => t[2] !== 'd33') : TABS;
   return <View style={{ flexDirection: 'row', backgroundColor: T.white, borderTopWidth: 1, borderTopColor: T.zinc2, paddingTop: 6, paddingHorizontal: 4, paddingBottom: 12 + (d.framed ? 0 : inset.bottom) }}>
-    {TABS.map(([icon, label, id]) => {
+    {tabs.map(([icon, label, id]) => {
       const on = cur === icon;
       return <Pressable key={id} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={label} onPress={() => d.tab(id)} style={{ flex: 1, alignItems: 'center', gap: 3, paddingVertical: 6, paddingHorizontal: 2, borderRadius: 9 }}>
         <Ic n={icon} size={23} color={on ? T.steel : T.slate} /><X s={11} w={6} c={on ? T.steel : T.slate} numberOfLines={1}>{tr(label)}</X></Pressable>;

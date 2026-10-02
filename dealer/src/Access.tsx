@@ -21,7 +21,7 @@ const phonePre = <View style={{ flexDirection: 'row', alignItems: 'center', gap:
 
 // Real city list from the backend (architecture.md §19 GET /masters), replacing the
 // hardcoded local demo list — closes the id-vs-name gap flagged after the auth+dealers pass.
-function useCities() {
+export function useCities() {
   const [cities, setCities] = useState<City[]>([]);
   useEffect(() => { getMastersBundle().then(r => setCities(r.cities)).catch(() => {}); }, []);
   return cities;
@@ -96,6 +96,8 @@ export function D02() {
         email: dealer.email || '', city: cities.find(c => c.id === dealer.cityId)?.name || dealer.cityId,
         place: dealer.place || '', address: dealer.address,
         pin: dealer.pin, state: dealer.state, status: dealerStatusLabel(dealer.status),
+        kind: dealer.kind === 'dealer' ? 'Dealer' : 'Distributor', distributorId: dealer.distributorId ?? undefined,
+        distributor: dealer.distributor ? { id: dealer.distributor.id, name: dealer.distributor.name, mobile: dealer.distributor.mobile, contact: dealer.distributor.contactPerson } : undefined,
       };
       const session = { user: result.user, dealer: mapped };
       await saveSession({ accessToken: result.accessToken, refreshToken: result.refreshToken }, session);

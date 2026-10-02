@@ -25,7 +25,10 @@ vi.mock('./dealers.repository', () => ({
   updateDealerStatus: vi.fn(),
   updateDealerProfile: vi.fn(),
   listDealers: vi.fn(),
+  findDealersByDistributor: vi.fn(async () => []),
 }));
+
+vi.mock('../users/users.repository', () => ({ findUserByMobile: vi.fn() }));
 
 vi.mock('../masters/masters.repository', () => ({
   findCityByName: vi.fn(),
@@ -35,7 +38,8 @@ import * as repo from './dealers.repository';
 import { findCityByName } from '../masters/masters.repository';
 import { revokeAllSessionsForUser } from '../auth/auth.repository';
 import { verifyVerifiedToken } from '../auth/auth.tokens';
-import { activate, approve, getById, getMe, list, register, reject, suspend } from './dealers.service';
+import { activate, approve, createMyDealer, distributorShopIds, getById, getMe, list, listMyDealers, register, reject, setMyDealerStatus, suspend } from './dealers.service';
+import { findUserByMobile } from '../users/users.repository';
 import { AppError } from '../../utils/errors';
 import type { Ctx } from '../../utils/context';
 
@@ -196,5 +200,58 @@ describe('list / getById', () => {
     vi.mocked(repo.listDealers).mockResolvedValue({ items: [{ id: 'dealer-1' }], nextCursor: null } as never);
     const result = await list(adminCtx, { limit: 50 });
     expect(result.items).toHaveLength(1);
+  });
+});
+
+describe("a distributor's own dealers (head office → distributor → dealer)", () => {
+  const distCtx: Ctx = { ...adminCtx, user: { id: 'user-d', scope: 'dealer', role: 'dealer_manager', dealerId: 'dist-1' } };
+  const dealerUserCtx: Ctx = { ...adminCtx, user: { id: 'user-x', scope: 'dealer', role: 'dealer_manager', dealerId: 'shop-1' } };
+  const distributor = { id: 'dist-1', name: 'Felix Factory', kind: 'distributor', distributorId: null, status: 'active' };
+  const childInput = { name: 'Patil Batteries', contactPerson: 'Ravi Patil', mobile: '9822001122', email: '', city: 'Nashik', state: 'Maharashtra', pin: '422001', address: 'Main Road' };
+
+  it('creates the dealer under him, active at once, with a user who signs in by mobile code', async () => {
+    vi.mocked(repo.findDealerById).mockResolvedValue(distributor as never);
+    vi.mocked(repo.findDealerByMobile).mockResolvedValue(undefined as never);
+    vi.mocked(findUserByMobile).mockResolvedValue(undefined as never);
+    vi.mocked(findCityByName).mockResolvedValue({ id: 'city-nsk' } as never);
+    vi.mocked(repo.insertDealer).mockResolvedValue({ id: 'shop-1', name: 'Patil Batteries' } as never);
+
+    await createMyDealer(distCtx, childInput);
+
+    expect(repo.insertDealer).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ kind: 'dealer', distributorId: 'dist-1', status: 'active', registeredVia: 'distributor', mobile: '9822001122', cityId: 'city-nsk' }));
+    expect(repo.insertDealerUser).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dealerId: 'shop-1', mobile: '9822001122', passwordHash: null }));
+  });
+
+  it('refuses a mobile number that already has an account', async () => {
+    vi.mocked(repo.findDealerById).mockResolvedValue(distributor as never);
+    vi.mocked(repo.findDealerByMobile).mockResolvedValue(undefined as never);
+    vi.mocked(findUserByMobile).mockResolvedValue({ id: 'someone' } as never);
+    await expect(createMyDealer(distCtx, childInput)).rejects.toMatchObject({ code: 'mobile_taken', status: 409 });
+    expect(repo.insertDealer).not.toHaveBeenCalled();
+  });
+
+  it('only a distributor can add or list dealers — a dealer cannot', async () => {
+    vi.mocked(repo.findDealerById).mockResolvedValue({ id: 'shop-1', kind: 'dealer', distributorId: 'dist-1' } as never);
+    await expect(createMyDealer(dealerUserCtx, childInput)).rejects.toMatchObject({ code: 'distributor_only', status: 403 });
+    await expect(listMyDealers(dealerUserCtx)).rejects.toMatchObject({ code: 'distributor_only' });
+    await expect(createMyDealer(adminCtx, childInput)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("suspends only his own dealers, and signs them out", async () => {
+    vi.mocked(repo.findDealerById).mockImplementation(async (_db, id) => (id === 'dist-1' ? distributor : id === 'shop-1' ? { id: 'shop-1', name: 'Patil Batteries', kind: 'dealer', distributorId: 'dist-1', status: 'active' } : { id, kind: 'dealer', distributorId: 'dist-2', status: 'active' }) as never);
+    vi.mocked(repo.findUsersByDealerId).mockResolvedValue([{ id: 'u-1' }] as never);
+    vi.mocked(repo.updateDealerStatus).mockResolvedValue({ id: 'shop-1', status: 'suspended' } as never);
+
+    await setMyDealerStatus(distCtx, 'shop-1', 'suspended', { reason: 'Shop closed for now' });
+    expect(repo.updateDealerStatus).toHaveBeenCalledWith(expect.anything(), 'shop-1', expect.objectContaining({ status: 'suspended' }));
+    expect(revokeAllSessionsForUser).toHaveBeenCalledWith(expect.anything(), 'u-1', 'dealer_suspended');
+
+    await expect(setMyDealerStatus(distCtx, 'shop-9', 'suspended', { reason: 'Not mine at all' })).rejects.toMatchObject({ code: 'dealer_not_found', status: 404 });
+  });
+
+  it('acts for his own shop and every dealer under him', async () => {
+    vi.mocked(repo.findDealerById).mockResolvedValue(distributor as never);
+    vi.mocked(repo.findDealersByDistributor).mockResolvedValue([{ id: 'shop-1' }, { id: 'shop-2' }] as never);
+    expect([...(await distributorShopIds(distCtx))]).toEqual(['dist-1', 'shop-1', 'shop-2']);
   });
 });

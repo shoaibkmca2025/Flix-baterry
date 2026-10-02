@@ -142,6 +142,9 @@ export const batteryUnits = (e: Entry): Entry[] => e.type !== 'Replacement' ? [e
 /** The key that tells two batteries of one entry apart (an Entry's id is the request's). */
 export const unitKey = (e: Entry) => e.itemId ? `${e.id}#${e.itemId}` : e.id;
 
+/** A dealer works under a distributor and cannot dispatch old batteries (client, 2 Oct 2026). Every shop from before is a distributor. */
+export const isDealerShop = (d?: Pick<Dealer, 'kind'>) => d?.kind === 'Dealer';
+
 export const firstProblem = (e: Entry, state: State) =>
   Object.values(validateEntry(e, state))[0] ?? e.items.find(i => i.exception)?.exception;
 

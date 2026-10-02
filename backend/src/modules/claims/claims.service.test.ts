@@ -24,6 +24,8 @@ vi.mock('../../utils/ids', () => ({
   monthKey: vi.fn(() => '26-09'),
 }));
 
+// dealer-1 is a distributor; dealer-1a is a dealer under him (client, 2 Oct 2026)
+vi.mock('../dealers/dealers.service', () => ({ distributorShopIds: vi.fn(async () => new Set(['dealer-1', 'dealer-1a'])) }));
 vi.mock('./claims.repository', () => ({
   findClaimById: vi.fn(),
   insertClaim: vi.fn(),
@@ -63,7 +65,7 @@ describe('dispatch / receive — status transitions are enforced in order', () =
   });
 
   it('moves raised -> awaiting_return -> received in order', async () => {
-    vi.mocked(repo.findClaimById).mockResolvedValueOnce({ id: 'claim-1', ref: 'CLM-1', status: 'raised', oldBatteryId: 'old-1' } as never);
+    vi.mocked(repo.findClaimById).mockResolvedValueOnce({ id: 'claim-1', ref: 'CLM-1', status: 'raised', oldBatteryId: 'old-1', dealerId: 'dealer-1' } as never);
     vi.mocked(repo.updateClaimStatus).mockResolvedValueOnce({ id: 'claim-1', status: 'awaiting_return' } as never);
     const afterDispatch = await dispatch(dealerCtx, 'claim-1');
     expect(afterDispatch.status).toBe('awaiting_return');

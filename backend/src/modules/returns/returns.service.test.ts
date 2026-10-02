@@ -21,6 +21,8 @@ vi.mock('../claims/claims.repository', () => ({ findClaimById: vi.fn() }));
 vi.mock('../batteries/batteries.repository', () => ({ setBatteryPlant: vi.fn() }));
 vi.mock('../masters/masters.repository', () => ({ findPlantById: vi.fn() }));
 vi.mock('../claims/claims.service', () => ({ dispatch: vi.fn(), receive: vi.fn(), decide: vi.fn() }));
+// dealer-1 is a distributor; dealer-1a is a dealer under him (client, 2 Oct 2026)
+vi.mock('../dealers/dealers.service', () => ({ distributorShopIds: vi.fn(async () => new Set(['dealer-1', 'dealer-1a'])) }));
 
 vi.mock('./returns.repository', () => ({
   findChallanById: vi.fn(),
@@ -45,6 +47,8 @@ import { audit } from '../../utils/audit';
 import * as claimsService from '../claims/claims.service';
 import * as entriesRepo from '../entries/entries.repository';
 import * as repo from './returns.repository';
+import { distributorShopIds } from '../dealers/dealers.service';
+import { AppError } from '../../utils/errors';
 import { claimChecked, dispatch, getById, list, receive, receiveLine, setLinePlant, stage } from './returns.service';
 import { ChallanReceiveBody, LineReceiveBody } from './returns.validation';
 import type { Ctx } from '../../utils/context';
@@ -92,6 +96,22 @@ describe('dispatch — a dealer hands old batteries to the van', () => {
   it('answers 404 (not 403) for another dealer\'s entry', async () => {
     vi.mocked(entriesRepo.findEntriesByIds).mockResolvedValue([{ ...replacement, dealerId: 'dealer-2' }] as never);
     await expect(dispatch(dealerCtx, { entryIds: ['entry-1'] })).rejects.toMatchObject({ code: 'entry_not_found', status: 404 });
+  });
+
+  it("a distributor sends back his dealers' old batteries on his own challan", async () => {
+    vi.mocked(entriesRepo.findEntriesByIds).mockResolvedValue([{ ...replacement, dealerId: 'dealer-1a' }] as never);
+    vi.mocked(entriesRepo.findItemsByEntryIds).mockResolvedValue([item] as never);
+    vi.mocked(repo.findLinesByEntryItemIds).mockResolvedValue([]);
+    vi.mocked(repo.insertChallan).mockResolvedValue({ id: 'chl-1', no: 'CHL-26-10-0001', status: 'dispatched' } as never);
+    vi.mocked(repo.insertLines).mockResolvedValue([] as never);
+    await dispatch(dealerCtx, { entryIds: ['entry-1'] });
+    expect(vi.mocked(repo.insertChallan).mock.calls[0]?.[1]).toMatchObject({ dealerId: 'dealer-1' }); // the challan is the distributor's
+  });
+
+  it('a dealer cannot dispatch — he hands old batteries to his distributor', async () => {
+    vi.mocked(distributorShopIds).mockRejectedValueOnce(new AppError('distributor_only', 403, 'Only a distributor can do this.'));
+    await expect(dispatch({ ...dealerCtx, user: { ...dealerCtx.user!, dealerId: 'dealer-1a' } }, { entryIds: ['entry-1'] })).rejects.toMatchObject({ code: 'distributor_only', status: 403 });
+    expect(repo.insertChallan).not.toHaveBeenCalled();
   });
 
   it('refuses a sales return — there is no old battery', async () => {

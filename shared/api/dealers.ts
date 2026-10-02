@@ -16,6 +16,8 @@ export type ApiDealer = {
   status: DealerStatus;
   statusReason: string | null;
   createdAt: string;
+  kind?: 'distributor' | 'dealer'; // absent on a server from before 2 Oct 2026 = distributor
+  distributorId?: string | null;
 };
 export type Page<T> = { items: T[]; nextCursor: string | null };
 
@@ -56,4 +58,16 @@ export function suspendDealer(id: string, reason: string, accessToken: string) {
 }
 export function activateDealer(id: string, reason: string, accessToken: string) {
   return apiPost<ApiDealer>(`/dealers/${id}/activate`, { reason }, { accessToken });
+}
+
+// --- a distributor's own dealers (client, 2 Oct 2026) --------------------------------------
+export type MyDealerInput = { name: string; contactPerson: string; mobile: string; email?: string; city: string; state: string; pin: string; place?: string; address: string };
+export function listMyDealers(accessToken: string) {
+  return apiGet<{ items: ApiDealer[] }>('/dealers/me/dealers', { accessToken });
+}
+export function createMyDealer(input: MyDealerInput, accessToken: string) {
+  return apiPost<ApiDealer>('/dealers/me/dealers', input, { accessToken });
+}
+export function setMyDealerStatus(id: string, to: 'suspended' | 'active', reason: string, accessToken: string) {
+  return apiPost<ApiDealer>(`/dealers/me/dealers/${id}/${to === 'suspended' ? 'suspend' : 'activate'}`, { reason }, { accessToken });
 }

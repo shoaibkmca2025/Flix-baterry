@@ -50,6 +50,16 @@ export function D32({ p }: { p?: string }) {
 /* d33 · old batteries to send back */
 export function D33() {
   const d = useD(); const { state, setState, dealerId, audit } = useStore(); const { sync } = useSync();
+  const shop = state.dealers.find(x => x.id === dealerId);
+  // a dealer hands old batteries to its distributor by hand; only the distributor dispatches (client, 2 Oct 2026)
+  if (shop?.kind === 'Dealer') return <Screen top={<AppBar title="Old batteries" back="d07" />}>
+    <Banner tone="info" icon="truck"><B>Hand your old batteries to your distributor.</B> {shop.distributor ? `${shop.distributor.name} (+91 ${shop.distributor.mobile})` : 'Your distributor'} collects them and sends them to head office on a challan — you do not dispatch them yourself.</Banner>
+  </Screen>;
+  return <D33Dispatch />;
+}
+
+function D33Dispatch() {
+  const d = useD(); const { state, setState, dealerId, audit } = useStore(); const { sync } = useSync();
   const rows = toSendBack(state, dealerId);
   const [off, setOff] = useState<string[]>([]), [vehicle, setVehicle] = useState(''), [driver, setDriver] = useState(''), [busy, setBusy] = useState(false);
   const picked = rows.filter(e => !off.includes(e.id));

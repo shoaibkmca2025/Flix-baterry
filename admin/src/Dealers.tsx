@@ -89,15 +89,21 @@ export function Registrations() {
 /* ---------- dealer directory ---------- */
 export function Dealers() {
   const a = useA(); const { state } = useStore();
-  const [q, setQ] = useState(''), [status, setStatus] = useState('all'), [city, setCity] = useState('All');
+  const [q, setQ] = useState(''), [status, setStatus] = useState('all'), [city, setCity] = useState('All'), [kind, setKind] = useState('All');
   const statusMap: Record<string, string> = { active: 'Active', pending: 'Pending Approval', suspended: 'Suspended', rejected: 'Rejected' };
-  const rows = state.dealers.filter(d => (status === 'all' || d.status === statusMap[status]) && (city === 'All' || d.city === city) && [d.name, d.city, d.id, d.contact, d.mobile].some(v => v.toLowerCase().includes(q.toLowerCase())));
+  // head office → distributor → dealer (client, 2 Oct 2026); a shop with no kind is a distributor
+  const isDealer = (d: { kind?: string }) => d.kind === 'Dealer';
+  const nameOf = (id?: string) => state.dealers.find(x => x.id === id)?.name || '—';
+  const rows = state.dealers.filter(d => (status === 'all' || d.status === statusMap[status]) && (city === 'All' || d.city === city) && (kind === 'All' || (kind === 'Dealers') === isDealer(d))
+    && [d.name, d.city, d.id, d.contact, d.mobile, isDealer(d) ? nameOf(d.distributorId) : ''].some(v => v.toLowerCase().includes(q.toLowerCase())));
   const count = (s: string) => state.dealers.filter(d => d.status === s).length;
-  return <Page title="Dealers" sub={`${state.dealers.length} dealers · ${count('Active')} active`}>
-    <Box filters={<><SearchBox value={q} onChange={setQ} ph="Name, city, code or mobile" /><Pills value={status} onChange={setStatus} items={[['all', 'All'], ['active', `Active ${count('Active')}`], ['pending', `Waiting ${count('Pending Approval')}`], ['suspended', `Suspended ${count('Suspended')}`], ['rejected', `Refused ${count('Rejected')}`]]} /><FilterPick label="City" value={city} options={state.cities} onChange={setCity} /></>}>
+  const distributors = state.dealers.filter(d => !isDealer(d)).length;
+  return <Page title="Distributors & dealers" sub={`${distributors} distributors · ${state.dealers.length - distributors} dealers · ${count('Active')} active`}>
+    <Box filters={<><SearchBox value={q} onChange={setQ} ph="Name, city, code, mobile or distributor" /><Pills value={status} onChange={setStatus} items={[['all', 'All'], ['active', `Active ${count('Active')}`], ['pending', `Waiting ${count('Pending Approval')}`], ['suspended', `Suspended ${count('Suspended')}`], ['rejected', `Refused ${count('Rejected')}`]]} /><FilterPick label="Type" value={kind} options={['Distributors', 'Dealers']} onChange={setKind} /><FilterPick label="City" value={city} options={state.cities} onChange={setCity} /></>}>
       <Table rows={rows} keyOf={d => d.id} onRow={d => a.go('dealer', d.id)} empty="No dealers match."
         cols={[
-          { h: 'Dealer', w: 1.6, cell: d => <View><X s={13.5} w={7}>{d.name}</X><X s={12} c={T.slate}>{d.contact}</X></View> },
+          { h: 'Shop', w: 1.6, cell: d => <View><X s={13.5} w={7}>{d.name}</X><X s={12} c={T.slate}>{d.contact}</X></View> },
+          { h: 'Type', w: 1.2, cell: d => isDealer(d) ? <View><Chip tone="info" label="Dealer" /><X s={12} c={T.slate} style={{ marginTop: 3 }}>under {nameOf(d.distributorId)}</X></View> : <View><Chip tone="vio" label="Distributor" /><X s={12} c={T.slate} style={{ marginTop: 3 }}>{state.dealers.filter(x => x.distributorId === d.id).length} dealers</X></View> },
           { h: 'City', w: 0.9, cell: d => d.city },
           { h: 'Code', w: 1, cell: d => <X s={12.5} f="m" w={6}>{dealerCode(d)}</X> },
           { h: 'Status', w: 1.2, cell: d => <StatusChip status={d.status} /> },
@@ -105,7 +111,7 @@ export function Dealers() {
           { h: 'Replacements', w: 0.8, cell: d => String(state.entries.filter(e => e.dealerId === d.id && e.type === 'Replacement' && e.status !== 'Draft').length) },
           { h: 'Waiting', w: 0.6, cell: d => { const n = state.entries.filter(e => e.dealerId === d.id && ['Submitted', 'Under Review', 'Conflict'].includes(e.status)).length; return n ? <Chip tone="warn" label={String(n)} /> : '—'; } },
         ]}
-        mobile={{ av: d => <Avatar n="shop" tone={d.status === 'Active' ? 'blue' : d.status === 'Suspended' || d.status === 'Rejected' ? 'red' : 'amber'} />, title: d => d.name, sub: d => <><Mono>{d.id}</Mono> · {d.city}</>, right: d => <StatusChip status={d.status} /> }} />
+        mobile={{ av: d => <Avatar n="shop" tone={d.status === 'Active' ? 'blue' : d.status === 'Suspended' || d.status === 'Rejected' ? 'red' : 'amber'} />, title: d => d.name, sub: d => <>{isDealer(d) ? `Dealer under ${nameOf(d.distributorId)}` : 'Distributor'} · {d.city}</>, right: d => <StatusChip status={d.status} /> }} />
     </Box>
   </Page>;
 }
@@ -119,8 +125,17 @@ export function DealerProfile({ id }: { id?: string }) {
   const entries = state.entries.filter(e => e.dealerId === d.id);
   const history = state.audits.filter(x => x.ref === d.id).sort((x, y) => y.at.localeCompare(x.at));
   const actions: ('Approve' | 'Reject' | 'Suspend' | 'Activate')[] = d.status === 'Pending Approval' ? ['Reject', 'Approve'] : d.status === 'Active' ? ['Suspend'] : ['Activate'];
-  return <Page back title={d.name} sub={`${d.city} · ${dealerCode(d)} · ${d.status.toLowerCase()}`}
-    tabs={<Tabs value={tab} onChange={setTab} items={[['profile', 'Profile'], ['entries', `Entries ${entries.length}`], ['staff', 'Staff'], ['history', 'Status history']]} />}>
+  // head office → distributor → dealer (client, 2 Oct 2026)
+  const isDealer = d.kind === 'Dealer', parent = state.dealers.find(x => x.id === d.distributorId);
+  const children = state.dealers.filter(x => x.distributorId === d.id);
+  const tabItems: [string, string][] = [['profile', 'Profile'], ...(isDealer ? [] : [['dealers', `Dealers ${children.length}`] as [string, string]]), ['entries', `Entries ${entries.length}`], ['staff', 'Staff'], ['history', 'Status history']];
+  return <Page back title={d.name} sub={`${isDealer ? `Dealer under ${parent?.name || 'a distributor'}` : 'Distributor'} · ${d.city} · ${dealerCode(d)} · ${d.status.toLowerCase()}`}
+    tabs={<Tabs value={tab} onChange={setTab} items={tabItems} />}>
+    {isDealer && parent && <Banner tone="info" icon="people" style={{ marginBottom: 14 }}><B>Dealer under {parent.name}.</B> Added by the distributor, who approves this dealer’s requests first and sends its old batteries to head office. <B u onPress={() => a.go('dealer', parent.id)}>Open distributor</B></Banner>}
+    {tab === 'dealers' && <Box title={`Dealers under ${d.name}`} right={<Chip tone="mute" label="Added by the distributor in the app" />}>
+      {children.length ? <View style={{ paddingHorizontal: 14 }}>{children.map((c, i) => <Line key={c.id} last={i === children.length - 1} onPress={() => a.go('dealer', c.id)} av={<Avatar n="shop" tone={c.status === 'Active' ? 'green' : 'mute'} />}
+        title={c.name} sub={`${c.contact} · +91 ${c.mobile} · ${c.city}`} right={<StatusChip status={c.status} />} />)}</View>
+        : <X s={13.5} c={T.slate} style={{ padding: 14 }}>No dealers yet. The distributor adds them from the app (Profile → My dealers).</X>}</Box>}
     {tab === 'profile' && <Cols weights={[1.55, 1]}>
       <Card><CardH title="Business details" right={<StatusChip status={d.status} />} />
         <KV cols={a.wide ? 3 : 2} pairs={[['Contact person', d.contact], ['Mobile', `+91 ${d.mobile}`, 'mono'], ['Email', d.email || '—'], ['City · place', `${d.city} · ${d.place || '—'}`], ['PIN', d.pin, 'mono'], ['Dealer code', d.id, 'mono'], ['Address', d.address], ['State', d.state], ['Documents', d.documents?.join(', ') || 'None uploaded']]} />

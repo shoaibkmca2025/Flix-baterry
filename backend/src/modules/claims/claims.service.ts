@@ -5,6 +5,7 @@ import { AppError } from '../../utils/errors';
 import { issueInTx as issueCreditNoteInTx } from '../credits/credits.service';
 import { findBatteryById } from '../batteries/batteries.repository';
 import { postMovementInTx } from '../stock/stock.service';
+import { distributorShopIds } from '../dealers/dealers.service';
 import type { claimStatus } from '../../models/claims.model';
 import * as repo from './claims.repository';
 import type { ClaimCheckBody, ClaimDecideBody, ClaimListQuery } from './claims.validation';
@@ -37,8 +38,10 @@ async function moveOldBattery(
 }
 
 export async function dispatch(ctx: Ctx, id: string) {
-  requireUser(ctx);
+  const user = requireUser(ctx);
   const claim = await loadClaimForTransition(id, 'raised');
+  // a shop sends back only through its distributor: his own claims and his dealers' (client, 2 Oct 2026)
+  if (user.scope === 'dealer' && !(await distributorShopIds(ctx)).has(claim.dealerId)) throw new AppError('claim_not_found', 404, 'Claim not found.');
   return withTransaction(async (tx) => {
     // the old battery leaves the dealer's counter — custody transit, state unchanged (stock ledger)
     await moveOldBattery(tx, ctx, claim, { toState: 'returned', toCustodian: 'transit', reasonCode: 'claim_dispatched' });

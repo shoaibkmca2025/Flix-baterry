@@ -11,7 +11,8 @@ import { Entry, today, validateEntry } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, Mono, Btn, BtnRow, Card, Chip, StatusChip, Kpis, SecT, Line, Avatar, Gap, AvTone } from '@felix/shared/ui/kit';
 import { Screen, AppBar, useD, useTr } from './shell';
-import { attention, avatarTone, refunds, dealerEntries, dShort, toSendBack, ageDays, needsNewBatteryPhoto } from '@felix/shared/data';
+import { attention, avatarTone, refunds, dealerEntries, dShort, toSendBack, ageDays, needsNewBatteryPhoto, isDealerShop } from '@felix/shared/data';
+import { DistributorCard } from './Network';
 
 /** Sends everything saved on this phone; invalid entries come back as serial exceptions. */
 export function useSyncNow() {
@@ -84,7 +85,10 @@ export function D07() {
   if (problems.length) alerts.push({ av: ['alert', 'red'], title: `${problems.length} ${problems.length === 1 ? 'request needs' : 'requests need'} your attention`, sub: problems.length === 1 ? `${problems[0].id} · ${problems[0].status === 'Conflict' ? 'head office has asked about the serial' : 'head office refused it — see why'}` : 'Tap to see what to fix', go: () => problems.length === 1 ? d.go('d19', problems[0].id) : d.go('d18', 'fix') });
   if (queued.length) alerts.push({ av: ['sync', 'amber'], title: `${queued.length} ${queued.length === 1 ? 'entry' : 'entries'} waiting to send`, sub: state.offline ? 'Saved on this phone · sends when signal returns' : 'Saved on this phone · tap to send now', go: sync });
   if (drafts.length) alerts.push({ av: ['pen', 'mute'], title: `${drafts.length} ${drafts.length === 1 ? 'entry' : 'entries'} not finished`, sub: 'Continue where you left off', go: () => d.go('d18', 'notsent') });
-  if (back.length) alerts.push({ av: ['truck', 'amber'], title: `${back.length} old ${back.length === 1 ? 'battery' : 'batteries'} to send back`, sub: `Oldest has been in your shop ${ageDays(back[back.length - 1].date)} days`, go: () => d.tab('d33') });
+  const underDistributor = isDealerShop(dealer);
+  // a dealer hands its old batteries to the distributor by hand; only a distributor sends them back
+  if (back.length && underDistributor) alerts.push({ av: ['truck', 'amber'], title: `${back.length} old ${back.length === 1 ? 'battery' : 'batteries'} to hand to your distributor`, sub: dealer.distributor ? `${dealer.distributor.name} · +91 ${dealer.distributor.mobile}` : 'Give them to your distributor', go: () => d.go('d18', 'rep') });
+  else if (back.length) alerts.push({ av: ['truck', 'amber'], title: `${back.length} old ${back.length === 1 ? 'battery' : 'batteries'} to send back`, sub: `Oldest has been in your shop ${ageDays(back[back.length - 1].date)} days`, go: () => d.tab('d33') });
   alerts.push({ av: ['check', 'green'], title: `${rf.monthCount} ${rf.monthCount === 1 ? 'battery' : 'batteries'} approved for refund this month`, sub: `${rf.checking.length} still being checked`, go: () => d.go('d37') });
   return <Screen tab="home" top={<AppBar dark left={<View style={{ flex: 1 }}><X s={12} c={T.deepText}>Welcome back</X><X s={20} w={7} f="c" c={T.white} numberOfLines={1}>{dealer.name}</X></View>} />}>
     <Kpis items={[
@@ -96,6 +100,8 @@ export function D07() {
     <Gap h={13} />
     <Btn kind="primary" big icon="plus" label={tr('New replacement')} onPress={() => { d.setFlow(null); d.go('d10'); }} />
     <BtnRow><Btn icon="scan" label={tr('Scan')} onPress={() => d.tab('d23')} /><Btn kind="ghost" icon="search" label={tr('Find serial')} onPress={() => d.tab('d23')} /></BtnRow>
+    {!underDistributor && <Btn kind="ghost" icon="people" label="My dealers" style={{ marginTop: 9 }} onPress={() => d.go('d40')} />}
+    {underDistributor && dealer.distributor && <><Gap h={13} /><DistributorCard name={dealer.distributor.name} mobile={dealer.distributor.mobile} contact={dealer.distributor.contact} /></>}
     <SecT title="Recent entries" />
     <Card>{all.length ? all.slice(0, 4).map((e, i, a) => <EntryLine key={e.id} e={e} last={i === a.length - 1} onPress={() => openEntry(d, d.setFlow, e)} />)
       : <X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>No entries yet. Tap “New replacement” to record the first one.</X>}</Card>
@@ -111,11 +117,14 @@ export function D09() {
   return <Screen tab="user" top={<AppBar title="Profile & settings" />}>
     <Card style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
       <View style={{ width: 52, height: 52, borderRadius: 9, backgroundColor: T.steelSoft, alignItems: 'center', justifyContent: 'center' }}><Avatar n="shop" /></View>
-      <View style={{ flex: 1 }}><X s={17} w={7}>{dealer.name}</X><X s={12.5} c={T.slate}>{dealer.code || dealer.id} · {dealer.city}</X></View>
+      <View style={{ flex: 1 }}><X s={17} w={7}>{dealer.name}</X><X s={12.5} c={T.slate}>{dealer.code || dealer.id} · {dealer.city}</X>
+        <X s={12.5} w={6} c={T.steel}>{isDealerShop(dealer) ? `Dealer${dealer.distributor ? ` · under ${dealer.distributor.name}` : ''}` : 'Distributor'}</X></View>
       <StatusChip status={dealer.status} /></Card>
     <SecT title="Account" />
-    <Card>{([['Shop profile & documents', 'shop', 'd06'], ['Refunds', 'check', 'd37'], ['Change password', 'lock', 'd03']] as const).map((r, i) =>
-      <Line key={r[0]} last={i === 2} onPress={() => d.go(r[2])} av={<Avatar n={r[1]} tone="mute" />} title={r[0]} chev />)}</Card>
+    <Card>{(isDealerShop(dealer)
+        ? [['Shop profile & documents', 'shop', 'd06'], ['Refunds', 'check', 'd37'], ['Change password', 'lock', 'd03']] as const
+        : [['My dealers', 'people', 'd40'], ['Shop profile & documents', 'shop', 'd06'], ['Refunds', 'check', 'd37'], ['Change password', 'lock', 'd03']] as const).map((r, i, rows) =>
+      <Line key={r[0]} last={i === rows.length - 1} onPress={() => d.go(r[2])} av={<Avatar n={r[1]} tone="mute" />} title={r[0]} chev />)}</Card>
     <SecT title="App" />
     <Card>
       <Line onPress={() => setState(s => ({ ...s, language: s.language === 'English' ? 'मराठी' : 'English' }))} av={<Avatar n="doc" tone="mute" />} title="Language" sub="English · मराठी" right={<Chip tone="info" label={state.language} />} />

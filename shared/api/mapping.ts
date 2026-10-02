@@ -188,6 +188,8 @@ export function toDealer(d: ApiDealer, cityName: (id: string) => string): Dealer
     state: d.state,
     status: DEALER_STATUS[d.status],
     reason: d.statusReason ?? undefined,
+    kind: d.kind === 'dealer' ? 'Dealer' : 'Distributor',
+    distributorId: d.distributorId ?? undefined,
   };
 }
 
