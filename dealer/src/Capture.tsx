@@ -63,7 +63,10 @@ function dealerWarnings(e: Entry, state: State): { key: string; text: string }[]
     if (isValidDigits(it.code, lengths)) { const near = recent.find(c => c.model === it.model && c.digits.length === it.code.length && Math.abs(Number(c.digits) - Number(it.code)) === 1); if (near) out.push({ key: `items.${i}.code`, text: `Serial ${it.code} is close to ${it.model} ${near.digits} already recorded this month.` }); }
     // No "old battery not on record" warning: most old batteries were sold before this system,
     // so being off record is normal — the cover is read from the label (D-11; client, 2 Oct 2026).
-    if (e.type === 'Replacement' && !photoOf(e, tagFor('Old battery', i))) out.push({ key: `photos.${i}`, text: `Item ${i + 1} has no photo of the old battery.` });
+    // No "no photo of the old battery" warning either: only the NEW battery's photo is required
+    // (client, 2 Oct 2026). The old battery goes back to head office to be opened and checked, so
+    // a photo of it proves nothing a dealer should be chased for — the tile is still there for
+    // anyone who wants to attach one.
   });
   if (e.type !== 'Replacement' && !e.customer.trim()) out.push({ key: 'items.0.customer', text: 'No dealer or customer name is on this entry.' });
   return out;
@@ -630,7 +633,7 @@ export function D15() {
   const tiles = rep ? ['Old battery', 'New label', 'New battery', 'Fitted in vehicle'] : ['Returned battery', 'Label', 'Condition', 'Other'];
   const g = parseGps(e.gps);
   return <Screen top={<AppBar title="Photos and proof" back={rep ? 'd31' : 'd13'} right={<Chip tone="mute" label="Step 3 of 3" />} />}>
-    <Banner tone="info" icon="cam" style={{ marginBottom: 13 }}>{rep ? 'Photos settle warranty arguments later. For a replacement, the photo of the new battery (its label) is required; add the old battery too.' : 'Photos settle arguments later. Add the returned battery and its label.'}</Banner>
+    <Banner tone="info" icon="cam" style={{ marginBottom: 13 }}>{rep ? 'Only the photo of the new battery (its label) is required. The rest are optional — add them if they help settle a warranty argument later.' : 'Photos settle arguments later. Add the returned battery and its label.'}</Banner>
     {[0, 2].map(r => <View key={r} style={{ flexDirection: 'row', gap: 9, marginTop: r ? 9 : 0 }}>{tiles.slice(r, r + 2).map(t => {
       const tag = tagFor(t, i), uri = photoOf(e, tag);
       return <Photo key={t} label={uri ? `${t} ✓` : t} uri={uri} onPress={async () => { const u = await takePhoto(d.toast); if (u) upd(withPhoto(e, tag, u)); }} />;
