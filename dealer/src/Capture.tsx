@@ -561,7 +561,7 @@ export function D31() {
   const token = useAccessToken();
   if (!f) return null;
   const e = f.entry, it = e.items[f.cur];
-  const { lookup } = useLiveLookup(it.oldSerial, token, it.oldModel, state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS);
+  const { lookup } = useLiveLookup(it.oldSerial, token, it.oldModel, anyDigitLengths(state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS)); // any form we have issued, 9 digits included
   // not sold through the app: its cover is worked out from the label (D-11) — normal, not a problem
   const labelCover = lookup && !(lookup.found && lookup.cover.warrantyStart) ? lookup.cover : null;
   // memory.md D-03: a replacement only ever inherits dates from a real chain, so a battery
@@ -661,7 +661,7 @@ export function D15() {
 function ReviewItem({ it, i, e, rep, token }: { it: Item; i: number; e: Entry; rep: boolean; token: string | null }) {
   const { state } = useStore();
   // the old battery's own model and the accepted lengths, as on its own screen (d11)
-  const { lookup } = useLiveLookup(rep ? it.oldSerial : '', token, it.oldModel, state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS);
+  const { lookup } = useLiveLookup(rep ? it.oldSerial : '', token, it.oldModel, anyDigitLengths(state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS));
   // On record or not, the lookup knows the cover: from the first sale in its chain, or else
   // from the label's manufacture month + the model's term (D-11). Only a chain carries over.
   const cover = rep && lookup ? lookup.cover : null, chained = !!(lookup?.found && lookup.cover.warrantyStart);
