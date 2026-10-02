@@ -289,6 +289,9 @@ export function EntryDetail({ id }: { id?: string }) {
   const e = state.entries.find(x => x.id === ref);
   // the dealer's photos, read from the server with signed links (D-10)
   const [serverPhotos, setServerPhotos] = useState<ShownPhoto[] | null>(null);
+  // why there are none, when there are none: "the dealer sent none" and "we could not fetch them"
+  // looked identical before, so a broken link read as a dealer who had not taken the photo
+  const [photoError, setPhotoError] = useState('');
   const [one, setOne] = useState<{ u: Entry; kind: 'approve' | 'reject' } | null>(null);
   // review / correct act on ONE battery (client, 2 Oct 2026) — the card's item, not the request
   const [workOn, setWorkOn] = useState<{ itemId: string; n: number; kind: 'review' | 'correct'; code: string; oldSerial: string } | null>(null);
@@ -299,9 +302,10 @@ export function EntryDetail({ id }: { id?: string }) {
     if (!e?.apiId) { setServerPhotos(null); return; }
     let alive = true;
     setServerPhotos(null);
+    setPhotoError('');
     getAccessToken().then(t => (t ? listPhotos(e.apiId!, t) : null))
       .then(r => { if (alive) setServerPhotos(r ? r.items.map(p => ({ key: p.id, uri: p.url, tag: p.tag, itemSeq: p.itemSeq })) : []); })
-      .catch(() => { if (alive) setServerPhotos([]); });
+      .catch(err => { if (alive) { setServerPhotos([]); setPhotoError(errorMessage(err)); } });
     return () => { alive = false; };
   }, [e?.apiId]);
   if (!e) return <Page title="Entry" back><Empty icon="alert" title="Entry not found" text="It may have been opened from an old link." /></Page>;
@@ -366,6 +370,7 @@ export function EntryDetail({ id }: { id?: string }) {
               : mine.length ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9 }}>{mine.map(p => <Pressable key={p.key} accessibilityRole="imagebutton" accessibilityLabel={`Open photo: ${p.tag}`} onPress={() => open(p.uri)} style={{ width: 150 }}>
                   <Image source={{ uri: p.uri }} style={{ width: 150, height: 112, borderRadius: 9, backgroundColor: T.zinc2 }} resizeMode="cover" />
                   <X s={12} w={6} c={T.slate} style={{ marginTop: 4 }}>{p.tag === 'New label' ? 'New battery' : p.tag}</X></Pressable>)}</View>
+              : photoError ? <Banner tone="bad" icon="alert">The photos could not be loaded — {photoError}. This is not the dealer’s doing; try again, and tell the developer if it keeps happening.</Banner>
               : <X s={13} c={T.slate}>No photos for this battery{e.type === 'Replacement' ? ' — ask the dealer to send the new battery’s photo' : ''}.</X>}
             {perBattery && pending && <View style={{ marginTop: 13, paddingTop: 12, borderTopWidth: 1, borderTopColor: T.zinc2 }}>
               {decided ? <X s={13} c={T.slate}>{u.status === 'Approved' ? 'Approved for refund.' : `Rejected${u.decisionReason ? ` — ${u.decisionReason}` : '.'}`}</X>

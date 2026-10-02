@@ -32,6 +32,24 @@ const ENTRY_TYPE: Record<EntryWithItems['entryType'], string> = { replacement: '
 const ROLE_LABEL: Record<string, string> = { main_admin: 'Main Admin', co_admin: 'Co-Admin', operations: 'Operations', inventory_manager: 'Inventory manager', read_only: 'Read-only', dealer_manager: 'Dealer manager', dealer_user: 'Dealer user' };
 const USER_STATUS: Record<string, string> = { active: 'Active', temporarily_blocked: 'Blocked', inactive: 'Inactive', soft_deleted: 'Deleted' };
 
+/**
+ * What an audit event's before/after is worth showing a person. The server stores a payload per
+ * action, and most of it is plumbing — `{"lines":4,"entryIds":["bef5aecc-…"]}` on a dispatch
+ * tells a reader nothing and fills the timeline with raw JSON. So: a plain value shows as
+ * itself, a one-field object as that field's value (which is what makes 'submitted → approved'
+ * read), and anything bigger is left out. The event's own name and reason already say what
+ * happened (client, 2 Oct 2026).
+ */
+function auditValue(v: unknown): string | undefined {
+  if (v == null) return undefined;
+  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) return undefined;
+  const fields = Object.entries(v as Record<string, unknown>);
+  if (fields.length !== 1) return undefined;
+  const only = fields[0]![1];
+  return only == null || typeof only === 'object' ? undefined : String(only);
+}
+
 /** Where the old battery is, in the words the returns screens use (memory.md §1a flow). */
 export function returnStageOf(claim: ApiClaim | undefined): Entry['returnState'] {
   if (!claim) return undefined;
@@ -303,8 +321,8 @@ export async function fetchHydrated(session: Session, token: string): Promise<Hy
         ref: a.entityRef ?? a.entityId,
         reason: a.reason ?? '',
         at: a.at,
-        before: a.before == null ? undefined : JSON.stringify(a.before),
-        after: a.after == null ? undefined : JSON.stringify(a.after),
+        before: auditValue(a.before),
+        after: auditValue(a.after),
       }))
     : decisionAudits(entries);
 
