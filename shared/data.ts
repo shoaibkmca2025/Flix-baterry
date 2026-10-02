@@ -166,14 +166,18 @@ export const firstProblem = (e: Entry, state: State) =>
 
 export function challanHtml(c: Challan, d: Dealer) {
   const date = dLong(c.at).replace(/^(\d\d) (\w+) (\d+)$/, (_, dd, m, y) => `${dd} ${MONTH[MON.indexOf(m)]} ${y}`);
-  const rows = c.rows.map((r, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(r.serial)}</td><td>${escapeHtml(r.model)}</td><td>${escapeHtml(r.ref)}</td><td>${escapeHtml(r.fault)}</td></tr>`).join('');
+  // The last four are left empty on purpose: the plant, voltage, gravity and a remark are filled
+  // in by hand at the factory as each battery is opened and tested, then typed in later. Request
+  // Ref. came out to make room — the serial already identifies the battery (client, 3 Oct 2026).
+  const rows = c.rows.map((r, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(r.serial)}</td><td>${escapeHtml(r.model)}</td><td>${escapeHtml(r.fault)}</td><td class="w"></td><td class="w"></td><td class="w"></td><td class="w"></td></tr>`).join('');
   return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Challan ' + escapeHtml(c.no) + '</title>' +
     '<style>body{font-family:Arial,Helvetica,sans-serif;color:#1B2430;max-width:760px;margin:30px auto;padding:0 24px;font-size:13px;line-height:1.5}' +
     'h1{font-size:21px;text-align:center;margin:0;letter-spacing:.02em}.sub{text-align:center;color:#5B6878;font-size:12px;margin:3px 0 14px}' +
     'hr{border:0;border-top:2px solid #141A23;margin:0 0 14px}h2{font-size:14px;letter-spacing:.12em;text-align:center;text-transform:uppercase;margin:0 0 16px}' +
     '.m{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px;margin-bottom:16px}.m i{font-style:normal;color:#5B6878;font-size:11px}' +
     'table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px}th,td{border:1px solid #C4CDD8;padding:7px 8px;text-align:left}' +
-    'th{background:#EDF0F4;font-size:10.5px;letter-spacing:.05em}.tot{display:flex;justify-content:space-between;border-top:2px solid #141A23;padding-top:8px;font-weight:700;margin-bottom:16px}' +
+    'th{background:#EDF0F4;font-size:10.5px;letter-spacing:.05em}' +
+    'td{height:26px}.w{width:11%;background:#FCFCFD}'  /* the four written-in columns */ + '.tot{display:flex;justify-content:space-between;border-top:2px solid #141A23;padding-top:8px;font-weight:700;margin-bottom:16px}' +
     '.d{border-left:3px solid #E8A72C;padding-left:11px;color:#5B6878;font-size:11.5px;margin-bottom:34px}' +
     '.s{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;text-align:center;font-size:11px;color:#5B6878}.s div{border-top:1px solid #2B3746;padding-top:6px}' +
     '@media print{body{margin:0}}</style></head><body>' +
@@ -183,7 +187,7 @@ export function challanHtml(c: Challan, d: Dealer) {
     `<div><i>From · Distributor</i><br><b>${escapeHtml(d.name)}</b><br>${[d.place, d.city].filter(Boolean).map(escapeHtml).join(', ')} · ${escapeHtml(d.code || d.id)}</div>` +
     '<div><i>To</i><br><b>Felix Batteries Industries</b><br>Warehouse, Nashik</div>' +
     `<div><i>Vehicle</i><br><b>${escapeHtml(c.vehicle || '—')}</b></div><div><i>Collected by</i><br><b>${escapeHtml(c.driver || '—')}</b></div></div>` +
-    `<table><thead><tr><th>#</th><th>Serial No.</th><th>Model</th><th>Request Ref.</th><th>Reported fault</th></tr></thead><tbody>${rows}</tbody></table>` +
+    `<table><thead><tr><th>#</th><th>Serial No.</th><th>Model</th><th>Reported fault</th><th>Plant</th><th>Voltage</th><th>Gravity</th><th>Remark</th></tr></thead><tbody>${rows}</tbody></table>` +
     `<div class="tot"><span>Total batteries returned</span><span>${c.rows.length}</span></div>` +
     '<div class="d">Returned for warranty inspection only. No sale value. Each battery remains the property of Felix Batteries Industries. Claims are decided after inspection at the company.</div>' +
     '<div class="s"><div>Distributor signature</div><div>Driver signature</div><div>Received at company</div></div></body></html>';
