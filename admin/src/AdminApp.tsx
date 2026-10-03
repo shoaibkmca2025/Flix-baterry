@@ -11,7 +11,7 @@ import { ACtx, AdminCtx, ARoute, Dialog, Page, useA, useWide } from './ui';
 import { Home } from './Home';
 import { Approvals, Corrections, EntryDetail, Entries, NewEntry } from './Entries';
 import { specialWaiting } from '@felix/shared/data';
-import { Dealers, DealerProfile, Registrations, Customers } from './Dealers';
+import { Dealers, DealerProfile, NewDealer, Registrations } from './Dealers';
 import { Search, BatteryDetail, Warranty, Catalogue } from './Batteries';
 import { Stock, Returns, ByPlant } from './Stock';
 import { Reports } from './Reports';
@@ -25,19 +25,19 @@ export const NAV: [string, NavItem[]][] = [
     ['corrections', 'Correction requests', 'pen', s => s.entries.filter(e => e.correction?.status === 'Pending' || specialWaiting(e)).length],
     ['returns', 'Old battery returns', 'truck', s => s.entries.filter(e => e.returnState === 'In transit').length],
   ]],
-  ['Records', [['entries', 'All entries', 'list'], ['new', 'Record an entry', 'plus'], ['dealers', 'Distributors & dealers', 'shop'], ['registrations', 'New distributors', 'people', s => s.dealers.filter(d => d.status === 'Pending Approval').length], ['customers', 'Customers', 'user'], ['search', 'Battery search', 'search']]],
+  ['Records', [['entries', 'All entries', 'list'], ['new', 'Record an entry', 'plus'], ['dealers', 'Distributors & dealers', 'shop'], ['newdealer', 'Add a dealer', 'plus'], ['registrations', 'New distributors', 'people', s => s.dealers.filter(d => d.status === 'Pending Approval').length], ['search', 'Battery search', 'search']]],
   ['Warranty & stock', [['warranty', 'Warranty', 'shield', s => s.overrides.filter(o => o.status === 'Pending').length], ['stock', 'Stock', 'box'], ['plants', 'Batteries by plant', 'grid'], ['catalogue', 'Models & serial rules', 'batt']]],
   ['Reports', [['reports', 'Reports & exports', 'excel']]],
   ['Governance', [['audit', 'Audit log', 'lock'], ['team', 'Admin users & roles', 'people'], ['notifications', 'Notifications', 'bell'], ['settings', 'Settings & sync', 'gear']]],
 ];
-const MR: Record<string, string> = { Dashboard: 'डॅशबोर्ड', 'Requests to approve': 'मंजुरी', 'Old battery returns': 'जुन्या बॅटरी', 'All entries': 'सर्व नोंदी', 'Record an entry': 'नवीन नोंद', Dealers: 'डीलर', Customers: 'ग्राहक', 'Battery search': 'बॅटरी शोध', Warranty: 'हमी', Stock: 'साठा', 'Batteries by plant': 'प्लांटनुसार बॅटरी', 'Reports & exports': 'अहवाल', Notifications: 'सूचना', 'Settings & sync': 'सेटिंग्ज' };
+const MR: Record<string, string> = { Dashboard: 'डॅशबोर्ड', 'Requests to approve': 'मंजुरी', 'Old battery returns': 'जुन्या बॅटरी', 'All entries': 'सर्व नोंदी', 'Record an entry': 'नवीन नोंद', Dealers: 'डीलर', 'Add a dealer': 'नवीन डीलर', 'Battery search': 'बॅटरी शोध', Warranty: 'हमी', Stock: 'साठा', 'Batteries by plant': 'प्लांटनुसार बॅटरी', 'Reports & exports': 'अहवाल', Notifications: 'सूचना', 'Settings & sync': 'सेटिंग्ज' };
 const ROOTS = ['home', 'approvals', 'returns', 'search', 'more'];
 const SYNC_ROUTES = ['home', 'approvals', 'corrections', 'registrations', 'returns', 'entries', 'dealers', 'stock', 'plants', 'audit'];
 const POLL_MS = 30_000;
 
 const SCREENS: Record<string, React.ComponentType<{ id?: string }>> = {
   home: Home, approvals: Approvals, corrections: Corrections, registrations: Registrations, returns: Returns,
-  entries: Entries, entry: EntryDetail, new: NewEntry, dealers: Dealers, dealer: DealerProfile, customers: Customers,
+  entries: Entries, entry: EntryDetail, new: NewEntry, dealers: Dealers, dealer: DealerProfile, newdealer: NewDealer,
   search: Search, battery: BatteryDetail, warranty: Warranty, stock: Stock, plants: ByPlant, catalogue: Catalogue,
   reports: Reports, audit: AuditLog, team: Team, notifications: Notifications, settings: Settings, more: More,
 };

@@ -37,7 +37,7 @@ export function AuditLog() {
 }
 
 /* ---------- staff & admin accounts ---------- */
-const PERMS = ['Entries', 'Dealers', 'Inventory', 'Reports', 'Customers'];
+const PERMS = ['Entries', 'Dealers', 'Inventory', 'Reports'];
 const STAFF_STATES = ['Active', 'Temporarily Blocked', 'Inactive', 'Soft Deleted'];
 const ROLE_KEY: Record<string, string> = { 'Co-Admin': 'co_admin', 'Read-only': 'read_only', 'Operations': 'operations', 'Inventory Manager': 'inventory_manager', 'Inventory manager': 'inventory_manager', 'Dealer User': 'dealer_user', 'Dealer user': 'dealer_user', 'Dealer Manager': 'dealer_manager', 'Dealer manager': 'dealer_manager', 'Main Admin': 'main_admin' };
 const STATUS_KEY: Record<string, 'active' | 'temporarily_blocked' | 'inactive' | 'soft_deleted'> = { Active: 'active', 'Temporarily Blocked': 'temporarily_blocked', Blocked: 'temporarily_blocked', Inactive: 'inactive', 'Soft Deleted': 'soft_deleted', Deleted: 'soft_deleted' };
