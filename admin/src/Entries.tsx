@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Image, Pressable, Linking } from 'react-native';
 import { useStore } from '@felix/shared/store';
-import { Entry, Item, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approveEntry, correctionOf, deriveCode, fullCode, expiryFrom, today, isValidDigits, lengthsLabel, filterEntries, newEntry, newItem, normalize, uid, validateEntry, warranty, ENTRY_TYPES } from '@felix/shared/domain';
+import { Entry, Item, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approveEntry, correctionOf, deriveCode, fullCode, expiryFrom, today, isValidDigits, lengthsLabel, filterEntries, newEntry, newItem, normalize, uid, validateEntry, warranty, ENTRY_TYPES, RETURN_KINDS, RETURN_KIND_HELP, ReturnKind } from '@felix/shared/domain';
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, ChipRow, Label, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
@@ -766,8 +766,8 @@ export function NewEntry({ id }: { id?: string }) {
   const [entry, setEntry] = useState<Entry>(() => {
     const draft = state.entries.find(e => e.id === id && e.status === 'Draft');
     if (draft) return draft;
-    if (id?.startsWith('claim:')) { const b = findBattery(state, id.slice(6)); const e = { ...newEntry(b?.dealerId || active[0]?.id || '', 'Replacement'), id: nextEntryId(state), customer: b?.customer || '' }; e.items[0] = { ...e.items[0], oldSerial: id.slice(6), model: b?.model || 'M5' }; return e; }
-    return { ...newEntry(active[0]?.id || '', 'Replacement'), id: nextEntryId(state), place: active[0]?.place || '' };
+    if (id?.startsWith('claim:')) { const b = findBattery(state, id.slice(6)); const e = { ...newEntry(b?.dealerId || active[0]?.id || '', 'Replacement'), id: nextEntryId(state, 'Replacement'), customer: b?.customer || '' }; e.items[0] = { ...e.items[0], oldSerial: id.slice(6), model: b?.model || 'M5' }; return e; }
+    return { ...newEntry(active[0]?.id || '', 'Replacement'), id: nextEntryId(state, 'Replacement'), place: active[0]?.place || '' };
   });
   const [step, setStep] = useState(1), [errors, setErrors] = useState<Record<string, string>>({}), [scan, setScan] = useState<number | null>(null), [done, setDone] = useState<Entry | null>(null);
   const dealer = state.dealers.find(d => d.id === entry.dealerId);
@@ -842,8 +842,13 @@ export function NewEntry({ id }: { id?: string }) {
       <View style={{ height: 14 }} />
       {step === 1 && <Card>
         <Cols><Select label="Distributor / dealer" req value={dealer?.name || ''} options={active.map(d => ({ v: d.name, sub: `${d.code || d.id} · ${d.city}` }))} onChange={v => { const d = active.find(x => x.name === v)!; upd({ dealerId: d.id, place: d.place || entry.place }); }} />
-          <Select label="Entry type" req value={entry.type} options={[...ENTRY_TYPES]} onChange={type => upd({ type })}
+          {/* changing the type re-tags the draft (RP / SR) and drops a kind that no longer applies */}
+          <Select label="Entry type" req value={entry.type} options={[...ENTRY_TYPES]}
+            onChange={type => upd({ type, id: nextEntryId(state, type), returnKind: type === 'Sales Return' ? entry.returnKind ?? 'Unsold' : undefined })}
             hintIcon="batt" hint={entry.type === 'Replacement' ? 'An old battery came back and the customer was given a new one.' : 'A battery came back with nothing given in its place.'} /></Cols>
+        {entry.type === 'Sales Return' && <Select label="Why is it coming back?" req value={entry.returnKind || ''} options={RETURN_KINDS.map(k => ({ v: k, sub: RETURN_KIND_HELP[k] }))}
+          onChange={v => upd({ returnKind: v as ReturnKind })} error={errors.returnKind} hintIcon="truck"
+          hint="Both go back and come home working, with the same serial. This only says which it is." />}
         <Cols><Field label="Date" req mono value={entry.date} onChange={date => upd({ date })} ph="YYYY-MM-DD" error={errors.date} hint="Within the last 30 days." hintIcon="clock" />
           <Field label="Place / area" value={entry.place} onChange={place => upd({ place })} error={errors.place} ph={dealer?.place || dealer?.city || 'The dealer’s own area'} hint="Left blank, the dealer's own area is used." /></Cols>
         <Cols><Field label="Customer or sub-dealer" value={entry.customer} onChange={customer => upd({ customer })} ph="Customer or business name" />

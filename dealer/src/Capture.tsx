@@ -311,7 +311,7 @@ export function D10() {
   // nothing else on the form, but head office and the distributor sort by it (client, 3 Oct 2026).
   const [kind, setKind] = useState(false);
   const start = (type: string, returnKind?: ReturnKind) => {
-    d.setFlow({ entry: { ...newEntry(dealerId, type), id: nextEntryId(state), place: dealer.place || dealer.city, returnKind }, cur: 0, scanned: {} });
+    d.setFlow({ entry: { ...newEntry(dealerId, type), id: nextEntryId(state, type), place: dealer.place || dealer.city, returnKind }, cur: 0, scanned: {} });
     d.go(type === 'Replacement' ? 'd11' : 'd13');
   };
   return <Screen top={<AppBar title="What are you recording?" back="d07" />} overlay={
@@ -563,10 +563,10 @@ export function D13() {
         it to name, and a faulty one is easier to check if the dealer says what he saw
         (client, 3 Oct 2026). On a replacement it stays required, on the old-battery screen. */}
     {!rep && <>
-      <Label text={`What is wrong with it?${e.returnKind === 'Unsold' ? '' : ' *'}`} mr="काय बिघडले" />
+      <Label text="What is wrong with it?" mr="काय बिघडले" />
       <ChipRow options={FAULTS} value={it.fault || ''} onChange={v => item({ fault: it.fault === v ? '' : v })} />
       <Hint icon={e.returnKind === 'Unsold' ? 'box' : 'alert'} style={{ marginTop: -7, marginBottom: 12 }}>
-        {e.returnKind === 'Unsold' ? 'Unsold stock — leave this empty unless you saw something.' : 'Tap one if you know. Tap it again to clear it.'}
+        {e.returnKind === 'Unsold' ? 'Unsold stock — leave this empty unless you saw something.' : 'Optional. Tap one if you know what it is; tap it again to clear it.'}
       </Hint>
     </>}
     <Btn kind="primary" big iconAfter="chev" label={rep ? 'Next: check the warranty' : 'Next: photos and proof'} style={{ marginTop: 14 }} onPress={() => { if (!check()) return; saveDraft(); d.go(rep ? 'd31' : 'd15'); }} />

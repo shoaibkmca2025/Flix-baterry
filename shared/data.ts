@@ -1,4 +1,4 @@
-import { Battery, Challan, Dealer, Entry, State, anyDigitLengths, chainFor, deriveCode, expiryFrom, normalize, sameBattery, today, warranty, validateEntry, ENTRY_TYPES, tagOf } from './domain';
+import { Battery, Challan, Dealer, Entry, State, anyDigitLengths, chainFor, deriveCode, expiryFrom, normalize, sameBattery, today, warranty, validateEntry, ENTRY_TYPES, tagOf, TAG } from './domain';
 import { escapeHtml } from './html';
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -50,9 +50,16 @@ export const findBattery = (state: State, code: string) => state.batteries.find(
 export const dealerEntries = (state: State, dealerId: string) => state.entries.filter(e => e.dealerId === dealerId).sort((a, b) => (b.createdAt || b.date).localeCompare(a.createdAt || a.date));
 export const avatarTone = (status: string) => status === 'Approved' ? 'green' : status === 'Conflict' || status === 'Rejected' ? 'red' : status === 'Pending sync' ? 'amber' : status === 'Draft' ? 'mute' : 'blue';
 
-export function nextEntryId(state: State) {
-  const d = new Date(), stem = `ENT-${String(d.getFullYear()).slice(2)}-${pad(d.getMonth() + 1)}-`;
-  const max = state.entries.reduce((m, e) => { const r = /^ENT-\d\d-\d\d-(\d{4})$/.exec(e.id); return r ? Math.max(m, Number(r[1])) : m; }, 0);
+/**
+ * The number a draft wears while it is being filled in. The server mints the real one when the
+ * request is sent, from its own counter — this one only has to look right and be unique on the
+ * phone. It carries the tag the request will keep: RP or SR (client, 3 Oct 2026).
+ */
+export function nextEntryId(state: State, type = 'Replacement') {
+  const tag = TAG[type] ?? 'RP';
+  const d = new Date(), stem = `${tag}-${String(d.getFullYear()).slice(2)}-${pad(d.getMonth() + 1)}-`;
+  const re = new RegExp(`^${tag}-\d\d-\d\d-(\d{4})$`);
+  const max = state.entries.reduce((m, e) => { const r = re.exec(e.id); return r ? Math.max(m, Number(r[1])) : m; }, 0);
   return stem + String(max + 1).padStart(4, '0');
 }
 export function nextChallanNo(state: State) {

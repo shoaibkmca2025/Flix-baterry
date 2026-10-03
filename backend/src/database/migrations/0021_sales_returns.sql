@@ -13,13 +13,13 @@ ALTER TABLE entries ADD COLUMN return_kind return_kind;--> statement-breakpoint
 -- optional. Every claim already on record keeps exactly what it has.
 -- old_battery_id stays required: it is "the battery that went back", which a sales return has
 -- too — it is the whole point of one.
-ALTER TABLE claims ALTER COLUMN chain_id DROP NOT NULL;--> statement-breakpoint
-ALTER TABLE claims ALTER COLUMN new_battery_id DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE warranty_claims ALTER COLUMN chain_id DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE warranty_claims ALTER COLUMN new_battery_id DROP NOT NULL;--> statement-breakpoint
 
 -- Which kind of request a claim belongs to, so counts can be split by tag (RP / SR) without
 -- joining back to the entry. Everything already raised is a replacement.
 CREATE TYPE claim_kind AS ENUM ('replacement', 'sales_return');--> statement-breakpoint
-ALTER TABLE claims ADD COLUMN kind claim_kind NOT NULL DEFAULT 'replacement';--> statement-breakpoint
+ALTER TABLE warranty_claims ADD COLUMN kind claim_kind NOT NULL DEFAULT 'replacement';--> statement-breakpoint
 
 -- One challan carries both, in two sections. The line says which section it belongs to, so the
 -- challan can be grouped and printed without reading back through the entries.

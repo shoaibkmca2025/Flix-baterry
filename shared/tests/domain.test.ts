@@ -67,7 +67,8 @@ test('a 7-digit code validates: the serial is 3 digits, not 4 (client, 27 Sep)',
   serialDigitLengths:[7,8],batteries:[],entries:[],overrides:[],policies:[{id:'POL-01',months:24,alertDays:30}]};
  // the lengths a NEW battery may use, so a 9-digit code derives its 5-digit serial here too
  const entryWith=(model:string,typed:string,type='Regular Sales')=>{const d=deriveCode(typed,[],anyDigitLengths(state.serialDigitLengths));
-  return {...newEntry('dealer-1',type),place:'Nashik',items:[{...newItem(),model,code:typed,serial:d.serial,mfg:d.mfg}]};};
+  // a sales return must say which kind it is (client, 3 Oct 2026); that is not what this test is about
+  return {...newEntry('dealer-1',type),place:'Nashik',...(type==='Sales Return'?{returnKind:'Unsold' as const}:{}),items:[{...newItem(),model,code:typed,serial:d.serial,mfg:d.mfg}]};};
  // All three plants are in use on new stock, so 7, 8 and 9 digits are all accepted on a NEW
  // battery (client, 2 Oct 2026). The serial is whatever follows the YYMM, so its length follows.
  assert.deepEqual(validateEntry(entryWith('I700','2609532','Sales Return'),state),{}); // the client's own entry

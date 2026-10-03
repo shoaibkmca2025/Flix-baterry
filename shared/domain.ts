@@ -272,6 +272,8 @@ export const newItem = (): Item => ({id:uid('ITEM'),model:'',code:'',serial:'',o
 export const newEntry = (dealerId: string, type = 'Replacement'): Entry => ({id:uid('ENT'),dealerId,type,date:today(),customer:'',place:'Sakri Road',order:'',remarks:'',items:[newItem()],status:'Draft',evidence:[],createdAt:new Date().toISOString(),retries:0});
 export function validateEntry(e: Entry, state: State): Record<string,string> {
   const errors: Record<string,string>={};
+  // a sales return says which kind it is; the server refuses one that does not (client, 3 Oct 2026)
+  if(e.type==='Sales Return'&&!e.returnKind) errors.returnKind='Say whether this is unsold stock or a faulty battery.';
   const age=(Date.parse(today())-Date.parse(e.date))/86400000;
   if(!/^\d{4}-\d{2}-\d{2}$/.test(e.date)||!Number.isFinite(age)||age<0||age>30) errors.date='Choose a valid date within the last 30 days.';
   // Place is not asked for any more (client, 3 Oct 2026): it is the dealer's own shop on almost
