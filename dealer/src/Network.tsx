@@ -9,7 +9,7 @@ import { listPhotos, type EntryPhoto } from '@felix/shared/api/photos';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Btn, Card, Chip, StatusChip, Field, Hint, Banner, Line, Avatar, Gap, KV, SecT, Plate, PlateLab, PlateVal, tap, AdminChip } from '@felix/shared/ui/kit';
 import { PickList } from '@felix/shared/ui/pick';
-import { dLong, dShort, monthShort, tShort, distributorStage, specialLine, specialOutcome, type DistributorStage } from '@felix/shared/data';
+import { dLong, dShort, monthShort, tShort, distributorStage, specialLine, specialOutcome, type DistributorStage, inheritedArea } from '@felix/shared/data';
 import { getAccessToken, dealerStatusLabel } from '@felix/shared/api/session';
 import { createMyDealer, listMyDealers, setMyDealerStatus, type ApiDealer } from '@felix/shared/api/dealers';
 import { ApiError, errorMessage } from '@felix/shared/api/client';
@@ -72,9 +72,11 @@ export function D40() {
 
 /* d41 · add a dealer */
 export function D41() {
-  const d = useD();
-  const cities = useCities();
-  const [f, setF] = useState({ name: '', contact: '', mobile: '', email: '', city: '', district: '', state: '', place: '', address: '' });
+  const d = useD(); const { state, dealerId } = useStore();
+  // A dealer he adds is almost always in his own state and district, and both are on his record
+  // already — so the form starts there rather than asking him again (client, 4 Oct 2026).
+  const me = state.dealers.find(x => x.id === dealerId);
+  const [f, setF] = useState({ name: '', contact: '', mobile: '', email: '', city: '', place: '', address: '', ...inheritedArea(me) });
   const [err, setErr] = useState<Record<string, string>>({}), [pick, setPick] = useState<{ title: string; options: string[]; value: string; onPick: (v: string) => void } | null>(null), [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (v: string) => { setF(x => ({ ...x, [k]: v })); setErr(e => ({ ...e, [k]: '' })); };
   const submit = async () => {

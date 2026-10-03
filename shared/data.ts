@@ -276,7 +276,7 @@ export function challanHtml(c: Challan, d: Dealer) {
     '<h1>FELIX BATTERIES INDUSTRIES</h1><div class="sub">Battery Distribution &amp; Warranty Operations · Nashik, Maharashtra</div><hr>' +
     '<h2>Material Return Challan</h2>' +
     `<div class="m"><div><i>Challan No.</i><br><b>${escapeHtml(c.no)}</b></div><div><i>Date</i><br><b>${date}</b></div>` +
-    `<div><i>From · Distributor</i><br><b>${escapeHtml(d.name)}</b><br>${[d.place, d.city].filter(Boolean).map(escapeHtml).join(', ')} · ${escapeHtml(d.code || d.id)}</div>` +
+    `<div><i>From · Distributor</i><br><b>${escapeHtml(d.name)}</b><br>${escapeHtml([d.place, d.city, d.district, d.state].filter(Boolean).join(', '))} · ${escapeHtml(d.code || d.id)}</div>` +
     '<div><i>To</i><br><b>Felix Batteries Industries</b><br>Warehouse, Nashik</div>' +
     `<div><i>Vehicle</i><br><b>${escapeHtml(c.vehicle || '—')}</b></div><div><i>Collected by</i><br><b>${escapeHtml(c.driver || '—')}</b></div></div>` +
     sections +
@@ -301,6 +301,23 @@ export function salesReturnsOf(state: State, serial: string, modelId?: string) {
       && e.items.some(i => sameBattery(i.code, i.model, serial, modelId)))
     .sort((a, b) => (b.decidedAt || b.date).localeCompare(a.decidedAt || a.date));
 }
+
+/**
+ * Where a shop is, read off its own record — never typed again (client, 4 Oct 2026).
+ *
+ * The shop's address is asked for once, when it is registered or added. Every screen that needs
+ * to know where a request came from, or where to send a battery, reads it from here instead of
+ * asking someone to key the place, district and address in a second time.
+ */
+export const placeOf = (d?: { place?: string; city?: string }) => d?.place?.trim() || d?.city?.trim() || '';
+
+/** The shop's address on one line, as much of it as is on record. */
+export const addressLine = (d?: { place?: string; city?: string; district?: string; state?: string; address?: string }) =>
+  [d?.address, d?.place, d?.city, d?.district, d?.state].map(x => x?.trim()).filter(Boolean).join(' · ');
+
+/** What a new shop under this one starts with: the same state and district, which it almost always is. */
+export const inheritedArea = (parent?: { state?: string; district?: string }) =>
+  ({ state: parent?.state?.trim() || '', district: parent?.district?.trim() || '' });
 
 /** Requests that still hold a battery: a serial on one of these cannot be used on another. */
 const OPEN_ELSEWHERE = ['Submitted', 'Under Review', 'Conflict', 'Pending sync'];

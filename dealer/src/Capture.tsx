@@ -8,7 +8,7 @@ import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banne
 import { Screen, AppBar, Sheet, useD, useAbove } from './shell';
 import { PickList } from '@felix/shared/ui/pick';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
-import { coverChip, dLong, entryErrors, findBattery, monYear, monthLong, monthShort, needsNewBatteryPhoto, newPhotoTag, nextEntryId, roleOf, span, spanLong, spanShort, tShort, salesReturnsOf, dShort } from '@felix/shared/data';
+import { coverChip, dLong, entryErrors, findBattery, monYear, monthLong, monthShort, needsNewBatteryPhoto, newPhotoTag, nextEntryId, roleOf, span, spanLong, spanShort, tShort, salesReturnsOf, dShort, placeOf } from '@felix/shared/data';
 import { useAccessToken } from '@felix/shared/api/session';
 import { lookupBattery, type BatteryLookupResult } from '@felix/shared/api/batteries';
 import { createEntry } from '@felix/shared/api/entries';
@@ -312,7 +312,7 @@ export function D10() {
   // nothing else on the form, but head office and the distributor sort by it (client, 3 Oct 2026).
   const [kind, setKind] = useState(false);
   const start = (type: string, returnKind?: ReturnKind) => {
-    d.setFlow({ entry: { ...newEntry(dealerId, type), id: nextEntryId(state, type), place: dealer.place || dealer.city, returnKind }, cur: 0, scanned: {} });
+    d.setFlow({ entry: { ...newEntry(dealerId, type), id: nextEntryId(state, type), place: placeOf(dealer), returnKind }, cur: 0, scanned: {} });
     d.go(type === 'Replacement' ? 'd11' : 'd13');
   };
   return <Screen top={<AppBar title="What are you recording?" back="d07" />} overlay={

@@ -104,3 +104,31 @@ test('changing the state drops a district that does not belong to it', () => {
   assert.equal(withState(a, 'Gujarat').district, '', 'Nashik is not in Gujarat');
   assert.equal(withState(a, 'Maharashtra').district, 'Nashik', 'and choosing the same state keeps it');
 });
+
+/* ---------- an address is asked for once (client, 4 Oct 2026) ---------- */
+
+import { placeOf, addressLine, inheritedArea } from '../data';
+
+test('a request takes its place off the shop, in the order a person would say it', () => {
+  assert.equal(placeOf({ place: 'MIDC Ambad', city: 'Nashik' }), 'MIDC Ambad');
+  assert.equal(placeOf({ place: '', city: 'Nashik' }), 'Nashik', 'the town when there is no area');
+  assert.equal(placeOf({ place: '  ', city: '  ' }), '', 'and nothing when the record says nothing');
+  assert.equal(placeOf(undefined), '');
+});
+
+test('the whole address reads as one line, skipping what is not on record', () => {
+  assert.equal(
+    addressLine({ address: 'Shop 4', place: 'MIDC', city: 'Sinnar', district: 'Nashik', state: 'Maharashtra' }),
+    'Shop 4 · MIDC · Sinnar · Nashik · Maharashtra');
+  // a shop recorded before districts existed has none, and the line simply does without it
+  assert.equal(addressLine({ address: 'Shop 4', city: 'Nashik', state: 'Maharashtra' }), 'Shop 4 · Nashik · Maharashtra');
+  assert.equal(addressLine(undefined), '');
+});
+
+test('a new shop starts in its distributor\'s area, and nothing else of his', () => {
+  const parent = { state: 'Maharashtra', district: 'Nashik', city: 'Nashik', address: 'His shop' };
+  assert.deepEqual(inheritedArea(parent), { state: 'Maharashtra', district: 'Nashik' });
+  // the town and street are the new shop's own — they are never carried over
+  assert.deepEqual(Object.keys(inheritedArea(parent)), ['state', 'district']);
+  assert.deepEqual(inheritedArea(undefined), { state: '', district: '' });
+});

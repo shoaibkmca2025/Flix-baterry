@@ -5,7 +5,7 @@ import { Entry, Item, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approv
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, ChipRow, Label, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
-import { approvedForRefund, batteryUnits, entryErrors, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, specialLine, specialOutcome, specialWaiting, tShort, monthShort, salesReturnsOf, monthLong } from '@felix/shared/data';
+import { approvedForRefund, batteryUnits, entryErrors, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, specialLine, specialOutcome, specialWaiting, tShort, monthShort, salesReturnsOf, monthLong, placeOf, addressLine } from '@felix/shared/data';
 import { listPhotos, splitTag, uploadEntryPhotos } from '@felix/shared/api/photos';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
@@ -769,7 +769,7 @@ export function NewEntry({ id }: { id?: string }) {
     const draft = state.entries.find(e => e.id === id && e.status === 'Draft');
     if (draft) return draft;
     if (id?.startsWith('claim:')) { const b = findBattery(state, id.slice(6)); const e = { ...newEntry(b?.dealerId || active[0]?.id || '', 'Replacement'), id: nextEntryId(state, 'Replacement'), customer: b?.customer || '' }; e.items[0] = { ...e.items[0], oldSerial: id.slice(6), model: b?.model || 'M5' }; return e; }
-    return { ...newEntry(active[0]?.id || '', 'Replacement'), id: nextEntryId(state, 'Replacement'), place: active[0]?.place || '' };
+    return { ...newEntry(active[0]?.id || '', 'Replacement'), id: nextEntryId(state, 'Replacement'), place: placeOf(active[0]) };
   });
   const [step, setStep] = useState(1), [errors, setErrors] = useState<Record<string, string>>({}), [scan, setScan] = useState<number | null>(null), [done, setDone] = useState<Entry | null>(null);
   const dealer = state.dealers.find(d => d.id === entry.dealerId);
@@ -784,7 +784,7 @@ export function NewEntry({ id }: { id?: string }) {
   // Place is optional to type (client, 3 Oct 2026) but the column is NOT NULL, so whatever is
   // sent falls back to the dealer's own area. One definition, used by both the live send and
   // the local save, so the two cannot disagree about what was recorded.
-  const placed = (): Entry => ({ ...entry, place: entry.place.trim() || dealer?.place || dealer?.city || 'Not stated' });
+  const placed = (): Entry => ({ ...entry, place: placeOf(dealer) || 'Not stated' });
   const save = (status: Entry['status']) => {
     const data = { ...placed(), status, createdAt: status === 'Draft' ? entry.createdAt : new Date().toISOString() };
     setState(s => audit({ ...s, entries: [data, ...s.entries.filter(e => e.id !== data.id)] }, status === 'Draft' ? 'Draft saved' : 'Entry submitted', data.id, status === 'Pending sync' ? 'Saved locally for sync' : `Recorded by head office for ${dealer?.name || data.dealerId}`));
@@ -864,7 +864,7 @@ export function NewEntry({ id }: { id?: string }) {
         <Cols><Select label="Distributor" req value={active.some(d => d.id === entry.dealerId) ? dealer?.name || '' : ''}
           ph={dealer && !active.some(d => d.id === entry.dealerId) ? `${dealer.name} is a dealer — choose its distributor` : 'Choose the distributor'}
           options={active.map(d => ({ v: d.name, sub: `${d.code || d.id} · ${d.city} · ${state.dealers.filter(x => x.distributorId === d.id).length} dealers` }))}
-          onChange={v => { const d = active.find(x => x.name === v)!; upd({ dealerId: d.id, place: d.place || entry.place }); }} />
+          onChange={v => { const d = active.find(x => x.name === v)!; upd({ dealerId: d.id, place: placeOf(d) }); }} />
           {/* changing the type re-tags the draft (RP / SR) and drops a kind that no longer applies */}
           <Select label="Entry type" req value={entry.type} options={[...ENTRY_TYPES]}
             onChange={type => upd({ type, id: nextEntryId(state, type), returnKind: type === 'Sales Return' ? entry.returnKind ?? 'Unsold' : undefined })}
@@ -873,7 +873,10 @@ export function NewEntry({ id }: { id?: string }) {
           onChange={v => upd({ returnKind: v as ReturnKind })} error={errors.returnKind} hintIcon="truck"
           hint="Both go back and come home working, with the same serial. This only says which it is." />}
         <Cols><Field label="Date" req mono value={entry.date} onChange={date => upd({ date })} ph="YYYY-MM-DD" error={errors.date} hint="Within the last 30 days." hintIcon="clock" />
-          <Field label="Place / area" value={entry.place} onChange={place => upd({ place })} error={errors.place} ph={dealer?.place || dealer?.city || 'The dealer’s own area'} hint="Left blank, the dealer's own area is used." /></Cols>
+          {/* The shop's address was asked for once, when it was added. It is read off its record
+              here rather than keyed in again (client, 4 Oct 2026). */}
+          <Field label="Place / area" readonly value={placeOf(dealer) || (dealer ? 'Not on their record' : '')}
+            ph="Choose the distributor first" hint={dealer ? addressLine(dealer) : 'From the distributor’s own record.'} hintIcon="pin" /></Cols>
         <Cols><Field label="Customer or sub-dealer" value={entry.customer} onChange={customer => upd({ customer })} ph="Customer or business name" />
           <Field label="Reference / order number" value={entry.order} onChange={order => upd({ order })} ph="Optional" /></Cols>
         <Field label="Remarks" req={entry.type === 'Other'} value={entry.remarks} onChange={remarks => upd({ remarks })} multiline error={errors.remarks} />

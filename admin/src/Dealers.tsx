@@ -4,7 +4,7 @@ import { useStore } from '@felix/shared/store';
 import { Dealer, uid } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar } from '@felix/shared/ui/kit';
-import { refunds, dLong, dShort, personOf, toSendBack } from '@felix/shared/data';
+import { refunds, dLong, dShort, personOf, toSendBack, inheritedArea } from '@felix/shared/data';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, Tabs, Dialog, ReasonDialog, Select, EntryTable, Empty, fmtAt, useA } from './ui';
 import { StaffManager } from './Governance';
 import { AddressBlock, addressErrors } from '@felix/shared/ui/address';
@@ -196,10 +196,18 @@ export function NewDealer() {
         <Field label="Mobile number" req mono numeric maxLength={10} value={f.mobile} onChange={v => set('mobile')(digits(v).slice(0, 10))} ph="9876543210" error={err.mobile}
           hint="They sign in with this number and the SMS code." hintIcon="phone" />
         <Field label="Email" value={f.email} onChange={set('email')} ph="name@shop.in (optional)" error={err.email} />
+        {/* Choosing the distributor fills the state and district he is in — a dealer under him is
+            almost always in the same area, and it is already on his record (client, 4 Oct 2026).
+            Both stay editable for the dealer who is not. */}
         <Select label="Distributor" req value={f.distributor} ph={distributors.length ? `Choose from ${distributors.length} distributor${distributors.length === 1 ? '' : 's'}` : 'No distributor to choose'}
-          options={distributors.map(d => ({ v: d.name, sub: `${d.city} · ${state.dealers.filter(x => x.distributorId === d.id).length} dealers` }))}
-          onChange={set('distributor')} error={err.distributor} hintIcon="people"
-          hint="This dealer's requests go to this distributor first, and its old batteries go to him." />
+          options={distributors.map(d => ({ v: d.name, sub: `${[d.city, d.district].filter(Boolean).join(' · ')} · ${state.dealers.filter(x => x.distributorId === d.id).length} dealers` }))}
+          onChange={v => {
+            const chosen = distributors.find(x => x.name === v);
+            const area = inheritedArea(chosen);
+            setF(x => ({ ...x, distributor: v, state: x.state || area.state, district: x.district || area.district }));
+            setErr(e => ({ ...e, distributor: '', state: '', district: '' }));
+          }} error={err.distributor} hintIcon="people"
+          hint="This dealer's requests go to this distributor first, and its old batteries go to him. Its state and district start from his." />
         <AddressBlock open={setPick} errors={err} Row={({ children }) => <Cols>{children}</Cols>}
           value={{ state: f.state, district: f.district, city: f.city, place: f.place, address: f.address }}
           onChange={a => { setF(x => ({ ...x, ...a })); setErr(e => ({ ...e, state: '', district: '', city: '', address: '' })); }} />
