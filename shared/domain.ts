@@ -19,6 +19,30 @@ export type Dealer = { id: string; code?: string; name: string; contact: string;
   kind?: 'Distributor' | 'Dealer'; distributorId?: string;
   /** a dealer's distributor, as its own session knows it (who to hand old batteries to) */
   distributor?: { id: string; name: string; mobile: string; contact: string } };
+/**
+ * Who a shop answers to, in its own words.
+ *
+ * A dealer never deals with head office: he hands his request and his old battery to his
+ * distributor, and the distributor carries both on (client, 3 Oct 2026). A distributor does deal
+ * with head office. Naming the wrong one on a screen sends a dealer chasing an office whose
+ * number he does not have.
+ *
+ * A shop from before the two tiers existed has no `kind` and is a distributor (see Dealer.kind),
+ * so it keeps reading "head office" — the wording it has always had.
+ */
+export function above(shop?: Pick<Dealer, 'kind' | 'distributor'>) {
+  const isDealer = shop?.kind === 'Dealer';
+  return {
+    isDealer,
+    /** mid-sentence: `waiting for ${above}` */
+    above: isDealer ? 'your distributor' : 'head office',
+    /** starting a sentence, or a button: `${Above} decision` */
+    Above: isDealer ? 'Your distributor' : 'Head office',
+    /** the distributor's real name once his session knows it, else the plain term */
+    aboveName: isDealer ? shop?.distributor?.name || 'your distributor' : 'head office',
+  };
+}
+
 export type Model = { id: string; plate?: string; modelNo?: string; brand?: string; plateCount?: number | null; type: string; capacity: string; months: number; threshold: number; active: boolean };
 export type Movement = { id: string; code: string; model: string; dealerId: string; from: string; to: string; reason: string; date: string };
 export type Audit = { id: string; actor: string; action: string; ref: string; reason: string; at: string; before?: string; after?: string };

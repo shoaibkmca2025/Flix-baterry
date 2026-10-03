@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { View, ScrollView, Pressable, StyleSheet, StyleProp, ViewStyle, Animated, PanResponder, Modal, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Entry } from '@felix/shared/domain';
+import { Entry, above } from '@felix/shared/domain';
 import type { Session } from '@felix/shared/api/session';
 import { useStore } from '@felix/shared/store';
 import { T } from '@felix/shared/ui/theme';
@@ -19,27 +19,10 @@ export type DealerCtx = {
 };
 export const DCtx = createContext<DealerCtx>(null!);
 
-/**
- * Who this shop answers to, in its own words.
- *
- * A dealer never deals with head office: he hands his request and his old battery to his
- * distributor, and the distributor carries both on (client, 3 Oct 2026). A distributor does deal
- * with head office. Naming the wrong one on a screen sends a dealer chasing someone whose number
- * he does not have — so every line that names the tier above reads it from here.
- */
+/** Who this shop answers to — the rule lives in shared/domain so it can be tested. */
 export function useAbove() {
   const { state, dealerId } = useStore();
-  const shop = state.dealers.find((x) => x.id === dealerId);
-  const isDealer = shop?.kind === 'Dealer';
-  return {
-    isDealer,
-    /** mid-sentence: `waiting for ${above}` */
-    above: isDealer ? 'your distributor' : 'head office',
-    /** starting a sentence, or a button: `${Above} decision` */
-    Above: isDealer ? 'Your distributor' : 'Head office',
-    /** the distributor's real name once his session knows it, else the plain term */
-    aboveName: isDealer ? shop?.distributor?.name || 'your distributor' : 'head office',
-  };
+  return above(state.dealers.find((x) => x.id === dealerId));
 }
 export const useD = () => useContext(DCtx);
 
