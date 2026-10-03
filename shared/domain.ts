@@ -180,7 +180,9 @@ export function validateEntry(e: Entry, state: State): Record<string,string> {
   const errors: Record<string,string>={};
   const age=(Date.parse(today())-Date.parse(e.date))/86400000;
   if(!/^\d{4}-\d{2}-\d{2}$/.test(e.date)||!Number.isFinite(age)||age<0||age>30) errors.date='Choose a valid date within the last 30 days.';
-  if(!e.place.trim()) errors.place='Enter the transaction location.';
+  // Place is not asked for any more (client, 3 Oct 2026): it is the dealer's own shop on almost
+  // every entry, so it is filled from their record when left blank rather than typed each time.
+  // The column is still NOT NULL on the server, so the apps must always send something.
   if(e.type==='Other'&&!e.remarks.trim()) errors.remarks='Explain the purpose of this entry.';
   if(!e.items.length) errors.items='Add at least one battery.';
   e.items.forEach((item,i)=>{

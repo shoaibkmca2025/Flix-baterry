@@ -594,8 +594,12 @@ export function NewEntry({ id }: { id?: string }) {
   const newMax = Math.max(...newLengths), oldMax = Math.max(...oldLengths);
   const upd = (v: Partial<Entry>) => setEntry(e => ({ ...e, ...v }));
   const item = (i: number, v: Partial<Item>) => setEntry(e => ({ ...e, items: e.items.map((it, j) => j === i ? { ...it, ...v } : it) }));
+  // Place is optional to type (client, 3 Oct 2026) but the column is NOT NULL, so whatever is
+  // sent falls back to the dealer's own area. One definition, used by both the live send and
+  // the local save, so the two cannot disagree about what was recorded.
+  const placed = (): Entry => ({ ...entry, place: entry.place.trim() || dealer?.place || dealer?.city || 'Not stated' });
   const save = (status: Entry['status']) => {
-    const data = { ...entry, status, createdAt: status === 'Draft' ? entry.createdAt : new Date().toISOString() };
+    const data = { ...placed(), status, createdAt: status === 'Draft' ? entry.createdAt : new Date().toISOString() };
     setState(s => audit({ ...s, entries: [data, ...s.entries.filter(e => e.id !== data.id)] }, status === 'Draft' ? 'Draft saved' : 'Entry submitted', data.id, status === 'Pending sync' ? 'Saved locally for sync' : `Recorded by head office for ${dealer?.name || data.dealerId}`));
     return data;
   };
@@ -607,7 +611,7 @@ export function NewEntry({ id }: { id?: string }) {
     if (!entryType) { a.toast('Only Replacement, Regular Sales and Sales Return can be recorded in this version.'); return; }
     setBusy(true);
     try {
-      const r = await apiCreateEntry({ ...buildEntryBody({ ...entry, type: entry.type }), entryType, dealerId: entry.dealerId, entryDate: entry.date }, token);
+      const r = await apiCreateEntry({ ...buildEntryBody(placed()), entryType, dealerId: entry.dealerId, entryDate: entry.date }, token);
       // the photos taken here go to the server too, so the review page shows them (D-10)
       const up = entry.evidence.length ? await uploadEntryPhotos(entry, r.id, token) : { failed: 0 };
       if (up.failed) a.toast(`${up.failed} ${up.failed === 1 ? 'photo' : 'photos'} could not be saved. The entry itself is recorded.`);
@@ -640,7 +644,8 @@ export function NewEntry({ id }: { id?: string }) {
     <View style={{ flex: 1 }} />
     {step < 4 ? <Btn kind="primary" iconAfter="chev" label="Continue" onPress={step === 3 ? () => setStep(4) : next} />
       : <Btn kind="primary" icon="check" label={state.offline ? 'Save and send later' : 'Send for approval'} onPress={() => {
-        const all = entryErrors(entry, state); setErrors(all); if (Object.keys(all).length) { a.toast('Some details need fixing — see the list above.'); return; }
+        // place is optional to type; fall back to the dealer's own area so the column is never empty
+        const all = entryErrors(placed(), state); setErrors(all); if (Object.keys(all).length) { a.toast('Some details need fixing — see the list above.'); return; }
         if (dealer?.status !== 'Active') { a.toast('This dealer is not active. Save a draft until the account is restored.'); return; }
         if (!state.offline && dealer && /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(dealer.id)) { sendLive(); return; }
         setDone(save(state.offline ? 'Pending sync' : 'Submitted'));
@@ -654,7 +659,7 @@ export function NewEntry({ id }: { id?: string }) {
         <Cols><Select label="Distributor / dealer" req value={dealer?.name || ''} options={active.map(d => ({ v: d.name, sub: `${d.code || d.id} · ${d.city}` }))} onChange={v => { const d = active.find(x => x.name === v)!; upd({ dealerId: d.id, place: d.place || entry.place }); }} />
           <Select label="Entry type" req value={entry.type} options={state.entryTypes} onChange={type => upd({ type })} /></Cols>
         <Cols><Field label="Date" req mono value={entry.date} onChange={date => upd({ date })} ph="YYYY-MM-DD" error={errors.date} hint="Within the last 30 days." hintIcon="clock" />
-          <Field label="Place / area" req value={entry.place} onChange={place => upd({ place })} error={errors.place} /></Cols>
+          <Field label="Place / area" value={entry.place} onChange={place => upd({ place })} error={errors.place} ph={dealer?.place || dealer?.city || 'The dealer’s own area'} hint="Left blank, the dealer's own area is used." /></Cols>
         <Cols><Field label="Customer or sub-dealer" value={entry.customer} onChange={customer => upd({ customer })} ph="Customer or business name" />
           <Field label="Reference / order number" value={entry.order} onChange={order => upd({ order })} ph="Optional" /></Cols>
         <Field label="Remarks" req={entry.type === 'Other'} value={entry.remarks} onChange={remarks => upd({ remarks })} multiline error={errors.remarks} />
