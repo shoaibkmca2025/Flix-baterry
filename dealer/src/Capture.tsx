@@ -314,7 +314,7 @@ export function D10() {
   return <Screen top={<AppBar title="What are you recording?" back="d07" />}>
     <Banner tone="info" icon="alert" style={{ marginBottom: 15 }}>Choose one. The next screen then asks only for what that choice needs — nothing extra.</Banner>
     {TYPES.map(t => <BigTile key={t[0]} icon={t[2]} title={t[0]} sub={t[1]} desc={t[4]} hot={t[3]} onPress={() => start(t[0])} />)}
-    <Hint icon="lock" style={{ marginTop: 4 }}>Only these two are switched on for your shop. More types can be switched on later without an app update.</Hint>
+    <Hint icon="lock" style={{ marginTop: 4 }}>These are the only two. Head office records the same two, so what you send and what they see are the same thing.</Hint>
   </Screen>;
 }
 

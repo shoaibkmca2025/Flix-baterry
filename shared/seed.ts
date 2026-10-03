@@ -1,4 +1,4 @@
-import { State, Entry, Battery } from './domain';
+import { State, Entry, Battery, ENTRY_TYPES } from './domain';
 const date='2026-09-14';
 const batteries:Battery[]=[
  {code:'21030047',serial:'0047',model:'M5',dealerId:'FPP-014',customer:'Suresh Transport',mfg:'2021-03',start:'2026-01-10',expiry:'2028-01-09',policy:'POL-01',state:'Returned'},
@@ -65,5 +65,5 @@ export const initialState:State={
  policies:[{id:'POL-01',months:24,effective:'2020-01-01',anchor:'Original sale',overrides:false,maxDays:0,alertDays:30}],
  notices:[{id:'N1',title:'Replacement ready for handover',body:'ENT-26-09-0394 has been approved. Confirm when the customer receives their battery.',route:'returns',read:false,dealerId:'FPP-014'},{id:'N2',title:'A little attention, a lot of power',body:'M5 stock is below the reorder threshold. Review available batteries.',route:'stock',read:false,dealerId:'FPP-014'},{id:'N3',title:'Warranty ending soon',body:'Battery 21040385 reaches the end of its cover on 1 October.',route:'warranty',read:false,dealerId:'FPP-014'}],
  staff:[{id:'U1',name:'S. Deshpande',email:'admin@example.com',role:'Main Admin',status:'Active',permissions:['All']},{id:'U2',name:'A. Kulkarni',email:'operations@example.com',role:'Co-Admin',status:'Active',permissions:['Entries','Dealers','Inventory','Reports']},{id:'U3',name:'Rahul Patil',email:'rahul@example.com',role:'Dealer Manager',dealerId:'FPP-014',status:'Active',permissions:['Entries','Inventory']}],
- reports:[{id:'R1',name:'Monthly replacement register',type:'Replacement',model:'All',status:'All',schedule:'Monthly · 1st'}],exports:[],overrides:[],cities:['Dhule','Nashik','Jalgaon','Malegaon'],entryTypes:['Replacement','Regular Sales','Goods Return','Repaired & Returned — Non Chargeable','Repaired & Returned — Chargeable','Received from Customer for Repairs','Material Sent for Repair','Standby / Returnable Basis','Given on Approval Basis','Given for Demo','Returned / Unrepaired','For Charging','Other'],lastSync:date+'T09:41:00',offline:false,language:'English',challans:[],smsAlerts:true
+ reports:[{id:'R1',name:'Monthly replacement register',type:'Replacement',model:'All',status:'All',schedule:'Monthly · 1st'}],exports:[],overrides:[],cities:['Dhule','Nashik','Jalgaon','Malegaon'],entryTypes:[...ENTRY_TYPES],lastSync:date+'T09:41:00',offline:false,language:'English',challans:[],smsAlerts:true
 };

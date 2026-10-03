@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Pressable } from 'react-native';
 import { useStore } from '@felix/shared/store';
-import { expiryFrom, filterEntries, today, uid, warranty } from '@felix/shared/domain';
+import { expiryFrom, filterEntries, today, uid, warranty, ENTRY_TYPES } from '@felix/shared/domain';
 import { columns, exportReport } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar } from '@felix/shared/ui/kit';
@@ -32,7 +32,7 @@ export function Reports() {
     {tab === 'build' && <Stack>
       <Box title="1 · Which entries" filters={<>
         <FilterPick label="Distributor / dealer" value={dealer} options={state.dealers.map(d => d.name)} onChange={setDealer} />
-        <FilterPick label="Type" value={type} options={state.entryTypes} onChange={setType} />
+        <FilterPick label="Type" value={type} options={[...ENTRY_TYPES]} onChange={setType} />
         <FilterPick label="Status" value={status} options={['Approved', 'Submitted', 'Under Review', 'Rejected', 'Conflict', 'Corrected', 'Cancelled']} onChange={setStatus} />
         <FilterPick label="Model" value={model} options={state.models.map(m => m.id)} onChange={setModel} />
         <DatePick label="From" value={from} onChange={setFrom} /><DatePick label="To" value={to} onChange={setTo} />

@@ -9,7 +9,7 @@ import { getAccessToken } from '@felix/shared/api/session';
 import { createAdmin, inviteStaff, listStaff, setAdminStatus, setStaffStatus, updateAdmin } from '@felix/shared/api/users';
 import { errorMessage } from '@felix/shared/api/client';
 import { useSync } from '@felix/shared/api/sync';
-import { Role, Staff, uid, validateEntry } from '@felix/shared/domain';
+import { Role, Staff, uid, validateEntry, ENTRY_TYPES } from '@felix/shared/domain';
 import { printHtml, escapeHtml } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Line, Avatar, OtpBoxes } from '@felix/shared/ui/kit';
@@ -167,7 +167,7 @@ export function Notifications() {
 /* ---------- settings, reference data, sync, health ---------- */
 export function Settings() {
   const a = useA(); const { state, setState, audit, role, canEdit } = useStore();
-  const [city, setCity] = useState(''), [type, setType] = useState('');
+  const [city, setCity] = useState('');
   const queue = state.entries.filter(e => ['Pending sync', 'Conflict'].includes(e.status));
   const { sync: refresh, syncing } = useSync();
   const sync = async () => {
@@ -199,10 +199,11 @@ export function Settings() {
           <X s={13} w={7} c={T.slate} style={{ marginBottom: 8 }}>Cities ({state.cities.length})</X>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>{state.cities.map(c => <Chip key={c} tone="info" icon="pin" label={c} />)}</View>
           {role === 'Main Admin' && canEdit && <View style={{ flexDirection: 'row', gap: 9, alignItems: 'flex-start' }}><Field style={{ flex: 1 }} value={city} onChange={setCity} ph="Add a city" /><Btn kind="ghost" label="Add" onPress={() => { const c = city.trim(); if (!c || state.cities.includes(c)) { a.toast(c ? 'That city is already listed.' : 'Type a city name.'); return; } setState(s => audit({ ...s, cities: [...s.cities, c] }, 'City added', 'MASTER', c)); setCity(''); }} /></View>}
-          <X s={13} w={7} c={T.slate} style={{ marginBottom: 8, marginTop: 6 }}>Entry types ({state.entryTypes.length})</X>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>{state.entryTypes.map(t => <Chip key={t} tone="mute" label={t} />)}</View>
-          {role === 'Main Admin' && canEdit && <View style={{ flexDirection: 'row', gap: 9, alignItems: 'flex-start' }}><Field style={{ flex: 1 }} value={type} onChange={setType} ph="Add an entry type" /><Btn kind="ghost" label="Add" onPress={() => { const t = type.trim(); if (!t || state.entryTypes.includes(t)) { a.toast(t ? 'That type already exists.' : 'Type a name.'); return; } setState(s => audit({ ...s, entryTypes: [...s.entryTypes, t] }, 'Entry type added', 'MASTER', t)); setType(''); }} /></View>}
-          <Hint icon="lock">Dealers see only Replacement and Sales Return. Other types are for head office entries.</Hint>
+          <X s={13} w={7} c={T.slate} style={{ marginBottom: 8, marginTop: 6 }}>Entry types ({ENTRY_TYPES.length})</X>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>{ENTRY_TYPES.map(t => <Chip key={t} tone="mute" label={t} />)}</View>
+          {/* Not a list anyone can add to: the server knows these two and nothing else, so a type
+              added here would have been recorded as a sales return (client, 3 Oct 2026). */}
+          <Hint icon="lock">These two, everywhere — the dealer app, the console and the server. A replacement gives the customer a new battery; a sales return takes one back with nothing given in its place.</Hint>
         </Card>
         <Card><CardH title="System health" />
           {[['App', 'Expo · React Native · running', 'live'], ['Data on this device', `${state.entries.length} entries · ${state.batteries.length} batteries · ${state.audits.length} audit events`, 'live'], ['Server / API', 'Not connected — preview works on this device', 'warn'], ['SMS & email', 'Not connected', 'warn'], ['Label reading (OCR)', 'Not connected — serials are scanned or typed', 'warn']].map((r, i, arr) =>

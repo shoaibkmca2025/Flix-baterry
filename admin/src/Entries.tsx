@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Image, Pressable, Linking } from 'react-native';
 import { useStore } from '@felix/shared/store';
-import { Entry, Item, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approveEntry, correctionOf, deriveCode, fullCode, expiryFrom, today, isValidDigits, lengthsLabel, filterEntries, newEntry, newItem, normalize, uid, validateEntry, warranty } from '@felix/shared/domain';
+import { Entry, Item, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approveEntry, correctionOf, deriveCode, fullCode, expiryFrom, today, isValidDigits, lengthsLabel, filterEntries, newEntry, newItem, normalize, uid, validateEntry, warranty, ENTRY_TYPES } from '@felix/shared/domain';
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, ChipRow, Label, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
@@ -248,7 +248,7 @@ export function Entries() {
     <Box filters={<>
       <SearchBox value={q} onChange={setQ} ph="Reference, serial, model or customer" />
       <FilterPick label="Distributor / dealer" value={dealer} options={state.dealers.map(d => d.name)} onChange={setDealer} />
-      <FilterPick label="Type" value={type} options={state.entryTypes} onChange={setType} />
+      <FilterPick label="Type" value={type} options={[...ENTRY_TYPES]} onChange={setType} />
       <FilterPick label="Status" value={status} options={['Draft', 'Pending sync', 'Submitted', 'Under Review', 'Approved', 'Rejected', 'Corrected', 'Conflict', 'Cancelled']} onChange={setStatus} />
       <FilterPick label="Model" value={model} options={state.models.map(m => m.id)} onChange={setModel} />
       <DatePick label="From" value={from} onChange={setFrom} /><DatePick label="To" value={to} onChange={setTo} />
@@ -831,7 +831,8 @@ export function NewEntry({ id }: { id?: string }) {
       <View style={{ height: 14 }} />
       {step === 1 && <Card>
         <Cols><Select label="Distributor / dealer" req value={dealer?.name || ''} options={active.map(d => ({ v: d.name, sub: `${d.code || d.id} · ${d.city}` }))} onChange={v => { const d = active.find(x => x.name === v)!; upd({ dealerId: d.id, place: d.place || entry.place }); }} />
-          <Select label="Entry type" req value={entry.type} options={state.entryTypes} onChange={type => upd({ type })} /></Cols>
+          <Select label="Entry type" req value={entry.type} options={[...ENTRY_TYPES]} onChange={type => upd({ type })}
+            hintIcon="batt" hint={entry.type === 'Replacement' ? 'An old battery came back and the customer was given a new one.' : 'A battery came back with nothing given in its place.'} /></Cols>
         <Cols><Field label="Date" req mono value={entry.date} onChange={date => upd({ date })} ph="YYYY-MM-DD" error={errors.date} hint="Within the last 30 days." hintIcon="clock" />
           <Field label="Place / area" value={entry.place} onChange={place => upd({ place })} error={errors.place} ph={dealer?.place || dealer?.city || 'The dealer’s own area'} hint="Left blank, the dealer's own area is used." /></Cols>
         <Cols><Field label="Customer or sub-dealer" value={entry.customer} onChange={customer => upd({ customer })} ph="Customer or business name" />

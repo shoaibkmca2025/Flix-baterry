@@ -1,4 +1,4 @@
-import { faultCode } from '../domain';
+import { ENTRY_TYPES, faultCode, isEntryType } from '../domain';
 import type { Entry } from '../domain';
 import type { EntryCreateInput, EntryItemInput, EntryType } from './entries';
 
@@ -13,6 +13,10 @@ import type { EntryCreateInput, EntryItemInput, EntryType } from './entries';
  * storage is Cloudinary, still open (memory.md D-10). Photos stay local-only for now.
  */
 export function buildEntryBody(e: Entry): EntryCreateInput {
+  // Two types exist, and nothing else may reach here. This used to read "anything that is not a
+  // replacement is a sales return", so the console's thirteen-item list quietly recorded Goods
+  // Return, For Charging and the rest as sales returns (client, 3 Oct 2026).
+  if (!isEntryType(e.type)) throw new Error(`${e.type} is not an entry type — use one of ${ENTRY_TYPES.join(' or ')}.`);
   const entryType: EntryType = e.type === 'Replacement' ? 'replacement' : 'sales_return';
   const items: EntryItemInput[] = e.items.map(it => ({
     modelId: it.model,

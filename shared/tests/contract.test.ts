@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildEntryBody } from '../api/entry-body';
+import { ENTRY_TYPES } from '../domain';
 import { EntryCreateBody } from '../../backend/src/modules/entries/entries.validation';
 
 /**
@@ -42,4 +43,26 @@ test('the server refuses a replacement with no fault — so the apps must ask fo
   assert.equal(r.success, false);
   // both the dealer app and the console now collect this before sending (shared/data entryErrors)
   assert.equal(r.success === false && r.error.issues[0]!.path.join('.'), 'items.0.faultCode');
+});
+
+/**
+ * Two entry types, and nothing else.
+ *
+ * The console offered thirteen — Goods Return, For Charging, Given for Demo — while the server
+ * has only `replacement` and `sales_return`, and this builder turned everything that was not a
+ * replacement into a sales return. Choosing "Given for Demo" therefore recorded a sales return,
+ * with nothing anywhere to say so (client, 3 Oct 2026).
+ */
+test('both apps offer the same two entry types, and the server knows them', () => {
+  assert.deepEqual([...ENTRY_TYPES], ['Replacement', 'Sales Return']);
+  for (const type of ENTRY_TYPES) {
+    const e = entry({ type, ...(type === 'Sales Return' ? { items: [{ ...entry().items[0]!, oldSerial: '', fault: '' }] } : {}) });
+    assert.equal(sent(e).success, true, `${type} was refused by the server`);
+  }
+});
+
+test('a type that is not one of the two is refused here, not turned into a sales return', () => {
+  for (const type of ['Goods Return', 'For Charging', 'Given for Demo', '']) {
+    assert.throws(() => buildEntryBody(entry({ type }) as never), /is not an entry type/, `${type} slipped through`);
+  }
 });

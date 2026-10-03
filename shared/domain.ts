@@ -66,6 +66,18 @@ export type Challan = { no: string; dealerId: string; at: string; vehicle: strin
     outcome?: 'travelling' | 'arrived' | 'passed' | 'claimed' | 'rejected'; outcomeReason?: string }[]; serverId?: string; receivedAt?: string };
 export type Staff = { id: string; name: string; email: string; role: string; roleKey?: string; status: string; dealerId?: string; permissions: string[] };
 export type State = { entries: Entry[]; batteries: Battery[]; dealers: Dealer[]; models: Model[]; movements: Movement[]; audits: Audit[]; customers: Customer[]; policies: Policy[]; notices: Notice[]; staff: Staff[]; reports: {id:string;name:string;type:string;model:string;status:string;schedule:string}[]; exports: {id:string;name:string;rows:number;date:string}[]; overrides: {id:string;code:string;days:number;reason:string;status:string}[]; cities: string[]; plateTypes?: { code: string; label: string; plateCount?: number | null }[]; serialDigitLengths?: number[]; plants?: Plant[]; graceMonths?: number; entryTypes: string[]; lastSync: string; offline: boolean; language: 'English'|'मराठी'; challans: Challan[]; smsAlerts?: boolean; };
+/**
+ * The entry types that exist. Two, everywhere (client, 3 Oct 2026).
+ *
+ * The console used to offer thirteen — Goods Return, For Charging, Given for Demo and the rest —
+ * but the server has only `replacement` and `sales_return`, and buildEntryBody turns anything
+ * that is not a replacement into a sales return. Picking "Given for Demo" therefore recorded a
+ * sales return, with nothing to say so. Both apps and both filters read the list from here.
+ */
+export const ENTRY_TYPES = ['Replacement', 'Sales Return'] as const;
+export type EntryTypeName = (typeof ENTRY_TYPES)[number];
+export const isEntryType = (v: string): v is EntryTypeName => (ENTRY_TYPES as readonly string[]).includes(v);
+
 export const uid = (prefix = 'ID') => `${prefix}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
 export const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 export const normalize = (s: string) => s.trim().toUpperCase().replace(/\s/g, '');
