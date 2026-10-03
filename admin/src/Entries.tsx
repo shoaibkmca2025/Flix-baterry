@@ -745,8 +745,9 @@ export function NewEntry({ id }: { id?: string }) {
             <Field label="Remarks for this battery" value={it.remarks} onChange={remarks => item(i, { remarks })} />
           </Card>;
         })}
-        <Btn kind="ghost" icon="plus" label="Add another battery" onPress={() => upd({ items: [...entry.items, newItem()] })} />
-        <Hint icon="batt">Total quantity: {entry.items.length}. Each battery is its own line — the total is never typed.</Hint>
+        {/* One request, one battery (client, 3 Oct 2026) — same rule as the dealer app, so a request
+            recorded here looks exactly like one a dealer sent. */}
+        <Hint icon="batt">One battery per request. Record another request for the next battery.</Hint>
       </Stack>}
       {step === 3 && <Card>
         <CardH title="Photos" right={<Chip tone="mute" label="Optional" />} />

@@ -419,7 +419,7 @@ export function D11() {
     saveDraft(); d.go('d13');
   };
   const oldChosen = state.models.find(m => m.id === it.oldModel);
-  return <Screen top={<AppBar title="Old battery" back={i > 0 ? 'd12' : 'd10'} right={<Chip tone="mute" mono label={e.id} />} />}
+  return <Screen top={<AppBar title="Old battery" back="d10" right={<Chip tone="mute" mono label={e.id} />} />}
     overlay={del.sheet}>
     <Steps labels={REP_STEPS} now={1} />
     <Gap h={14} />
@@ -522,39 +522,10 @@ export function D13() {
     <FullCodeLine modelId={it.model} code={it.code} lengths={lengths} />
     <Btn kind="primary" big iconAfter="chev" label={rep ? 'Next: check the warranty' : 'Next: photos and proof'} style={{ marginTop: 14 }} onPress={() => { if (!check()) return; saveDraft(); d.go(rep ? 'd31' : 'd15'); }} />
     {/* a replacement offers another battery only after its warranty check (d31) — client, 29 Sep 2026 */}
-    {!rep && <Btn kind="ghost" icon="plus" label="Add another battery to this request" style={{ marginTop: 9 }} onPress={() => { if (!check()) return; saveDraft(); d.go('d12'); }} />}
+    {/* One request, one battery (client, 3 Oct 2026). Adding several to a request meant head
+        office opened one page and found four decisions waiting, and a dealer who mis-typed one
+        held up the rest — a request per battery keeps each one moving on its own. */}
     {del.button}
-  </Screen>;
-}
-
-/* d12 · several batteries in one request */
-export function D12() {
-  const { f, d, upd, saveDraft } = useFlow(); const { state } = useStore();
-  if (!f) return null;
-  const e = f.entry, rep = e.type === 'Replacement', errs = dealerErrors(e, state);
-  const ready = (i: number) => !Object.keys(errs).some(k => k.startsWith(`items.${i}.`));
-  const editItem = (i: number, to: string) => { d.setFlow(x => x && { ...x, cur: i }); d.go(to); };
-  return <Screen top={<AppBar title="Batteries in this entry" back="d13" right={<Chip tone="info" label={`${e.items.length} ${e.items.length === 1 ? 'item' : 'items'}`} />} />}>
-    <Steps labels={rep ? REP_STEPS : RET_STEPS} now={rep ? 2 : 1} />
-    <Gap h={13} />
-    {e.items.map((it, i) => <Card key={it.id} style={i ? { marginTop: 11 } : undefined}>
-      <CardH title={`Item ${i + 1} · ${it.model}`} right={ready(i) ? <StatusChip status="Approved" label="Ready" /> : <Chip tone="warn" icon="alert" label="Needs a look" />} />
-      <KV pairs={rep ? [['New serial', it.code || '—', 'mono'], ['Old serial', it.oldSerial || '—', 'mono'], ['Mfg month', monthShort(it.mfg)], ['Quantity', '1']] : [['Serial', it.code || '—', 'mono'], ['Model', it.model], ['Mfg month', monthShort(it.mfg)], ['Quantity', '1']]} />
-      <View style={{ flexDirection: 'row', gap: 9, marginTop: 11 }}>
-        <Btn kind="ghost" sm icon="pen" label="Edit" style={{ flex: 1, alignSelf: 'stretch' }} onPress={() => editItem(i, rep ? 'd11' : 'd13')} />
-        <Btn kind="ghost" sm icon="cam" label={`Photos (${photoCount(e, i)})`} style={{ flex: 1, alignSelf: 'stretch' }} onPress={() => editItem(i, 'd15')} />
-        {e.items.length > 1 && <Btn kind="ghost" sm icon="x" label="Remove" color={T.terminal} borderColor="#F0C7BC" style={{ alignSelf: 'stretch' }} onPress={() => { upd({ items: e.items.filter((_, j) => j !== i) }); d.setFlow(x => x && { ...x, cur: 0 }); }} />}
-      </View>
-    </Card>)}
-    <Card style={{ marginTop: 11, borderStyle: 'dashed', flexDirection: 'row', gap: 11, alignItems: 'center' }} label="Add another battery" onPress={() => {
-      const items = [...e.items, { ...newItem(), model: e.items[e.items.length - 1]?.model || 'M5' }];
-      d.setFlow(x => x && { ...x, cur: items.length - 1, entry: { ...x.entry, items } }); d.go(rep ? 'd11' : 'd13');
-    }}>
-      <Avatar n="plus" tone="amber" /><View style={{ flex: 1 }}><X s={14.5} w={6}>Add another battery</X><X s={12.5} c={T.slate} style={{ marginTop: 2 }}>Same entry, one more line — the total updates by itself</X></View></Card>
-    <Card style={{ backgroundColor: T.deep, borderColor: '#082A13', marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-      <View><X s={11.5} w={6} c={T.deepText}>Total quantity</X><X s={28} w={7} f="c" c={T.white}>{e.items.length}</X></View>
-      <X s={12.5} c="#9BA9BB" style={{ textAlign: 'right' }}>{'Calculated from the items.\nYou never type this.'}</X></Card>
-    <Btn kind="primary" iconAfter="chev" label="Next: check and send" style={{ marginTop: 13 }} onPress={() => { saveDraft(); d.go('d16'); }} />
   </Screen>;
 }
 
@@ -610,11 +581,6 @@ export function D31() {
       : <Banner tone="info" icon="clock"><B>Working out the cover…</B> It comes from the manufacture month on the old battery’s label.</Banner>}
     <Hint icon="lock" style={{ marginTop: 11 }}>There is no field anywhere in this app where an end date can be typed. It is always worked out from the policy and the first sale.</Hint>
     <Btn kind="primary" big icon="check" label="Next: send for approval" style={{ marginTop: 13 }} onPress={() => d.go('d16')} />
-    <Btn kind="ghost" icon="plus" label="Add another battery to this request" style={{ marginTop: 9 }} onPress={() => {
-      // the next pair starts on the old battery, like the first; this one waits in the draft
-      const items = [...e.items, { ...newItem(), model: e.items[e.items.length - 1]?.model || newItem().model }];
-      saveDraft(); d.setFlow(x => x && { ...x, cur: items.length - 1, entry: { ...x.entry, items } }); d.go('d11');
-    }} />
     <Btn kind="ghost" icon="cam" label="Add photos before sending" style={{ marginTop: 9 }} onPress={() => d.go('d15')} />
   </Screen>;
 }
@@ -739,7 +705,7 @@ export function D16() {
       d.toast(`${why} Saved as a draft — find it under My requests.`);
     } finally { setBusy(false); setPhase(''); }
   };
-  return <Screen top={<AppBar title="Check before sending" back="d12" />} overlay={del.sheet}>
+  return <Screen top={<AppBar title="Check before sending" back={rep ? 'd31' : 'd15'} />} overlay={del.sheet}>
     <Steps labels={rep ? REP_STEPS : RET_STEPS} now={3} />
     <Gap h={13} />
     {errList.length > 0 && <Banner tone="bad" icon="alert" style={{ marginBottom: 12 }}><B>{errList.length === 1 ? 'One thing must be fixed.' : `${errList.length} things must be fixed.`}</B> {errList[0][1]} <B u onPress={() => jump(errList[0][0])}>Go to the field</B></Banner>}

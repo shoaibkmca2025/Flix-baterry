@@ -10,12 +10,12 @@ import type { Session } from '@felix/shared/api/session';
 import { useSync } from '@felix/shared/api/sync';
 import { D01, D02, D03, D04, D05, D06 } from './Access';
 import { D07, D09 } from './Home';
-import { D10, D11, D12, D13, D15, D16, D17, D31 } from './Capture';
+import { D10, D11, D13, D15, D16, D17, D31 } from './Capture';
 import { D32, D33, D34, D35, D36, D37 } from './Claims';
 import { D18, D19, D23, D24 } from './Records';
 import { D40, D41, D42, D43, D44 } from './Network';
 
-const SCREENS: Record<string, React.ComponentType<{ p?: string }>> = { d40: D40, d41: D41, d42: D42, d43: D43, d44: D44, d01: D01, d02: D02, d03: D03, d04: D04, d05: D05, d06: D06, d07: D07, d09: D09, d10: D10, d11: D11, d12: D12, d13: D13, d15: D15, d16: D16, d17: D17, d31: D31, d32: D32, d33: D33, d34: D34, d35: D35, d36: D36, d37: D37, d18: D18, d19: D19, d23: D23, d24: D24 };
+const SCREENS: Record<string, React.ComponentType<{ p?: string }>> = { d40: D40, d41: D41, d42: D42, d43: D43, d44: D44, d01: D01, d02: D02, d03: D03, d04: D04, d05: D05, d06: D06, d07: D07, d09: D09, d10: D10, d11: D11, d13: D13, d15: D15, d16: D16, d17: D17, d31: D31, d32: D32, d33: D33, d34: D34, d35: D35, d36: D36, d37: D37, d18: D18, d19: D19, d23: D23, d24: D24 };
 const SIGNED_OUT = ['d01', 'd02', 'd03', 'd04', 'd05'];
 const TAB_ROOTS = ['d07', 'd33', 'd18', 'd23', 'd09'];
 
