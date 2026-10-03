@@ -65,6 +65,9 @@ function D33Dispatch() {
   // his own old batteries and those his dealers handed him, once he approved their requests
   const rows = toSendBack(state, dealerId, true);
   const names = useMyDealerNames(); // a dealer's customer is not sent to the distributor — show which dealer it came from
+  // special requests he holds the old battery of, but may not send until head office approves (client, 3 Oct 2026)
+  const held = state.entries.filter(e => e.type === 'Replacement' && e.special === 'Pending' && !['With distributor', 'Rejected', 'Draft'].includes(e.status)
+    && (!e.returnState || e.returnState === 'At dealer') && (e.dealerId === dealerId || e.items.some(i => i.oldSerial && i.arrivedAtDistributor)));
   const [off, setOff] = useState<string[]>([]), [vehicle, setVehicle] = useState(''), [driver, setDriver] = useState(''), [busy, setBusy] = useState(false);
   const picked = rows.filter(e => !off.includes(e.id));
   const count = picked.reduce((t, e) => t + e.items.filter(i => i.oldSerial).length, 0);
@@ -103,6 +106,7 @@ function D33Dispatch() {
   return <Screen tab="truck" top={<AppBar title="Old batteries to send back" back="d07" right={<Chip tone="warn" label={`${rows.length} waiting`} />} />}
     footer={rows.length ? <Btn kind="primary" big icon="truck" label={busy ? 'Sending…' : `Dispatch ${count} ${count === 1 ? 'battery' : 'batteries'} to company`} disabled={!count || busy} onPress={dispatch} /> : undefined}>
     <Banner tone="info" icon="truck" style={{ marginBottom: 13 }}>When the company van comes, tick the batteries you are handing over and tap the button. The challan is made for you — no paper list to write.</Banner>
+    {held.length > 0 && <Banner tone="warn" icon="alert" style={{ marginBottom: 13 }}><B>{held.length} special {held.length === 1 ? 'request' : 'requests'} waiting for head office.</B> {held.map(e => e.id).join(', ')} — cannot be sent yet.</Banner>}
     <Card><CardH title="Ready to hand over" right={<Chip tone="mute" label="Tap to tick" />} />
       {rows.length ? rows.map((e, i) => {
         const on = !off.includes(e.id), age = ageDays(e.date), it = e.items[0];

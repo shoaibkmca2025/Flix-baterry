@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db, withTransaction, type Tx } from '../../database/client';
 import { anyDigitLengths, deriveCode, digitsOfFull, fullCode, lengthsSentence, readStored, NEW_BATTERY_DIGIT_LENGTHS } from '../../domain/serials';
-import { coverFromMfg } from '../../domain/warranty';
+import { coverCase, coverFromMfg } from '../../domain/warranty';
 import { graceMonths, serialDigitLengths } from '../../utils/settings';
 import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
@@ -97,6 +97,16 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
     }
   }
 
+  // The old battery's cover decides the route (client, 3 Oct 2026): within the term it is a
+  // normal request; past it — inside the grace months, or past the cover — it is a SPECIAL one.
+  // Judged here, on the server, so it does not depend on what the phone showed.
+  const grace = input.entryType === 'replacement' ? await graceMonths(db) : 0;
+  const covers: Awaited<ReturnType<typeof oldBatteryCover>>[] = [];
+  for (const [i, item] of derivedItems.entries()) {
+    covers.push(input.entryType === 'replacement' && item.oldBatteryCode ? await oldBatteryCover(item.oldBatteryCode, item.oldModelId!, entryDate, grace, i) : null);
+  }
+  const special = covers.some((c) => c && c.case !== 'normal');
+
   return withTransaction(async (tx) => {
     const ref = await nextFormattedRef(tx, 'ENT', 'entry', monthKey(ctx.now()));
     const entry = await repo.insertEntry(tx, {
@@ -113,6 +123,7 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
       coverToldAt: input.coverTold ? ctx.now() : null,
       submittedBy: user.id,
       status,
+      specialStatus: special ? 'pending' : null,
     });
 
     for (const [i, item] of derivedItems.entries()) {
@@ -127,15 +138,71 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
         oldModelId: item.oldModelId,
         faultCode: item.faultCode ?? null,
         remarks: item.remarks ?? null,
+        coverCase: covers[i] && covers[i]!.case !== 'normal' ? (covers[i]!.case as 'extension' | 'expired') : null,
+        coverTermEnd: covers[i]?.termEnd ?? null,
+        coverEnd: covers[i]?.coverEnd ?? null,
       });
     }
 
-    await audit(tx, { ctx, action: 'entry.submitted', entityType: 'entry', entityId: entry.id, entityRef: entry.ref, outcome: 'ok' });
+    await audit(tx, { ctx, action: special ? 'entry.submitted_special' : 'entry.submitted', entityType: 'entry', entityId: entry.id, entityRef: entry.ref, outcome: 'ok' });
     return entry;
   });
 }
 
-async function approveReplacementItem(tx: Tx, ctx: Ctx, entry: { id: string; dealerId: string; entryDate: string }, item: Awaited<ReturnType<typeof repo.findItemsByEntryId>>[number]) {
+const NO_WARRANTY = (why: string | null) => `This battery has no warranty — ${why ?? 'it was given as a special replacement'}. It cannot be replaced under warranty.`;
+
+/** The old battery's cover on the day of the request: from its chain if it is on record, else from its label (D-11). */
+async function oldBatteryCover(oldBatteryCode: string, oldModelId: string, onDate: string, grace: number, seq: number) {
+  const old = await batteriesRepo.findBatteryByCode(db, oldBatteryCode);
+  if (old?.noWarranty) throw new AppError('no_warranty', 422, NO_WARRANTY(old.noWarrantyReason), { field: `items.${seq}.oldCode` });
+  const chain = old?.chainId ? await batteriesRepo.findChainById(db, old.chainId) : undefined;
+  let cover: { startDate: string; expiryDate: string; termMonths: number };
+  if (chain) cover = { startDate: chain.warrantyStart, expiryDate: chain.warrantyExpiry, termMonths: chain.termMonths };
+  else {
+    const model = await batteriesRepo.findModelById(db, oldModelId);
+    const mfgMonth = readStored(digitsOfFull(oldBatteryCode, oldModelId)).mfgMonth;
+    if (!mfgMonth) return null; // create's format check already refused anything without a month
+    cover = coverFromMfg(mfgMonth, model?.warrantyMonths ?? 24, grace);
+  }
+  return { ...coverCase(cover, onDate), coverEnd: cover.expiryDate };
+}
+
+/**
+ * A special request that was refused — by the distributor, by head office in Correction requests,
+ * or at the factory (client, 3 Oct 2026). The customer already has the new battery, so it is put
+ * on record with NO warranty: it can never be claimed on, and never sold on as a fresh battery.
+ * A code that is already on record belongs to some other request and is left alone.
+ */
+async function recordWithoutWarranty(tx: Tx, ctx: Ctx, entry: { id: string; ref: string; dealerId: string; entryDate: string }) {
+  for (const item of await repo.findItemsByEntryId(tx, entry.id)) {
+    if (item.batteryId || await batteriesRepo.findBatteryByCode(tx, item.batteryCode)) continue;
+    const derived = readStored(digitsOfFull(item.batteryCode, item.modelId));
+    const battery = await batteriesRepo.insertBattery(tx, {
+      batteryCode: item.batteryCode,
+      batteryCodeEntered: item.batteryCodeEntered,
+      serialNo: derived.serialNo,
+      modelId: item.modelId,
+      mfgMonth: derived.mfgMonth,
+      state: 'replacement',
+      custodian: 'customer',
+      dealerId: entry.dealerId,
+      origin: 'entry',
+      noWarranty: true,
+      noWarrantyReason: `given on ${entry.entryDate} against ${item.oldBatteryCode ?? 'an old battery'} on ${entry.ref}, a special request that was refused`,
+    });
+    await postMovementInTx(tx, ctx, { battery: null, batteryId: battery.id, toState: 'replacement', toCustodian: 'customer', toDealerId: entry.dealerId, entryId: entry.id, reasonCode: 'manual', reasonText: 'Given against a special request that was refused — no warranty' });
+    await repo.updateEntryItemLinks(tx, item.id, { batteryId: battery.id });
+  }
+}
+
+/** Head office decides a special request in Correction requests before anything else can happen to it. */
+function assertSpecialDecided(entry: { specialStatus: string | null }) {
+  if (entry.specialStatus === 'pending') {
+    throw new AppError('special_pending', 409, 'This is a special replacement request — the old battery is past its warranty term. Approve or reject it in Correction requests first.');
+  }
+}
+
+async function approveReplacementItem(tx: Tx, ctx: Ctx, entry: { id: string; dealerId: string; entryDate: string; specialStatus?: string | null }, item: Awaited<ReturnType<typeof repo.findItemsByEntryId>>[number]) {
   if (!item.oldBatteryCode) throw new AppError('old_serial_required', 422, 'Old battery code is required for a replacement.', { field: `items.${item.seq}.oldBatteryCode` });
 
   let old = await batteriesRepo.findBatteryByCode(tx, item.oldBatteryCode);
@@ -151,10 +218,14 @@ async function approveReplacementItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
   if (old.replacedById) {
     throw new AppError('already_replaced', 409, 'This battery has already been replaced. Use the current battery in the chain.', { field: `items.${item.seq}.oldBatteryCode` });
   }
+  if (old.noWarranty) throw new AppError('no_warranty', 422, NO_WARRANTY(old.noWarrantyReason), { field: `items.${item.seq}.oldBatteryCode` });
 
   const chain = await batteriesRepo.findChainById(tx, old.chainId!);
   if (!chain) throw new AppError('chain_missing', 500, 'This battery is missing its warranty record.');
-  if (Date.parse(chain.warrantyExpiry) < Date.parse(entry.entryDate)) {
+  // Past the cover, a replacement is only ever a SPECIAL request head office approved in
+  // Correction requests — and then the new battery carries no warranty (client, 3 Oct 2026).
+  const pastCover = Date.parse(chain.warrantyExpiry) < Date.parse(entry.entryDate);
+  if (pastCover && entry.specialStatus !== 'approved') {
     // Head office is the only one who ever reaches this — it runs on approval, not on the
     // dealer's submit — so it says what THEY can do about it, not "ask an admin" (client, 2 Oct
     // 2026). The dates are in the message because the console often has no cover on record for a
@@ -181,6 +252,7 @@ async function approveReplacementItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
     origin: 'entry',
     chainId: chain.id,
     replacedFromId: old.id,
+    ...(pastCover ? { noWarranty: true, noWarrantyReason: `given on ${entry.entryDate} as a special replacement for ${item.oldBatteryCode}, whose cover ended on ${chain.warrantyExpiry}` } : {}),
   });
   // Ledger (stock module): new battery created straight into replacement/customer; the old one
   // comes back to the dealer's counter awaiting the company pickup (architecture.md §9.6).
@@ -299,6 +371,7 @@ export async function approve(ctx: Ctx, entryId: string, reason: string) {
   if (entry.status !== 'submitted') {
     throw new AppError('invalid_transition', 409, `Cannot approve an entry that is already ${entry.status}.`);
   }
+  assertSpecialDecided(entry);
   const items = await repo.findItemsByEntryId(db, entryId);
   // Head office decides a replacement only once the old battery is physically at the factory
   // (client rule, 25 Sep 2026): they verify it offline, then approve or refuse.
@@ -363,6 +436,7 @@ export async function settle(ctx: Ctx, entryId: string, input: EntrySettleBody) 
   if (entry.status !== 'submitted' && entry.status !== 'approved') {
     throw new AppError('invalid_transition', 409, `This request is already ${entry.status}.`);
   }
+  assertSpecialDecided(entry);
   const items = await repo.findItemsByEntryId(db, entryId);
   // one battery of the entry, or all of them
   const target = input.itemId ? items.filter((it) => it.id === input.itemId) : items;
@@ -415,8 +489,11 @@ export async function reject(ctx: Ctx, entryId: string, reason: string) {
   if (entry.status !== 'submitted') {
     throw new AppError('invalid_transition', 409, `Cannot reject an entry that is already ${entry.status}.`);
   }
+  assertSpecialDecided(entry);
   return withTransaction(async (tx) => {
     const updated = await repo.updateEntryStatus(tx, entryId, { status: 'rejected', decidedBy: ctx.user!.id, decisionReason: reason });
+    // a special request refused at the factory: the battery the customer has carries no warranty
+    if (entry.specialStatus) await recordWithoutWarranty(tx, ctx, entry);
     await audit(tx, { ctx, action: 'entry.rejected', entityType: 'entry', entityId: entry.id, entityRef: entry.ref, before: { status: 'submitted' }, after: { status: 'rejected' }, reason, outcome: 'ok' });
     return updated;
   });
@@ -505,9 +582,44 @@ export async function distributorDecide(ctx: Ctx, entryId: string, decision: 'ap
   return withTransaction(async (tx) => {
     const updated = await repo.setDistributorDecision(tx, entryId, { approve: decision === 'approve', by: ctx.user!.id, reason });
     if (!updated) throw new AppError('invalid_transition', 409, 'This request was decided a moment ago. Refresh and check it.');
+    // his refusal ends a special request too: it never reaches head office, and the battery the
+    // customer already has carries no warranty (client, 3 Oct 2026)
+    if (decision === 'refuse' && entry.specialStatus === 'pending') {
+      await repo.setSpecialDecision(tx, entryId, { approve: false, by: ctx.user!.id, reason });
+      await recordWithoutWarranty(tx, ctx, entry);
+    }
     await audit(tx, {
       ctx, action: decision === 'approve' ? 'entry.distributor_approved' : 'entry.distributor_refused', entityType: 'entry', entityId: entry.id, entityRef: entry.ref,
       before: { status: 'with_distributor' }, after: { status: updated.status, distributor: me.name, dealer: shop.name }, reason, outcome: 'ok',
+    });
+    return updated;
+  });
+}
+
+/**
+ * Head office's decision on a SPECIAL request, taken in Correction requests after inspecting it
+ * by hand (client, 3 Oct 2026). Approving opens the way: the distributor may now dispatch the old
+ * battery, and the request is decided at the factory like any other — with the new battery
+ * inheriting the chain's end date (grace months) or carrying no warranty (past the cover).
+ * Rejecting ends it: no credit, the old battery stays where it is, and the new battery the
+ * customer already has is put on record with no warranty.
+ */
+export async function decideSpecial(ctx: Ctx, entryId: string, decision: 'approve' | 'reject', reason: string) {
+  if (!ctx.user || ctx.user.scope !== 'admin') throw new AppError('unauthenticated', 401, 'Sign in required.');
+  const entry = await repo.findEntryById(db, entryId);
+  if (!entry) throw new AppError('entry_not_found', 404, 'Entry not found.');
+  if (!entry.specialStatus) throw new AppError('not_special', 422, `${entry.ref} is not a special replacement request.`);
+  if (entry.status === 'with_distributor') throw new AppError('with_distributor', 409, 'This request is still with the dealer’s distributor. It reaches you once they approve it.');
+  if (entry.specialStatus !== 'pending' || entry.status !== 'submitted') {
+    throw new AppError('invalid_transition', 409, `This special request was already ${entry.specialStatus === 'pending' ? entry.status : entry.specialStatus}.`);
+  }
+  return withTransaction(async (tx) => {
+    const updated = await repo.setSpecialDecision(tx, entryId, { approve: decision === 'approve', by: ctx.user!.id, reason });
+    if (!updated) throw new AppError('invalid_transition', 409, 'This request was decided a moment ago. Refresh and check it.');
+    if (decision === 'reject') await recordWithoutWarranty(tx, ctx, entry);
+    await audit(tx, {
+      ctx, action: decision === 'approve' ? 'entry.special_approved' : 'entry.special_rejected', entityType: 'entry', entityId: entry.id, entityRef: entry.ref,
+      before: { special: 'pending' }, after: { special: updated.specialStatus }, reason, outcome: 'ok',
     });
     return updated;
   });

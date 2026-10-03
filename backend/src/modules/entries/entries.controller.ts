@@ -66,3 +66,12 @@ export async function distributorApprove(request: FastifyRequest<{ Params: { id:
 export async function distributorRefuse(request: FastifyRequest<{ Params: { id: string }; Body: EntryDecisionBody }>, reply: FastifyReply) {
   reply.status(200).send(await service.distributorDecide(buildCtx(request), request.params.id, 'refuse', request.body.reason));
 }
+
+// head office's decision on a special replacement request, from Correction requests (client, 3 Oct 2026)
+export async function specialApprove(request: FastifyRequest<{ Params: { id: string }; Body: EntryDecisionBody }>, reply: FastifyReply) {
+  reply.status(200).send(await service.decideSpecial(buildCtx(request), request.params.id, 'approve', request.body.reason));
+}
+
+export async function specialReject(request: FastifyRequest<{ Params: { id: string }; Body: EntryDecisionBody }>, reply: FastifyReply) {
+  reply.status(200).send(await service.decideSpecial(buildCtx(request), request.params.id, 'reject', request.body.reason));
+}

@@ -15,7 +15,7 @@ import { entryTrail } from '@felix/shared/api/audit';
 const TRAIL_LABEL: Record<string, string> = { 'entry.submitted': 'Entry submitted', 'entry.approved': 'Entry approved', 'entry.rejected': 'Reject entry' };
 import { ScanSheet, NOT_SENT, useDeleteEntry } from './Capture';
 import { DealerGroups } from './Network';
-import { avatarTone, coverChip, coverOf, dLong, dShort, dealerEntries, findBattery, firstProblem, monthLong, spanLong, tShort } from '@felix/shared/data';
+import { avatarTone, coverChip, coverOf, dLong, dShort, dealerEntries, findBattery, firstProblem, monthLong, spanLong, specialLine, specialOutcome, tShort } from '@felix/shared/data';
 
 const FILTERS = ['all', 'rep', 'month', 'fix', 'notsent'] as const;
 
@@ -90,13 +90,18 @@ export function D19({ p }: { p?: string }) {
     {e.status === 'Draft' && <Banner tone="info" icon="pen" style={{ marginBottom: 12 }}><B>Not sent yet.</B> Continue where you left off.</Banner>}
     {e.status === 'With distributor' && <Banner tone="info" icon="people" style={{ marginBottom: 12 }}><B>With your distributor.</B> They check it{rep ? ' and take the old battery from you' : ''}, then send it on to head office.</Banner>}
     {['Submitted', 'Under Review'].includes(e.status) && <Banner tone="info" icon="clock" style={{ marginBottom: 12 }}><B>With head office.</B> {rep ? 'The claim is decided once the old battery is back and checked.' : 'Head office confirms it shortly.'}</Banner>}
+    {/* a special request: a battery on it was past its warranty term (client, 3 Oct 2026) */}
+    {e.special === 'Pending' && e.status !== 'Rejected' && <Banner tone="warn" icon="alert" style={{ marginBottom: 12 }}><B>Special request.</B> {e.status === 'With distributor' ? 'Waiting for your distributor.' : 'Waiting for head office.'}</Banner>}
+    {e.special === 'Approved' && e.status !== 'Rejected' && <Banner tone="ok" icon="check" style={{ marginBottom: 12 }}><B>Special request approved by head office.</B> {e.specialReason || ''}</Banner>}
+    {e.special === 'Rejected' && <Banner tone="bad" icon="x" style={{ marginBottom: 12 }}><B>Special request rejected.</B> No credit. The new battery has no warranty.</Banner>}
     {e.correction?.status === 'Pending' && <Banner tone="warn" icon="eye" style={{ marginBottom: 12 }}><B>Correction asked for.</B> “{e.correction.value}” — waiting for {above}.</Banner>}
     <Card><CardH mono title={e.id} right={<StatusChip status={e.status} />} />
       <KV pairs={[['Type', e.type], ['Date', dLong(e.date)], ['Place', e.place], ['Customer', e.customer || '—'], ['Total batteries', String(e.items.length)], ['Sent', e.status === 'Draft' ? 'Not yet' : `${dShort(e.createdAt)}, ${tShort(e.createdAt)}`]]} /></Card>
     <SecT title="Batteries in this entry" />
     {e.items.map((it, i) => <Card key={it.id} style={[{ flexDirection: 'row', gap: 11, alignItems: 'center' }, i ? { marginTop: 11 } : null]} label={`Open battery ${it.code}`} onPress={() => it.code ? d.go('d24', it.code) : undefined}>
       <Avatar n="batt" tone={avatarTone(e.status) as AvTone} />
-      <View style={{ flex: 1 }}><X s={14.5} w={6}>{it.model} · <Mono>{it.code || '—'}</Mono></X><X s={12.5} c={T.slate} style={{ marginTop: 2 }}>{it.oldSerial ? <>was <Mono>{it.oldSerial}</Mono> · </> : null}qty 1{it.fault ? ` · ${it.fault}` : ''}</X></View>
+      <View style={{ flex: 1 }}><X s={14.5} w={6}>{it.model} · <Mono>{it.code || '—'}</Mono></X><X s={12.5} c={T.slate} style={{ marginTop: 2 }}>{it.oldSerial ? <>was <Mono>{it.oldSerial}</Mono> · </> : null}qty 1{it.fault ? ` · ${it.fault}` : ''}</X>
+        {it.coverCase ? <X s={12} w={6} c="#8A5A00" style={{ marginTop: 3 }}>{specialLine(it, e.date)}. {e.special === 'Rejected' ? 'New battery has no warranty.' : specialOutcome(it)}</X> : null}</View>
       <Ic n="chev" size={22} color={T.zinc3} /></Card>)}
     <SecT title="History of this entry" />
     <Card>{history.length || e.returnState ? <>
@@ -179,13 +184,14 @@ export function D24({ p = '' }: { p?: string }) {
   return <Screen tab="search" top={<AppBar title="Battery" back="d23" right={<IconBtn n="down" label="Download battery history" onPress={download} />} />}>
     <Plate style={{ marginBottom: 12 }}><PlateLab>SERIAL NUMBER</PlateLab><PlateVal size={24}>{p}</PlateVal>
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 11, flexWrap: 'wrap' }}>
-        <Chip tone={ct} icon="shield" label={cl} /><Chip tone={custody[1]} icon={custody[2]} label={custody[0]} />
+        <Chip tone={b?.noWarranty ? 'bad' : ct} icon="shield" label={b?.noWarranty ? 'No warranty' : cl} /><Chip tone={custody[1]} icon={custody[2]} label={custody[0]} />
         {!!cover?.replacements && <Chip tone="vio" icon="link" label={`${cover.replacements} ${cover.replacements === 1 ? 'replacement' : 'replacements'}`} />}</View></Plate>
     {pending && <Banner tone="info" icon="clock" style={{ marginBottom: 12 }}><B>Not in the register yet.</B> It is on request {pending.id}, waiting for {above}.</Banner>}
     <Card><KV pairs={[['Model', b?.model || it?.model || '—'], ['Serial', b?.serial || it?.serial || p.slice(-4), 'mono'], ['Made', monthLong(b?.mfg || it?.mfg)], ['Dealer', dealer?.name || '—'], ['City', dealer?.city || '—'], ['Replaced on', repEntry ? dLong(repEntry.date) : '—'], ['Old serial', b?.oldSerial || it?.oldSerial || '—', 'mono']]} /></Card>
     <SecT title="Warranty" />
     <Card style={cover?.status === 'Active' ? { borderColor: '#B8DFCB' } : undefined}>
-      {cover ? <><KV pairs={[['Cover started', dLong(cover.start)], ['Cover ends', dLong(cover.expiry)], ['Left', cover.status === 'Expired' ? 'None' : spanLong(cover.leftSpan)], ['Policy', `Standard ${cover.months} months`]]} />
+      {b?.noWarranty ? <Banner tone="bad" icon="lock"><B>No warranty.</B> Given as a special replacement — it cannot be replaced.</Banner>
+        : cover ? <><KV pairs={[['Cover started', dLong(cover.start)], ['Cover ends', dLong(cover.expiry)], ['Left', cover.status === 'Expired' ? 'None' : spanLong(cover.leftSpan)], ['Policy', `Standard ${cover.months} months`]]} />
         <Banner tone="ok" icon="shield" style={{ marginTop: 11 }}>Dates come from the first sale in this chain. Nobody can type a different end date.</Banner></>
         : <Banner tone="warn" icon="alert">No cover dates on record. Head office sets them from the first sale — nothing is guessed.</Banner>}
     </Card>

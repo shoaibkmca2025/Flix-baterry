@@ -101,6 +101,9 @@ function toItem(it: EntryWithItems['items'][number], e: EntryWithItems, batterie
     remarks: it.remarks ?? '',
     fault: faultLabel(it.faultCode),
     arrivedAtDistributor: it.distributorReceivedAt ?? undefined,
+    coverCase: it.coverCase === 'extension' ? 'Extension' : it.coverCase === 'expired' ? 'Expired' : undefined,
+    coverTermEnd: it.coverTermEnd ?? undefined,
+    coverEnd: it.coverEnd ?? undefined,
     ...(rep ? {
       claimId: claim?.id,
       claimStatus: claim?.status,
@@ -160,6 +163,9 @@ export function toEntry(e: EntryWithItems, claims: Map<string, ApiClaim>, batter
     decisionReason: claim?.decisionReason ?? e.decisionReason ?? undefined,
     distributorDecidedAt: e.distributorDecidedAt ?? undefined,
     distributorReason: e.distributorReason ?? undefined,
+    special: e.specialStatus === 'pending' ? 'Pending' : e.specialStatus === 'approved' ? 'Approved' : e.specialStatus === 'rejected' ? 'Rejected' : undefined,
+    specialReason: e.specialReason ?? undefined,
+    specialDecidedAt: e.specialDecidedAt ?? undefined,
   };
 }
 
@@ -176,6 +182,8 @@ export function toBattery(b: ApiBattery, customerByCode: Map<string, string>): B
     expiry: b.warrantyExpiry ?? undefined,
     policy: b.chainId ? 'POL-01' : undefined,
     state: STATE_LABEL[b.state],
+    noWarranty: b.noWarranty || undefined,
+    noWarrantyReason: b.noWarrantyReason ?? undefined,
   };
 }
 

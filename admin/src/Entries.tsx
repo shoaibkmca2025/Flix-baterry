@@ -5,12 +5,12 @@ import { Entry, Item, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approv
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, ChipRow, Label, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
-import { approvedForRefund, batteryUnits, entryErrors, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, tShort, monthShort } from '@felix/shared/data';
+import { approvedForRefund, batteryUnits, entryErrors, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, specialLine, specialOutcome, specialWaiting, tShort, monthShort } from '@felix/shared/data';
 import { listPhotos, splitTag, uploadEntryPhotos } from '@felix/shared/api/photos';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
 import { getAccessToken } from '@felix/shared/api/session';
-import { approveEntry as apiApproveEntry, correctEntryItem, createEntry as apiCreateEntry, rejectEntry as apiRejectEntry, reviewEntryItem, settleEntry, type EntryCreateInput, type EntryType } from '@felix/shared/api/entries';
+import { approveEntry as apiApproveEntry, correctEntryItem, createEntry as apiCreateEntry, decideSpecial as apiDecideSpecial, rejectEntry as apiRejectEntry, reviewEntryItem, settleEntry, type EntryCreateInput, type EntryType } from '@felix/shared/api/entries';
 import { buildEntryBody } from '@felix/shared/api/entry-body';
 import { checkClaim, decideClaim } from '@felix/shared/api/claims';
 import { errorMessage } from '@felix/shared/api/client';
@@ -147,6 +147,20 @@ export function useDecisions() {
       catch (err) { return failed(errorMessage(err)); }
       finally { sync(true); }
     },
+    /** Head office's decision on a special replacement request (client, 3 Oct 2026). */
+    decideSpecial: (e: Entry, decision: 'approve' | 'reject', reason: string) => {
+      if (!guard()) return false;
+      if (!live(e)) return notInV1();
+      setProblem('');
+      void (async () => {
+        const token = await getAccessToken(); if (!token) return notInV1();
+        try {
+          await apiDecideSpecial(e.apiId!, decision, reason, token);
+          a.toast(decision === 'approve' ? `${e.id} approved. The distributor can now dispatch the old battery.` : `${e.id} rejected. The new battery is recorded with no warranty.`);
+        } catch (err) { return failed(errorMessage(err)); }
+        finally { sync(true); }
+      })();
+    },
     voidEntry: (e: Entry, reason: string) => live(e) ? notInV1() : status(e, 'Cancelled', 'Void / archive entry', reason, 'Voided. It stays searchable and in the audit log.'),
     requestCorrection: (e: Entry, value: string, reason: string) => {
       if (!guard()) return false;
@@ -183,7 +197,8 @@ export function Approvals({ id }: { id?: string }) {
   const a = useA(); const { state, canEdit } = useStore(); const dec = useDecisions();
   const [f, setF] = useState(id === 'conflict' ? 'conflict' : 'waiting'), [q, setQ] = useState(''), [act, setAct] = useState<{ kind: 'approve' | 'reject'; e: Entry } | null>(null);
   const dealer = (id: string) => state.dealers.find(d => d.id === id);
-  const pending = state.entries.filter(e => PENDING.includes(e.status));
+  // a special request waits in Correction requests until head office has decided it there
+  const pending = state.entries.filter(e => PENDING.includes(e.status) && !specialWaiting(e));
   const groups: Record<string, (e: Entry) => boolean> = { waiting: e => e.status === 'Submitted', review: e => e.status === 'Under Review', conflict: e => e.status === 'Conflict', all: () => true };
   const n = q.trim().toLowerCase();
   const rows = pending.filter(groups[f]).filter(e => !n || [e.id, e.customer, dealer(e.dealerId)?.name || '', ...e.items.flatMap(i => [i.code, i.oldSerial])].some(v => v.toLowerCase().includes(n)));
@@ -251,7 +266,10 @@ export function Corrections() {
   const [apply, setApply] = useState<Entry | null>(null), [decline, setDecline] = useState<Entry | null>(null);
   const rows = state.entries.filter(e => e.correction?.status === 'Pending');
   const done = state.audits.filter(x => ['Correction approved', 'Reject correction'].includes(x.action)).slice(0, 8);
-  return <Page title="Correction requests" sub={`${rows.length} waiting · sent entries are never edited in place`}>
+  const specials = state.entries.filter(specialWaiting).length;
+  return <Page title="Correction requests" sub={`${rows.length + specials} waiting · ${specials} special replacement ${specials === 1 ? 'request' : 'requests'}`}>
+    <SpecialRequests />
+    <SecT title="Corrections to sent entries" />
     <Banner tone="info" icon="lock" style={{ marginBottom: 14 }}><B>How a correction works.</B> Approving creates a linked, corrected copy and marks the original “Corrected”. The first version is never rewritten or deleted.</Banner>
     <Cols weights={[1.55, 1]}>
       <Stack>{rows.length ? rows.map(e => {
@@ -276,6 +294,82 @@ export function Corrections() {
     <ReasonDialog open={!!decline} title={`Decline correction on ${decline?.id || ''}`} confirm="Decline request" kind="danger" onClose={() => setDecline(null)} onConfirm={r => decline ? dec.declineCorrection(decline, r) : false} intro="The entry stays as it is. The dealer sees this reason." />
   </Page>;
 }
+/* ---------- special replacement requests (client, 3 Oct 2026) ----------
+ * A replacement for a battery past its warranty term — inside the 2 extension months, or past the
+ * cover altogether. The customer already has the new battery; the distributor approved it; head
+ * office inspects it here by hand. Until it is approved the old battery cannot be dispatched.
+ */
+const SPECIAL_APPROVE = ['Photos and dates checked — genuine failure', 'Within the extension period — accepted'];
+const SPECIAL_REJECT = ['New battery was sold separately — not a genuine replacement', 'Too long past the warranty', 'Photo does not match the serial'];
+
+function SpecialCard({ e, onAct }: { e: Entry; onAct: (kind: 'approve' | 'reject') => void }) {
+  const a = useA(); const { state, canEdit } = useStore();
+  const [photos, setPhotos] = useState<ShownPhoto[] | null>(null);
+  useEffect(() => {
+    if (!e.apiId) { setPhotos([]); return; }
+    let alive = true;
+    getAccessToken().then(t => (t ? listPhotos(e.apiId!, t) : null))
+      .then(r => { if (alive) setPhotos(r ? r.items.map(p => ({ key: p.id, uri: p.url, tag: p.tag, itemSeq: p.itemSeq })) : []); })
+      .catch(() => { if (alive) setPhotos([]); });
+    return () => { alive = false; };
+  }, [e.apiId]);
+  const shop = shopRole(state, e.dealerId);
+  // this shop's record: a dealer who claims in the extension months again and again is the pattern to look for
+  const theirs = state.entries.filter(x => x.dealerId === e.dealerId && x.special), reps = state.entries.filter(x => x.dealerId === e.dealerId && x.type === 'Replacement' && x.status !== 'Draft');
+  return <Card>
+    <CardH mono title={e.id} right={<Chip tone="warn" icon="alert" label="Special request" />} />
+    <KV cols={a.wide ? 3 : 2} pairs={[[shop.role, shop.name], ['Works under', shop.parent?.name || 'Head office directly'], ['Request date', dLong(e.date)],
+      ['Distributor', e.distributorDecidedAt ? `Approved ${dShort(e.distributorDecidedAt)}${e.distributorReason ? ` — ${e.distributorReason}` : ''}` : 'Raised by the distributor himself'],
+      ['This shop’s special requests', `${theirs.length} of its ${reps.length} replacements`]]} />
+    {e.items.map((it, i) => {
+      const mine = photos?.filter(p => (p.itemSeq ?? 0) === i) ?? [];
+      return <View key={it.id} style={{ backgroundColor: '#FFFBF1', borderWidth: 1, borderColor: '#EBD49C', borderRadius: 9, padding: 12, marginTop: 12 }}>
+        <View style={{ flexDirection: a.wide ? 'row' : 'column', gap: 14 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <X s={12} w={6} c={T.slate}>Battery {i + 1} · {it.model}{it.fault ? ` · ${it.fault}` : ''}</X>
+            <X s={14.5} w={7} f="m" style={{ marginTop: 3 }}>{it.oldSerial || '—'} → {it.code}</X>
+            <X s={13.5} w={7} c="#8A5A00" style={{ marginTop: 7 }}>{specialLine(it, e.date) || 'Within the warranty term'}</X>
+            <X s={13} c={T.slate} style={{ marginTop: 3 }}>{it.coverCase ? `Term ended ${dLong(it.coverTermEnd)} · ${specialOutcome(it)}` : 'A normal battery on the same request — it inherits the old end date.'}</X>
+          </View>
+          {mine.length ? <View style={{ flexDirection: 'row', gap: 9 }}>{mine.slice(0, 3).map(ph =>
+            <Pressable key={ph.key} accessibilityRole="imagebutton" accessibilityLabel={`Open photo: ${ph.tag}`} onPress={() => { Linking.openURL(ph.uri).catch(() => a.toast('The photo could not be opened here.')); }}>
+              <Image source={{ uri: ph.uri }} resizeMode="cover" style={{ width: 118, height: 118, borderRadius: 9, backgroundColor: '#0A2512' }} />
+              <X s={11} w={6} c={T.slate} style={{ marginTop: 4 }}>{ph.tag === 'New label' ? 'New battery' : ph.tag}</X>
+            </Pressable>)}</View>
+            : <X s={12.5} c={T.slate}>{photos === null ? 'Loading photos…' : 'No photo was sent.'}</X>}
+        </View>
+      </View>;
+    })}
+    <View style={{ flexDirection: 'row', gap: 9, marginTop: 12, flexWrap: 'wrap' }}>
+      <Btn kind="ghost" sm label="Open request" onPress={() => a.go('entry', e.id)} />
+      {canEdit && <Btn kind="ghost" sm icon="x" label="Reject" color={T.terminal} borderColor="#F0C7BC" onPress={() => onAct('reject')} />}
+      {canEdit && <Btn kind="blue" sm icon="check" label="Approve special request" onPress={() => onAct('approve')} />}
+    </View>
+  </Card>;
+}
+
+/** The special requests waiting for head office, and the ones it has decided. Sits at the top of Correction requests. */
+function SpecialRequests() {
+  const a = useA(); const { state } = useStore(); const dec = useDecisions();
+  const [act, setAct] = useState<{ kind: 'approve' | 'reject'; e: Entry } | null>(null);
+  const rows = state.entries.filter(specialWaiting).sort((x, y) => (x.createdAt || x.date).localeCompare(y.createdAt || y.date));
+  const done = state.entries.filter(e => e.special === 'Approved' || (e.special === 'Rejected' && e.specialDecidedAt)).sort((x, y) => (y.specialDecidedAt || '').localeCompare(x.specialDecidedAt || '')).slice(0, 8);
+  const withDist = state.entries.filter(e => e.special === 'Pending' && e.status === 'With distributor').length;
+  return <View style={{ marginBottom: 18 }}>
+    <Banner tone="warn" icon="alert" style={{ marginBottom: 14 }}><B>Special replacement requests.</B> The old battery was past its warranty term — in the extension months, or past the warranty altogether. The customer already has the new battery. Check the dates and the photo, then approve or reject: until you approve, the distributor cannot dispatch the old battery. Rejecting means no credit, and the new battery has no warranty.{withDist ? ` ${withDist} more ${withDist === 1 ? 'is' : 'are'} still with a distributor.` : ''}</Banner>
+    {dec.problem ? <Banner tone="bad" icon="alert" style={{ marginBottom: 14 }}><B>This could not be done.</B> {dec.problem} <B u onPress={dec.clearProblem}>Dismiss</B></Banner> : null}
+    <Cols weights={[1.55, 1]}>
+      <Stack>{rows.length ? rows.map(e => <SpecialCard key={e.id} e={e} onAct={kind => setAct({ kind, e })} />)
+        : <Box><Empty icon="check" title="No special requests waiting" text="A replacement for a battery past its warranty term waits here once its distributor has approved it." /></Box>}</Stack>
+      <Box title="Special requests decided">{done.length ? <View style={{ paddingHorizontal: 14 }}>{done.map((e, i) => <Line key={e.id} last={i === done.length - 1} onPress={() => a.go('entry', e.id)} av={<Avatar n={e.special === 'Approved' ? 'check' : 'x'} tone={e.special === 'Approved' ? 'green' : 'red'} />} title={<Mono>{e.id}</Mono>} sub={`${e.special === 'Approved' ? 'Approved' : 'Rejected'} · ${state.dealers.find(d => d.id === e.dealerId)?.name || ''} · ${dShort(e.specialDecidedAt)}`} />)}</View> : <X s={13.5} c={T.slate} style={{ padding: 14 }}>Nothing decided yet.</X>}</Box>
+    </Cols>
+    <ReasonDialog open={act?.kind === 'approve'} title={`Approve special request ${act?.e.id || ''}`} confirm="Approve special request" kind="blue" suggestions={SPECIAL_APPROVE} onClose={() => setAct(null)} onConfirm={r => act ? dec.decideSpecial(act.e, 'approve', r) : false}
+      intro="The distributor can now dispatch the old battery. The request is then decided at the factory like any other. A battery past its warranty gets a new battery with NO warranty; one in its extension months keeps the old end date." />
+    <ReasonDialog open={act?.kind === 'reject'} title={`Reject special request ${act?.e.id || ''}`} confirm="Reject request" kind="danger" suggestions={SPECIAL_REJECT} onClose={() => setAct(null)} onConfirm={r => act ? dec.decideSpecial(act.e, 'reject', r) : false}
+      intro="The request ends here: no credit, the old battery stays with the distributor, and the new battery the customer has is recorded with no warranty. The distributor and dealer see this reason." />
+  </View>;
+}
+
 function ApplyCorrection({ e, onClose }: { e: Entry; onClose: () => void }) {
   const dec = useDecisions();
   // a correction may touch a battery of any form we have issued, so never cap this at 8
@@ -357,6 +451,7 @@ export function EntryDetail({ id }: { id?: string }) {
   const [photoError, setPhotoError] = useState('');
   const [viewing, setViewing] = useState<ShownPhoto | null>(null);
   const [one, setOne] = useState<{ u: Entry; kind: 'approve' | 'reject' } | null>(null);
+  const [specialAct, setSpecialAct] = useState<'approve' | 'reject' | null>(null);
   // review / correct act on ONE battery (client, 2 Oct 2026) — the card's item, not the request
   const [workOn, setWorkOn] = useState<{ itemId: string; n: number; kind: 'review' | 'correct'; code: string; oldSerial: string } | null>(null);
   const [fixCode, setFixCode] = useState(''), [fixOld, setFixOld] = useState('');
@@ -396,6 +491,7 @@ export function EntryDetail({ id }: { id?: string }) {
   const open = (uri: string) => { Linking.openURL(uri).catch(() => a.toast('The photo could not be opened here.')); };
   const g = parseGps(e.gps);
   const banner = e.status === 'Conflict' ? <Banner tone="bad" icon="alert"><B>Serial exception — this cannot be approved yet.</B> {problems[0] || 'A serial needs checking.'} Ask the dealer for a correction, or correct it yourself.</Banner>
+    : specialWaiting(e) ? <Banner tone="warn" icon="alert"><B>Special replacement request — decide it first.</B> The old battery was past its warranty term. {e.items.filter(i => i.coverCase).map(i => specialLine(i, e.date)).join(' · ')}. Until you approve it the distributor cannot dispatch the old battery. {canEdit ? <><B u onPress={() => setSpecialAct('approve')}>Approve</B> · <B u onPress={() => setSpecialAct('reject')}>Reject</B></> : null}</Banner>
     : e.status === 'Submitted' ? <Banner tone="warn" icon="clock"><B>Waiting for your decision.</B> {e.type === 'Replacement' ? 'The customer already has the new battery. Approving approves it for refund.' : 'Approving updates stock and battery history.'}</Banner>
     : e.status === 'Under Review' ? <Banner tone="info" icon="eye"><B>Under review.</B> Approve or refuse once the check is done.</Banner>
     : e.status === 'Approved' ? <Banner tone="ok" icon="check"><B>Approved.</B> Stock, warranty history and the replacement chain are updated.</Banner>
@@ -416,6 +512,11 @@ export function EntryDetail({ id }: { id?: string }) {
       <Btn kind="ghost" sm icon="down" label="Print acknowledgement" onPress={() => { if (dealer) printEntry(e, dealer).catch(() => a.toast('Printing is not available on this device.')); }} />
     </>}>
     <View style={{ marginBottom: 14 }}>{banner}</View>
+    {e.special && !specialWaiting(e) && e.status !== 'With distributor' ? <Banner tone={e.special === 'Approved' ? 'ok' : 'bad'} icon={e.special === 'Approved' ? 'check' : 'x'} style={{ marginBottom: 14 }}>
+      <B>Special request {e.special === 'Approved' ? 'approved' : 'rejected'}{e.specialDecidedAt ? ` on ${dShort(e.specialDecidedAt)}` : ''}.</B> {e.specialReason || ''} {e.items.filter(i => i.coverCase).map(i => `${specialLine(i, e.date)}. ${e.special === 'Rejected' ? 'The new battery has no warranty.' : specialOutcome(i)}`).join(' ')}</Banner> : null}
+    <ReasonDialog open={!!specialAct} title={`${specialAct === 'reject' ? 'Reject' : 'Approve'} special request ${e.id}`} confirm={specialAct === 'reject' ? 'Reject request' : 'Approve special request'} kind={specialAct === 'reject' ? 'danger' : 'blue'} suggestions={specialAct === 'reject' ? SPECIAL_REJECT : SPECIAL_APPROVE} onClose={() => setSpecialAct(null)}
+      onConfirm={r => specialAct ? dec.decideSpecial(e, specialAct, r) : false}
+      intro={specialAct === 'reject' ? 'No credit, the old battery stays with the distributor, and the new battery the customer has is recorded with no warranty.' : 'The distributor can now dispatch the old battery. The request is then decided at the factory like any other.'} />
     {/* why the last decision did not go through — stays put, unlike the toast (client, 2 Oct 2026) */}
     {dec.problem ? <Banner tone="bad" icon="alert" style={{ marginBottom: 14 }}>
       <B>This could not be done.</B> {dec.problem} <B u onPress={dec.clearProblem}>Dismiss</B></Banner> : null}

@@ -27,6 +27,17 @@ pool.on('error', (err) => {
   logger.error({ err }, 'idle Postgres client error (pool recovers automatically)');
 });
 
+// The handler above only covers IDLE clients: the pool takes its own listener off a client while
+// a request is using it. If the server drops the connection mid-request (seen 3 Oct 2026, in the
+// middle of a transaction), that client's 'error' event has no listener either and the process
+// exits. With one attached, the query in flight rejects, that one request fails, and the pool
+// discards the client — everything else keeps running.
+pool.on('connect', (client) => {
+  client.on('error', (err) => {
+    logger.error({ err }, 'Postgres client error while in use (the request fails; the server keeps running)');
+  });
+});
+
 export const db = drizzle(pool, { schema });
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];

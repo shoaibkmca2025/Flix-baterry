@@ -34,6 +34,10 @@ export const batteries = pgTable(
     // the plant that made it — known once head office has tagged it on a return (D-19); a copy of
     // the challan line's tag, so a battery search can say where it was made
     plantId: uuid('plant_id').references(() => plants.id),
+    // Given against a battery whose cover was over (a special request, client 3 Oct 2026): it has
+    // no warranty at all, whatever its chain says, and can never be replaced under warranty.
+    noWarranty: boolean('no_warranty').notNull().default(false),
+    noWarrantyReason: text('no_warranty_reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

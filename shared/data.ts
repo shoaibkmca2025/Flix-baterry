@@ -44,7 +44,7 @@ export function coverOf(b: Battery | undefined, state: State) {
   return { start: b.start, expiry: b.expiry, used, status: w.status, policy, months: policy?.months ?? 24, usedSpan: span(b.start, now), leftSpan: span(now, b.expiry), replacements: Math.max(0, chain.length - 1) };
 }
 export const coverChip = (status: string): [string, 'live' | 'warn' | 'mute' | 'bad'] =>
-  status === 'Active' ? ['Cover active', 'live'] : status === 'Expiring soon' ? ['Cover ending soon', 'warn'] : status === 'Expired' ? ['Cover ended', 'bad'] : ['Not on record', 'mute'];
+  status === 'No warranty' ? ['No warranty', 'bad'] : status === 'Active' ? ['Cover active', 'live'] : status === 'Expiring soon' ? ['Cover ending soon', 'warn'] : status === 'Expired' ? ['Cover ended', 'bad'] : ['Not on record', 'mute'];
 
 export const findBattery = (state: State, code: string) => state.batteries.find(b => normalize(b.code) === normalize(code));
 export const dealerEntries = (state: State, dealerId: string) => state.entries.filter(e => e.dealerId === dealerId).sort((a, b) => (b.createdAt || b.date).localeCompare(a.createdAt || a.date));
@@ -104,6 +104,7 @@ export function refunds(state: State, dealerId: string, withDealers = false) {
 // withDealers: a distributor sends back his dealers' old batteries too, once he has approved their requests
 // ...and a dealer's request only once every one of its old batteries has reached him (client, 3 Oct 2026)
 export const toSendBack = (state: State, dealerId: string, withDealers = false) => (withDealers ? networkEntries(state, dealerId) : dealerEntries(state, dealerId)).filter(e => e.type === 'Replacement' && ['Submitted', 'Under Review', 'Conflict', 'Approved'].includes(e.status) && (!e.returnState || e.returnState === 'At dealer') && e.items.some(i => i.oldSerial)
+  && e.special !== 'Pending' // a special request leaves only once head office approves it (client, 3 Oct 2026)
   && (e.dealerId === dealerId || e.items.every(i => !i.oldSerial || !!i.arrivedAtDistributor)));
 
 /**
@@ -111,7 +112,7 @@ export const toSendBack = (state: State, dealerId: string, withDealers = false) 
  * requested → approved by him, waiting for the old battery → arrived at him → dispatched →
  * at the factory → head office's decision. A sales return has no old battery to hand over.
  */
-export type DistributorStage = { key: 'requested' | 'awaiting' | 'arrived' | 'dispatched' | 'factory' | 'headoffice' | 'approved' | 'refused'; label: string; tone: 'warn' | 'info' | 'live' | 'vio' | 'bad' | 'mute'; hint: string };
+export type DistributorStage = { key: 'requested' | 'awaiting' | 'arrived' | 'held' | 'dispatched' | 'factory' | 'headoffice' | 'approved' | 'refused'; label: string; tone: 'warn' | 'info' | 'live' | 'vio' | 'bad' | 'mute'; hint: string };
 export function distributorStage(e: Entry, it: Entry['items'][number]): DistributorStage {
   const st = it.status ?? e.status;
   if (e.status === 'With distributor') return { key: 'requested', label: 'Requested', tone: 'warn', hint: 'Check the photos and serial, then approve or refuse' };
@@ -120,9 +121,29 @@ export function distributorStage(e: Entry, it: Entry['items'][number]): Distribu
   if (e.type !== 'Replacement' || !it.oldSerial) return { key: 'headoffice', label: 'With head office', tone: 'info', hint: 'You approved it — head office decides' };
   if (it.returnState && !['At dealer', 'In transit'].includes(it.returnState)) return { key: 'factory', label: 'At factory', tone: 'live', hint: 'Head office is checking it' };
   if (it.returnState === 'In transit') return { key: 'dispatched', label: 'Dispatched', tone: 'vio', hint: 'On your challan to head office' };
+  // a special request's battery is held until head office approves it in Correction requests
+  if (it.arrivedAtDistributor && e.special === 'Pending') return { key: 'held', label: 'Waiting for head office', tone: 'vio', hint: 'Special request — send after head office approves' };
   if (it.arrivedAtDistributor) return { key: 'arrived', label: 'Arrived at you', tone: 'live', hint: 'Ready to send — use Send back' };
   return { key: 'awaiting', label: 'Waiting for the battery', tone: 'info', hint: 'You approved it — mark it arrived when the dealer hands it over' };
 }
+/**
+ * What makes a request special, in the words every screen uses (client, 3 Oct 2026). "Exceeded by
+ * X days" counts from the end of the term — the date the customer was told — to the request's date.
+ */
+export function specialLine(it: { coverCase?: string; coverTermEnd?: string; coverEnd?: string }, onDate: string): string {
+  if (!it.coverCase || !it.coverTermEnd) return '';
+  const over = Math.max(0, Math.round((Date.parse(onDate.slice(0, 10)) - Date.parse(it.coverTermEnd)) / 86400000));
+  const days = `${over} ${over === 1 ? 'day' : 'days'}`;
+  return it.coverCase === 'Extension'
+    ? `Warranty exceeded by ${days}${it.coverEnd ? ` · extension ends ${dLong(it.coverEnd)}` : ' · in extension'}`
+    : `Warranty exceeded by ${days}${it.coverEnd ? ` · ended ${dLong(it.coverEnd)}` : ' · warranty over'}`;
+}
+/** A special request the distributor has passed on (or raised himself): head office decides it in Correction requests. */
+export const specialWaiting = (e: Entry) => e.special === 'Pending' && e.status === 'Submitted';
+/** What the new battery gets if a special request is approved: the old end date, or nothing. */
+export const specialOutcome = (it: { coverCase?: string; coverEnd?: string }) => it.coverCase === 'Extension'
+  ? `New battery keeps the old end date${it.coverEnd ? ` (${dLong(it.coverEnd)})` : ''}.`
+  : it.coverCase === 'Expired' ? 'New battery gets NO warranty.' : '';
 export const ageDays = (iso: string) => Math.max(0, Math.round((Date.parse(today()) - Date.parse(iso.slice(0, 10))) / 86400000));
 
 export function challanStatus(c: Challan, state: State): { label: string; status: string; sub: string } {
@@ -228,25 +249,14 @@ const OPEN_ELSEWHERE = ['Submitted', 'Under Review', 'Conflict', 'Pending sync']
 export function entryErrors(e: Entry, state: State): Record<string, string> {
   const errs: Record<string, string> = { ...validateEntry(e, state) };
   const others = state.entries.filter(x => x.id !== e.id && OPEN_ELSEWHERE.includes(x.status));
-  const modelIds = state.models.map(m => m.id);
   e.items.forEach((it, i) => {
     const key = `items.${i}.`;
     if (e.type === 'Replacement') {
       if (!it.fault) errs[key + 'fault'] = 'Choose what is wrong with the old battery.';
       const dupOld = it.oldSerial && others.find(x => x.type === 'Replacement' && x.items.some(y => sameBattery(y.oldSerial, y.oldModel, it.oldSerial, it.oldModel)));
       if (dupOld && !errs[key + 'oldSerial']) errs[key + 'oldSerial'] = `This old battery is already on request ${dupOld.id}.`;
-      // Out of cover: the request must not be made at all. Worked out from the label — the same
-      // sum the server does on approval — because almost no old battery is on record here.
-      if (!errs[key + 'oldSerial'] && it.oldSerial) {
-        const mfg = deriveCode(it.oldSerial, modelIds, anyDigitLengths(state.serialDigitLengths)).mfg;
-        if (mfg) {
-          const months = (state.models.find(m => m.id === (it.oldModel || it.model))?.months ?? 24) + (state.graceMonths ?? 2);
-          const expiry = expiryFrom(`${mfg}-01`, months);
-          if (Date.parse(expiry) < Date.parse(e.date)) {
-            errs[key + 'oldSerial'] = `This battery's warranty ran out on ${dLong(expiry)} — ${months} months from ${monthLong(mfg)}. A replacement cannot be claimed for it.`;
-          }
-        }
-      }
+      // A battery past its cover is NOT refused here any more (client, 3 Oct 2026): the request goes
+      // as a special one — the server marks it, and the distributor and head office approve it.
       if (i === 0 && !e.customer.trim()) errs['items.0.customer'] = 'Enter the customer name.';
     }
     const dupNew = it.code && others.find(x => x.items.some(y => sameBattery(y.code, y.model, it.code, it.model)));

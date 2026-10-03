@@ -51,3 +51,25 @@ export function checkWarranty(mfgMonth: string, now: string, termMonths = DEFAUL
   const daysRemaining = Math.ceil((Date.parse(cover.expiryDate) - Date.parse(now)) / 86_400_000);
   return { mfgMonth, ...cover, inWarranty: daysRemaining >= 0, daysRemaining };
 }
+
+/**
+ * Which kind of replacement a request for this battery is (client, 3 Oct 2026). Cover is the term
+ * plus the grace months, but a customer only ever hears "the term" — so a claim inside the grace
+ * months, or after the cover is over entirely, is a SPECIAL replacement: the customer still gets
+ * the new battery at the counter, but the distributor and then head office must approve it
+ * before the old battery can be sent on.
+ *
+ *   normal      on or before the end of the term
+ *   extension   inside the grace months — the new battery still inherits the chain's end date
+ *   expired     after the cover — if approved, the new battery has NO warranty at all
+ *
+ * `daysOver` counts from the end of the term, the date the customer was told.
+ */
+export type CoverCase = 'normal' | 'extension' | 'expired';
+export function coverCase(cover: { startDate: string; expiryDate: string; termMonths: number }, onDate: string): { case: CoverCase; termEnd: string; daysOver: number } {
+  // an override can push the expiry past term + grace, never pull the term's end past the expiry
+  const termEnd = [expiryFrom(cover.startDate, cover.termMonths), cover.expiryDate].sort()[0]!;
+  const daysOver = Math.max(0, Math.round((Date.parse(onDate) - Date.parse(termEnd)) / 86_400_000));
+  const kind: CoverCase = onDate <= termEnd ? 'normal' : onDate <= cover.expiryDate ? 'extension' : 'expired';
+  return { case: kind, termEnd, daysOver };
+}

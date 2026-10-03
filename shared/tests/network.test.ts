@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newEntry, newItem, type Entry, type State } from '../domain';
-import { isDealerShop, networkEntries, refunds, toSendBack } from '../data';
+import { initialState } from '../seed';
+import { entryErrors, distributorStage, isDealerShop, networkEntries, refunds, specialLine, specialOutcome, specialWaiting, toSendBack } from '../data';
 
 // Head office → distributor → dealer (client, 2 Oct 2026). In a distributor's app the store
 // holds his own requests and his dealers'; dealer-1 is the distributor, dealer-1a his dealer.
@@ -29,4 +30,41 @@ test('a shop is a distributor unless it says it is a dealer (every shop from bef
   assert.equal(isDealerShop({ kind: 'Distributor' }), false);
   assert.equal(isDealerShop({}), false);
   assert.equal(isDealerShop(undefined), false);
+});
+
+// A replacement for a battery past its warranty term is a SPECIAL request (client, 3 Oct 2026):
+// its old battery cannot be sent on until head office approves it in Correction requests.
+test('a special request is held until head office approves it', () => {
+  const special = (id: string, dealerId: string, sp: Entry['special'], arrived = true): Entry => {
+    const e = rep(id, dealerId, 'Submitted');
+    return { ...e, special: sp, items: e.items.map(it => ({ ...it, coverCase: 'Expired' as const, coverTermEnd: '2026-07-31', coverEnd: '2026-09-30', arrivedAtDistributor: arrived ? '2026-10-03T10:00:00Z' : undefined })) };
+  };
+  const s = { entries: [special('S1', 'dealer-1a', 'Pending'), special('S2', 'dealer-1a', 'Approved'), special('S3', 'dealer-1', 'Pending'), special('S4', 'dealer-1a', 'Pending', false)] } as unknown as State;
+  assert.deepEqual(toSendBack(s, 'dealer-1', true).map(e => e.id), ['S2']); // only the approved one can go
+  const stage = (id: string) => { const e = s.entries.find(x => x.id === id)!; return distributorStage(e, e.items[0]!).key; };
+  assert.equal(stage('S1'), 'held');      // he has the battery, head office has not decided
+  assert.equal(stage('S2'), 'arrived');   // approved: ready to send
+  assert.equal(stage('S4'), 'awaiting');  // he can still receive it while it waits
+  assert.equal(specialWaiting(s.entries[0]!), true);
+  assert.equal(specialWaiting({ ...s.entries[0]!, status: 'With distributor' }), false); // not head office's yet
+});
+
+test('"warranty exceeded by X days" counts from the end of the term', () => {
+  assert.match(specialLine({ coverCase: 'Extension', coverTermEnd: '2025-12-31', coverEnd: '2026-02-28' }, '2026-01-10'), /^Warranty exceeded by 10 days · extension ends 28 Feb 2026$/);
+  assert.match(specialLine({ coverCase: 'Extension', coverTermEnd: '2025-12-31', coverEnd: '2026-02-28' }, '2026-01-01'), /by 1 day ·/);
+  assert.match(specialLine({ coverCase: 'Expired', coverTermEnd: '2025-12-31', coverEnd: '2026-02-28' }, '2026-03-01'), /by 60 days · ended 28 Feb 2026$/);
+  assert.equal(specialLine({}, '2026-03-01'), '');
+  assert.match(specialOutcome({ coverCase: 'Expired' }), /NO warranty/);
+  assert.match(specialOutcome({ coverCase: 'Extension', coverEnd: '2026-02-28' }), /keeps the old end date/);
+});
+
+// The form used to refuse a battery past its cover outright ("warranty ran out … cannot be
+// claimed"), which would have stopped a special request at the counter (client, 3 Oct 2026).
+test('a battery past its cover gets through the form — it is sent as a special request', () => {
+  const s = structuredClone(initialState);
+  const model = s.models.find(m => m.active)!;
+  const e = { ...newEntry(s.dealers[0]!.id), customer: 'Test customer' };
+  // made five years ago: long past any term + grace, and not on record anywhere
+  e.items = [{ ...newItem(), model: model.id, oldModel: model.id, code: '26090991', serial: '0991', mfg: '2026-09', oldSerial: '21010991', fault: 'Low backup' }];
+  assert.equal(entryErrors(e, s)['items.0.oldSerial'], undefined);
 });

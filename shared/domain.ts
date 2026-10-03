@@ -5,15 +5,21 @@ export type Item = { id: string; model: string; oldModel?: string; code: string;
   /** a replacement's old battery travels and is decided on its own (client, 2 Oct 2026): its claim, where it is, and head office's decision */
   /** a dealer's old battery handed over and marked arrived by the distributor (client, 3 Oct 2026) */
   arrivedAtDistributor?: string;
+  /** the old battery was past its term when the request was made (client, 3 Oct 2026): inside the grace months, or past the cover */
+  coverCase?: 'Extension' | 'Expired'; coverTermEnd?: string; coverEnd?: string;
   claimId?: string; claimStatus?: string; claimUpdatedAt?: string; status?: Status; returnState?: string; returnNote?: string; decidedAt?: string; decisionReason?: string;
   /** head office looked at THIS battery, and/or rewrote its serials (client, 2 Oct 2026) */
   reviewStartedAt?: string; reviewNote?: string; correctedAt?: string; correctionReason?: string };
 export type Entry = { id: string; dealerId: string; type: string; date: string; customer: string; place: string; order: string; remarks: string; items: Item[]; status: Status; evidence: string[]; gps?: string; signature?: string; createdAt: string; retries: number; correction?: { reason: string; value: string; status: string }; handover?: string; returnState?: string; returnNote?: string; linkedTo?: string; evidenceTags?: string[]; coverTold?: string; apiId?: string; claimId?: string; claimStatus?: string; decidedAt?: string; decisionReason?: string;
   /** the distributor's decision on a dealer's request, before head office (client, 2 Oct 2026) */
   distributorDecidedAt?: string; distributorReason?: string;
+  /** a SPECIAL request — a battery on it is past its term; head office decides it in Correction requests (client, 3 Oct 2026) */
+  special?: 'Pending' | 'Approved' | 'Rejected'; specialReason?: string; specialDecidedAt?: string;
   /** set when this Entry stands for ONE battery of a multi-battery replacement (see batteryUnits) */
   itemId?: string; part?: string };
-export type Battery = { code: string; serial: string; model: string; dealerId: string; customer: string; mfg: string; oldSerial?: string; start?: string; expiry?: string; policy?: string; state: string };
+export type Battery = { code: string; serial: string; model: string; dealerId: string; customer: string; mfg: string; oldSerial?: string; start?: string; expiry?: string; policy?: string; state: string;
+  /** given against a battery whose cover was over: no warranty at all, and it can never be replaced (client, 3 Oct 2026) */
+  noWarranty?: boolean; noWarrantyReason?: string };
 export type Dealer = { id: string; code?: string; name: string; contact: string; mobile: string; email: string; city: string; place: string; address: string; pin: string; state: string; status: string; reason?: string; documents?: string[];
   /** head office → distributor → dealer (client, 2 Oct 2026). Absent = 'Distributor' (every shop from before). */
   kind?: 'Distributor' | 'Dealer'; distributorId?: string;
@@ -68,6 +74,7 @@ export function expiryFrom(start: string, months: number) {
   return end.toISOString().slice(0,10);
 }
 export function warranty(b: Battery, now = today(), alertDays = 30) {
+  if (b.noWarranty) return {status:'No warranty',days:0,progress:0};
   if (!b.expiry) return {status:'Not on record',days:0,progress:0};
   const days = Math.ceil((Date.parse(b.expiry)-Date.parse(now))/86400000);
   const total = Math.max(1,(Date.parse(b.expiry)-Date.parse(b.start || now))/86400000);
@@ -234,8 +241,9 @@ export function validateEntry(e: Entry, state: State): Record<string,string> {
       const old=state.batteries.find(b=>sameBattery(b.code,b.model,item.oldSerial,item.oldModel));
       if(old&&old.dealerId!==e.dealerId) errors[key+'oldSerial']='Old battery custody belongs to another dealer.';
       if(state.batteries.some(b=>!!b.oldSerial&&sameBattery(b.oldSerial,undefined,item.oldSerial,item.oldModel))) errors[key+'oldSerial']='This battery has already been replaced. Use the current battery in the chain.';
-      const override=state.overrides.some(o=>o.code===item.oldSerial&&o.status==='Approved');
-      if(old&&warranty(old).status==='Expired'&&!override) errors[key+'oldSerial']='Warranty expired. Request an admin override before submitting.';
+      // Past its cover it is a special request now, not an error (client, 3 Oct 2026). Only a battery
+      // that was itself given with no warranty can never be replaced.
+      if(old?.noWarranty) errors[key+'oldSerial']='This battery has no warranty — it was given as a special replacement. It cannot be replaced under warranty.';
     }
     for(const f of ['mfg','rpl','rtn'] as const) if(item[f]&&!/^\d{4}-(0[1-9]|1[0-2])$/.test(item[f])) errors[key+f]='Use YYYY-MM with a valid month.';
   });

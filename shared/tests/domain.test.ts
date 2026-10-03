@@ -42,10 +42,14 @@ test('unknown old serial stays without invented warranty dates on approval',()=>
  let s=fresh(),e=newEntry('FPP-014');e.status='Submitted';e.items[0]={...e.items[0],code:'26080311',serial:'0311',oldSerial:'20011111',mfg:'2026-08'};
  s.entries.push(e);s=approveEntry(s,e);assert.equal(s.batteries.find(b=>b.code==='26080311')!.expiry,undefined);
 });
-test('invalid custody, expired warranty, and already replaced sources are blocked',()=>{
+test('invalid custody, a no-warranty battery, and already replaced sources are blocked — an expired one is not',()=>{
  const s=fresh(),e=newEntry('FPP-014');e.items[0]={...e.items[0],code:'26080311',serial:'0311',oldSerial:'26070400',mfg:'2026-08'};
  assert.match(validateEntry(e,s)['items.0.oldSerial'],/custody/);
- e.items[0].oldSerial='21040097';assert.match(validateEntry(e,s)['items.0.oldSerial'],/expired/);
+ // past its cover it is a special request, decided by the distributor and head office (client, 3 Oct 2026)
+ e.items[0].oldSerial='21040097';assert.equal(validateEntry(e,s)['items.0.oldSerial'],undefined);
+ // but a battery that was itself given with no warranty can never be replaced
+ const none={...s,batteries:s.batteries.map(b=>b.code.endsWith('21040097')?{...b,noWarranty:true}:b)};
+ assert.match(validateEntry(e,none)['items.0.oldSerial'],/no warranty/);
  e.items[0].oldSerial='21030047';assert.match(validateEntry(e,s)['items.0.oldSerial'],/already been replaced/);
 });
 test('filters combine status, type, model, query, and date range',()=>{

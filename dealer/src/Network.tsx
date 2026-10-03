@@ -8,7 +8,7 @@ import { listPhotos, type EntryPhoto } from '@felix/shared/api/photos';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Btn, Card, Chip, StatusChip, Field, Hint, Banner, Line, Avatar, Gap, KV, SecT, Plate, PlateLab, PlateVal, tap } from '@felix/shared/ui/kit';
 import { PickList } from '@felix/shared/ui/pick';
-import { dLong, dShort, monthShort, tShort, distributorStage, type DistributorStage } from '@felix/shared/data';
+import { dLong, dShort, monthShort, tShort, distributorStage, specialLine, specialOutcome, type DistributorStage } from '@felix/shared/data';
 import { getAccessToken, dealerStatusLabel } from '@felix/shared/api/session';
 import { createMyDealer, listMyDealers, setMyDealerStatus, type ApiDealer } from '@felix/shared/api/dealers';
 import { ApiError, errorMessage } from '@felix/shared/api/client';
@@ -191,13 +191,18 @@ export function D43({ p }: { p?: string }) {
       <Btn kind="ghost" icon="x" label="Refuse" color={T.terminal} borderColor="#F0C7BC" style={{ flex: 1 }} onPress={() => { setWhy(''); setAsk('refuse'); }} />
       <Btn kind="primary" icon="check" label="Approve" style={{ flex: 1.4 }} onPress={() => { setWhy(''); setAsk('approve'); }} /></View> : undefined}
     overlay={<Sheet open={!!ask} title={ask === 'approve' ? 'Approve and send to head office' : 'Refuse this request'} onClose={() => setAsk(null)}>
-      <X s={14} c={T.slate} style={{ marginBottom: 12 }}>{ask === 'approve' ? `Head office makes the final decision${rep ? ' once the old battery reaches the factory' : ''}. Approving also records that you have the old battery from the dealer.` : 'The request ends here. The dealer sees your reason in their app.'}</X>
+      <X s={14} c={T.slate} style={{ marginBottom: 12 }}>{ask === 'approve' ? (e.special === 'Pending' ? 'Special request: head office decides next. Keep the old battery until it approves.' : `Head office makes the final decision${rep ? ' once the old battery reaches the factory' : ''}. Approving also records that you have the old battery from the dealer.`) : 'The request ends here. The dealer sees your reason in their app.'}</X>
       <View style={{ flexDirection: 'row', gap: 7, flexWrap: 'wrap', marginBottom: 10 }}>{reasons.map(t =>
         <Pressable key={t} accessibilityRole="button" onPress={() => setWhy(t)} style={tap}><Chip tone={why === t ? 'info' : 'mute'} label={t} /></Pressable>)}</View>
       <Field label="Reason" req value={why} onChange={setWhy} ph="Why you are deciding this" multiline />
       <Btn kind={ask === 'approve' ? 'primary' : 'danger'} label={busy ? 'Saving…' : ask === 'approve' ? 'Approve and send' : 'Refuse request'} onPress={decide} disabled={busy} />
     </Sheet>}>
     {!waiting && <Banner tone={e.status === 'Rejected' ? 'bad' : 'ok'} icon={e.status === 'Rejected' ? 'x' : 'check'} style={{ marginBottom: 12 }}><B>{e.status === 'Rejected' ? 'Refused.' : 'Sent to head office.'}</B> {e.distributorReason || e.decisionReason || ''}</Banner>}
+    {e.special && <Banner tone={e.special === 'Rejected' ? 'bad' : e.special === 'Approved' ? 'ok' : 'warn'} icon={e.special === 'Approved' ? 'check' : 'alert'} style={{ marginBottom: 12 }}>
+      <B>Special request{e.special === 'Approved' ? ' — approved by head office' : e.special === 'Rejected' ? ' — rejected' : ''}.</B> {e.special === 'Rejected' ? 'No credit. New battery has no warranty. Do not send the old battery.'
+        : e.special === 'Approved' ? 'You can send the old battery now.'
+        : waiting ? 'Old battery is past its warranty. After you, head office decides.'
+        : 'Waiting for head office. Do not send the old battery yet.'}</Banner>}
     <Card><KV pairs={[['Dealer', names[e.dealerId] || 'Your dealer'], ['Type', e.type], ['Date', dLong(e.date)], ['Sent', `${dShort(e.createdAt)}, ${tShort(e.createdAt)}`], ['Batteries', String(e.items.length)]]} /></Card>
     {e.items.map((it, i) => {
       const mine = photos?.filter(ph => (ph.itemSeq ?? 0) === i) ?? [];
@@ -208,9 +213,10 @@ export function D43({ p }: { p?: string }) {
           <X s={19} c={T.volt} style={{ textAlign: 'center', marginVertical: 4 }}>↓</X>
           <PlateLab>NEW BATTERY IN</PlateLab><PlateVal color="#7FD3A9">{it.code || '—'}</PlateVal></> : <><PlateLab>RETURNED BATTERY</PlateLab><PlateVal>{it.code || '—'}</PlateVal></>}</Plate>
         <KV pairs={[['Made', monthShort(it.mfg)], [rep ? 'Problem' : 'Remarks', (rep ? it.fault : it.remarks) || '—'], ['Where it is', `${distributorStage(e, it).label} — ${distributorStage(e, it).hint}`]]} />
+        {it.coverCase ? <Banner tone="warn" icon="clock" style={{ marginTop: 9 }}><B>{specialLine(it, e.date)}.</B> {specialOutcome(it)}</Banner> : null}
         {distributorStage(e, it).key === 'awaiting' && e.apiId && <Btn kind="blue" sm icon="box" label="Mark arrived" style={{ marginTop: 9, alignSelf: 'flex-start' }} onPress={async () => {
           const token = await getAccessToken(); if (!token) { d.toast('Your sign-in has ended. Sign in again.'); return; }
-          try { await markArrived(e.apiId!, token, it.id); d.toast('Marked arrived. It is now ready to send from Send back.'); await sync(true); } catch (ex) { d.toast(errorMessage(ex)); }
+          try { await markArrived(e.apiId!, token, it.id); d.toast(e.special === 'Pending' ? 'Marked arrived. You can send it once head office approves the special request.' : 'Marked arrived. It is now ready to send from Send back.'); await sync(true); } catch (ex) { d.toast(errorMessage(ex)); }
         }} />}
         <X s={12} w={7} c={T.slate} style={{ marginTop: 11, marginBottom: 7 }}>PHOTOS</X>
         {photos === null ? <X s={13} c={T.slate}>Loading photos…</X>
@@ -270,12 +276,12 @@ export function D44({ p }: { p?: string }) {
     if (!e.apiId) return;
     const token = await getAccessToken(); if (!token) { d.toast('Your sign-in has ended. Sign in again.'); return; }
     setBusy(itemId);
-    try { await markArrived(e.apiId, token, itemId); d.toast('Marked arrived. It is now ready to send from Send back.'); await sync(true); }
+    try { await markArrived(e.apiId, token, itemId); d.toast(e.special === 'Pending' ? 'Marked arrived. You can send it once head office approves the special request.' : 'Marked arrived. It is now ready to send from Send back.'); await sync(true); }
     catch (ex) { d.toast(errorMessage(ex)); } finally { setBusy(''); }
   };
   const FILTERS: [string, string, (k: DistributorStage['key']) => boolean][] = [
     ['all', `All ${rows.length}`, () => true], ['requested', `To approve ${c.requested}`, k => k === 'requested'], ['awaiting', `To receive ${c.awaiting}`, k => k === 'awaiting'],
-    ['arrived', `Ready to send ${c.arrived}`, k => k === 'arrived'], ['done', 'Sent on', k => ['dispatched', 'factory', 'headoffice', 'approved', 'refused'].includes(k)],
+    ['arrived', `Ready to send ${c.arrived}`, k => k === 'arrived'], ['held', 'Waiting for head office', k => k === 'held'], ['done', 'Sent on', k => ['dispatched', 'factory', 'headoffice', 'approved', 'refused'].includes(k)],
   ];
   const [f, setF] = useState('all');
   const shown = rows.filter(({ e, it }) => FILTERS.find(x => x[0] === f)![2](distributorStage(e, it).key));
@@ -291,6 +297,7 @@ export function D44({ p }: { p?: string }) {
             <X s={14.5} w={6} f="m">{it.oldSerial ? `${it.oldSerial} → ${it.code}` : it.code}</X>
             <X s={12.5} c={T.slate}>{e.type} · <Mono>{e.id}</Mono> · {dShort(e.date)}</X>
             <X s={12} c={T.slate}>{s.hint}</X>
+            {it.coverCase ? <X s={12} w={6} c="#8A5A00">Special · {specialLine(it, e.date)}</X> : null}
           </View>
           <Chip tone={s.tone} label={s.label} />
         </Pressable>

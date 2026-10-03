@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkWarranty, coverFromMfg, expiryFrom } from './warranty';
+import { checkWarranty, coverCase, coverFromMfg, expiryFrom } from './warranty';
 
 describe('expiryFrom', () => {
   // same three cases already proven in tests/domain.test.ts for the frontend — must stay in sync.
@@ -40,5 +40,32 @@ describe('checkWarranty — manufacture month + term + grace (memory.md D-11)', 
 
   it('coverFromMfg is what a new chain is anchored on', () => {
     expect(coverFromMfg('2026-09', 24)).toEqual({ startDate: '2026-09-01', expiryDate: '2028-10-31', termMonths: 24, graceMonths: 2 });
+  });
+});
+
+describe('coverCase — which kind of replacement a request is (client, 3 Oct 2026)', () => {
+  // a 12-month battery made in January 2025, with 2 grace months: term ends 31 Dec 2025, cover 28 Feb 2026
+  const cover = { ...coverFromMfg('2025-01', 12, 2) };
+
+  it('is normal up to and including the last day of the term', () => {
+    expect(coverCase(cover, '2025-06-10')).toMatchObject({ case: 'normal', termEnd: '2025-12-31', daysOver: 0 });
+    expect(coverCase(cover, '2025-12-31')).toMatchObject({ case: 'normal', daysOver: 0 });
+  });
+
+  it('is an extension claim inside the grace months, counted from the end of the term', () => {
+    expect(coverCase(cover, '2026-01-01')).toMatchObject({ case: 'extension', daysOver: 1 });
+    expect(coverCase(cover, '2026-01-10')).toMatchObject({ case: 'extension', daysOver: 10 });
+    expect(coverCase(cover, '2026-02-28')).toMatchObject({ case: 'extension' });
+  });
+
+  it('is expired from the day after the cover ends, however long ago', () => {
+    expect(coverCase(cover, '2026-03-01')).toMatchObject({ case: 'expired', daysOver: 60 });
+    expect(coverCase(cover, '2028-03-01').case).toBe('expired');
+  });
+
+  it('has no extension window when the chain carries no grace months', () => {
+    const noGrace = { startDate: '2025-01-01', expiryDate: '2025-12-31', termMonths: 12 };
+    expect(coverCase(noGrace, '2025-12-31').case).toBe('normal');
+    expect(coverCase(noGrace, '2026-01-01').case).toBe('expired');
   });
 });

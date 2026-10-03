@@ -79,7 +79,8 @@ export function BatteryDetail({ id = '' }: { id?: string }) {
           {chain.length > 2 && <Banner tone="warn" icon="alert"><B>Replaced more than once inside one cover period.</B> Usually this points at fitting or charging, not the battery. Worth a call to the dealer.</Banner>}
         </Box>
         <Box title="Warranty" pad>
-          {cover ? <>
+          {b.noWarranty ? <Banner tone="bad" icon="lock"><B>No warranty.</B> This battery was {b.noWarrantyReason || 'given as a special replacement'}. It can never be replaced under warranty.</Banner>
+          : cover ? <>
             <Meter used={cover.used} labels={[`${dLong(cover.start)} · first sale`, 'Today', `${dLong(cover.expiry)} · ends`]} />
             <View style={{ height: 12 }} />
             <KV cols={a.wide ? 3 : 2} pairs={[['Cover started', dLong(cover.start)], ['Cover ends', dLong(cover.expiry)], ['Remaining', w.status === 'Expired' ? 'None' : spanLong(cover.leftSpan)], ['Policy', `${b.policy || '—'} · ${cover.months} months`], ['Replacements in chain', String(cover.replacements)], ['Overrides', ovs.length ? ovs.map(o => `${o.days}d ${o.status.toLowerCase()}`).join(', ') : 'None']]} />

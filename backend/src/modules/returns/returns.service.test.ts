@@ -98,6 +98,12 @@ describe('dispatch — a dealer hands old batteries to the van', () => {
     await expect(dispatch(dealerCtx, { entryIds: ['entry-1'] })).rejects.toMatchObject({ code: 'entry_not_found', status: 404 });
   });
 
+  it('a special request cannot be dispatched until head office approves it (client, 3 Oct 2026)', async () => {
+    vi.mocked(entriesRepo.findEntriesByIds).mockResolvedValue([{ ...replacement, specialStatus: 'pending' }] as never);
+    await expect(dispatch(dealerCtx, { entryIds: ['entry-1'] })).rejects.toMatchObject({ code: 'special_pending', status: 422 });
+    expect(repo.insertChallan).not.toHaveBeenCalled();
+  });
+
   it("a distributor cannot send a dealer's old battery that has not reached him (client, 3 Oct 2026)", async () => {
     vi.mocked(entriesRepo.findEntriesByIds).mockResolvedValue([{ ...replacement, dealerId: 'dealer-1a' }] as never);
     vi.mocked(entriesRepo.findItemsByEntryIds).mockResolvedValue([item] as never); // no distributorReceivedAt

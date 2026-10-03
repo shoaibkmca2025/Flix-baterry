@@ -51,5 +51,8 @@ export async function registerEntryRoutes(app: FastifyInstance) {
   // a distributor approves (→ head office) or refuses a dealer's request; the service checks it is his dealer's
   app.post<{ Params: { id: string }; Body: EntryDecisionBody }>('/:id/distributor/approve', { preHandler: [requireAuth], schema: { body: EntryDecisionBody } }, controller.distributorApprove);
   app.post<{ Params: { id: string }; Body: EntryDecisionBody }>('/:id/distributor/refuse', { preHandler: [requireAuth], schema: { body: EntryDecisionBody } }, controller.distributorRefuse);
+  // a special replacement request (old battery past its term) is decided by head office in Correction requests
+  app.post<{ Params: { id: string }; Body: EntryDecisionBody }>('/:id/special/approve', { preHandler: [requireAuth, requirePermission('entries.approve')], schema: { body: EntryDecisionBody } }, controller.specialApprove);
+  app.post<{ Params: { id: string }; Body: EntryDecisionBody }>('/:id/special/reject', { preHandler: [requireAuth, requirePermission('entries.reject')], schema: { body: EntryDecisionBody } }, controller.specialReject);
   app.get<{ Params: { id: string } }>('/:id/photos', { preHandler: [requireAuth, requirePermission('entries.read')] }, controller.listPhotos);
 }

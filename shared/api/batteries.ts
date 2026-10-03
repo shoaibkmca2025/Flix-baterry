@@ -9,6 +9,13 @@ export type BatteryCover = {
   termMonths: number; // the (plate, model) term …
   graceMonths: number; // … plus the grace the company adds for shelf time
   warrantyStart?: string; // present once the battery is part of a chain
+  // what a replacement asked for today would be (client, 3 Oct 2026): within the term, inside the
+  // grace months, or past the cover — the last two are special requests
+  coverCase?: 'normal' | 'extension' | 'expired';
+  termEnd?: string;
+  daysOver?: number; // days past the end of the term
+  noWarranty?: boolean; // given against a battery whose cover was over — never replaceable
+  noWarrantyReason?: string | null;
 };
 export type LookupModel = { id: string; plate: string | null; modelNo: string | null; brand?: string; family: string; type: string; capacity: string | null; warrantyMonths: number };
 
@@ -70,6 +77,8 @@ export type ApiBattery = {
   warrantyExpiry: string | null;
   replacementCount: number | null;
   replacedFromCode: string | null;
+  noWarranty?: boolean;
+  noWarrantyReason?: string | null;
   createdAt: string;
 };
 

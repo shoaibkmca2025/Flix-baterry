@@ -4,7 +4,7 @@ import { useStore } from '@felix/shared/store';
 import { today, warranty } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, Btn, Chip, Kpis, Mono, KV, Tone, IconName } from '@felix/shared/ui/kit';
-import { ageDays, dShort, firstProblem, monYear } from '@felix/shared/data';
+import { ageDays, dShort, firstProblem, monYear, specialWaiting } from '@felix/shared/data';
 import { Page, Box, Cols, Stack, Table, Bars, Spark, ScanDialog, useA } from './ui';
 
 type Decision = { key: string; what: string; detail: string; ref: string; dealer: string; raised: string; chip: [string, Tone, IconName]; go: () => void };
@@ -14,7 +14,9 @@ export function Home() {
   const [scan, setScan] = useState(false);
   const dealerName = (id: string) => state.dealers.find(d => d.id === id)?.name || id;
   const live = state.entries.filter(e => e.status !== 'Draft');
-  const waiting = live.filter(e => ['Submitted', 'Under Review'].includes(e.status));
+  // a special request (old battery past its term) is decided in Correction requests first
+  const specials = live.filter(specialWaiting);
+  const waiting = live.filter(e => ['Submitted', 'Under Review'].includes(e.status) && !specialWaiting(e));
   const conflicts = live.filter(e => e.status === 'Conflict');
   const corrections = live.filter(e => e.correction?.status === 'Pending');
   const newDealers = state.dealers.filter(d => d.status === 'Pending Approval');
@@ -28,6 +30,7 @@ export function Home() {
   const decisions: Decision[] = [
     ...conflicts.map(e => ({ key: e.id, what: 'Serial exception', detail: firstProblem(e, state) || 'A serial needs a look', ref: e.id, dealer: dealerName(e.dealerId), raised: dShort(e.createdAt), chip: ['Blocking', 'bad', 'alert'] as Decision['chip'], go: () => a.go('entry', e.id) })),
     ...waiting.map(e => ({ key: e.id, what: e.status === 'Under Review' ? 'Under review' : `${e.type} request`, detail: e.items.map(i => i.oldSerial ? `${i.oldSerial} → ${i.code}` : i.code).join(', '), ref: e.id, dealer: dealerName(e.dealerId), raised: dShort(e.createdAt), chip: [e.status === 'Under Review' ? 'Review' : 'Waiting', e.status === 'Under Review' ? 'vio' : 'warn', e.status === 'Under Review' ? 'eye' : 'clock'] as Decision['chip'], go: () => a.go('entry', e.id) })),
+    ...specials.map(e => ({ key: `s-${e.id}`, what: 'Special replacement request', detail: e.items.map(i => i.oldSerial ? `${i.oldSerial} → ${i.code}` : i.code).join(', '), ref: e.id, dealer: dealerName(e.dealerId), raised: dShort(e.createdAt), chip: ['Decide', 'warn', 'alert'] as Decision['chip'], go: () => a.go('corrections') })),
     ...corrections.map(e => ({ key: `c-${e.id}`, what: 'Correction asked for', detail: e.correction!.value, ref: e.id, dealer: dealerName(e.dealerId), raised: dShort(e.createdAt), chip: ['Review', 'vio', 'pen'] as Decision['chip'], go: () => a.go('corrections') })),
     ...newDealers.map(d => ({ key: d.id, what: 'New dealer', detail: d.name, ref: d.id, dealer: d.city, raised: dShort(state.audits.find(x => x.ref === d.id && x.action === 'Dealer registered')?.at), chip: ['Pending', 'warn', 'clock'] as Decision['chip'], go: () => a.go('registrations') })),
     ...overrides.map(o => ({ key: o.id, what: 'Warranty override asked', detail: `${o.days} extra days`, ref: o.code, dealer: dealerName(state.batteries.find(b => b.code === o.code)?.dealerId || ''), raised: '—', chip: ['Approval', 'vio', 'flag'] as Decision['chip'], go: () => a.go('warranty', 'overrides') })),
@@ -47,7 +50,7 @@ export function Home() {
     <Kpis cols={a.wide ? 4 : 2} items={[
       { v: String(waiting.length), l: 'Requests waiting for a decision', tone: 'flag', onPress: () => a.go('approvals') },
       { v: String(conflicts.length), l: 'Serial exceptions to resolve', tone: 'bad', onPress: () => a.go('approvals', 'conflict') },
-      { v: String(corrections.length), l: 'Correction requests', tone: 'flag', onPress: () => a.go('corrections') },
+      { v: String(corrections.length + specials.length), l: 'Correction requests', tone: 'flag', onPress: () => a.go('corrections') },
       { v: String(newDealers.length), l: 'Dealers waiting for approval', tone: 'flag', onPress: () => a.go('registrations') },
     ]} />
     <View style={{ height: 14 }} />

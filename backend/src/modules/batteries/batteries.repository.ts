@@ -50,6 +50,9 @@ export type NewBattery = {
   origin: 'entry' | 'import' | 'admin' | 'migration';
   chainId?: string;
   replacedFromId?: string;
+  // given against a battery whose cover was over (a special request): no warranty at all
+  noWarranty?: boolean;
+  noWarrantyReason?: string | null;
 };
 
 export async function insertBattery(tx: Tx, input: NewBattery) {

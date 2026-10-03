@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, lt, or } from 'drizzle-orm';
 import { db, type Tx } from '../../database/client';
-import { entries, entryItems, entryStatus, entryType } from '../../models/entries.model';
+import { coverCaseEnum, entries, entryItems, entryStatus, entryType } from '../../models/entries.model';
 import { entryPhotos } from '../../models/evidence.model';
 
 type DbOrTx = typeof db | Tx;
@@ -38,6 +38,7 @@ export type NewEntry = {
   coverToldAt: Date | null;
   submittedBy: string;
   status?: (typeof entryStatus.enumValues)[number]; // a dealer's request starts with_distributor
+  specialStatus?: 'pending' | null; // a battery on it is past its term — head office decides it in Correction requests
 };
 
 export async function insertEntry(tx: Tx, input: NewEntry) {
@@ -56,6 +57,10 @@ export type NewEntryItem = {
   oldModelId?: string | null;
   faultCode: string | null;
   remarks: string | null;
+  // the old battery's cover as judged when the request was made (null = within the term)
+  coverCase?: (typeof coverCaseEnum.enumValues)[number] | null;
+  coverTermEnd?: string | null;
+  coverEnd?: string | null;
 };
 
 export async function insertEntryItem(tx: Tx, input: NewEntryItem) {
@@ -100,6 +105,26 @@ export async function setDistributorDecision(tx: Tx, id: string, input: { approv
       updatedAt: now,
     })
     .where(and(eq(entries.id, id), eq(entries.status, 'with_distributor')))
+    .returning();
+  return row;
+}
+
+/**
+ * Head office's decision on a SPECIAL request (client, 3 Oct 2026), or its end when the
+ * distributor refuses it. Approving only opens the way — the request itself is still decided at
+ * the factory; rejecting ends the request with the reason.
+ */
+export async function setSpecialDecision(tx: Tx, id: string, input: { approve: boolean; by: string; reason: string }) {
+  const now = new Date();
+  const [row] = await tx
+    .update(entries)
+    .set({
+      specialStatus: input.approve ? 'approved' : 'rejected',
+      specialDecidedBy: input.by, specialDecidedAt: now, specialReason: input.reason,
+      ...(input.approve ? {} : { status: 'rejected' as const, decidedBy: input.by, decidedAt: now, decisionReason: input.reason }),
+      updatedAt: now,
+    })
+    .where(and(eq(entries.id, id), eq(entries.specialStatus, 'pending')))
     .returning();
   return row;
 }

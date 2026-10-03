@@ -325,6 +325,22 @@ export function D10() {
 const STATE_LABEL: Record<string, string> = { available: 'In stock', allocated: 'Allocated', sold: 'With customer', returned: 'Returned', replacement: 'Given as replacement', repair: 'Under repair', damaged: 'Damaged', scrap: 'Scrapped' };
 const DEFAULT_TERM = 24, DEFAULT_GRACE = 2; // the server's defaults (backend domain/warranty.ts) when no model is chosen yet
 const leftText = (expiry: string) => { const days = Math.ceil((Date.parse(expiry) - Date.parse(today())) / 86_400_000); return days >= 0 ? `${spanLong(span(today(), expiry))} left` : `Expired ${-days} day${days === -1 ? '' : 's'} ago`; };
+/**
+ * A battery past its term makes the request a SPECIAL one (client, 3 Oct 2026): the customer still
+ * gets the new battery at the counter, but the distributor and then head office must approve it,
+ * and the old battery waits until head office has. A battery that was itself given with no
+ * warranty cannot be replaced at all.
+ */
+function SpecialNotice({ cover, style }: { cover: BatteryLookupResult['cover']; style?: object }) {
+  const { isDealer } = useAbove();
+  // kept to a headline and one line — a long warning is not read at the counter (client, 3 Oct 2026)
+  if (cover.noWarranty) return <Banner tone="bad" icon="lock" style={style}><B>No warranty on this battery.</B> It cannot be replaced.</Banner>;
+  if (!cover.coverCase || cover.coverCase === 'normal') return null;
+  const over = cover.daysOver ?? 0, ext = cover.coverCase === 'extension';
+  return <Banner tone="warn" icon="alert" style={style}>
+    <B>Warranty exceeded by {over} {over === 1 ? 'day' : 'days'}.</B> Special request — {isDealer ? 'distributor and head office' : 'head office'} must approve. {ext ? `New battery keeps the old end date (${dLong(cover.expiryDate)}).` : 'New battery gets NO warranty.'}
+  </Banner>;
+}
 /** "Warranty left" headline + meter: start → expiry, with how much of the term is used. */
 function WarrantyLeft({ start, expiry, from, months = DEFAULT_TERM, grace = DEFAULT_GRACE }: { start: string; expiry: string; from: string; months?: number; grace?: number }) {
   const total = Math.max(1, Date.parse(expiry) - Date.parse(start)), used = (Date.parse(today()) - Date.parse(start)) / total;
@@ -337,7 +353,7 @@ function WarrantyLeft({ start, expiry, from, months = DEFAULT_TERM, grace = DEFA
 }
 function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code: string; lookup: BatteryLookupResult | null; looking: boolean; token: string | null; fallbackModel?: string }) {
   const { state } = useStore();
-  const { above, Above } = useAbove();
+  const { above } = useAbove();
   if (!isValidDigits(code, anyDigitLengths(state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS))) return null;
   const local = deriveCode(code, [], anyDigitLengths(state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS));
   const mfg = (lookup?.mfgMonth) || local.mfg;
@@ -358,11 +374,12 @@ function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code:
     <CardH title="Cover from the label" right={<Chip tone="mute" icon="batt" label="Sold before the app" />} />
     <KV pairs={[ident[0], ['Model · code', lookup.model ? `${lookup.model.id} · ${lookup.model.warrantyMonths} months` : lookup.labelModelId || fallbackModel || 'Choose above'], ['Cover rule', `${lookup.cover.termMonths} + ${lookup.cover.graceMonths} months from manufacture`], ['Cover ends', dLong(lookup.cover.expiryDate)]]} />
     {mfg && <WarrantyLeft start={lookup.cover.startDate} expiry={lookup.cover.expiryDate} from="manufacture date" months={lookup.cover.termMonths} grace={lookup.cover.graceMonths} />}
+    <SpecialNotice cover={lookup.cover} style={{ marginTop: 10 }} />
     {lookup.labelModelId && lookup.labelModelId !== fallbackModel && <Hint tone="err" style={{ marginTop: 10 }}>The label says {lookup.labelModelId}, but {fallbackModel || 'nothing'} is chosen above. Check the plates and model.</Hint>}
     <Gap h={8} /><X s={13} c={T.slate}>Not sold through the app yet. Its cover is worked out from the manufacture month on the label and the model and code you chose — head office puts it on record when it approves the replacement.</X></Card>;
 
   const { battery, model, chain, cover, custody } = lookup;
-  const status = coverStatus(cover), [chipLabel, chipTone] = coverChip(status);
+  const status = coverStatus(cover), [chipLabel, chipTone] = coverChip(cover.noWarranty ? 'No warranty' : status);
   const modelText = fallbackModel || '—';
   const pairs: [string, React.ReactNode, ('mono' | '')?][] = [
     ident[0],
@@ -379,14 +396,15 @@ function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code:
     <KV pairs={ident} />
     <Gap h={8} /><X s={13.5} c={T.slate}>This serial is recorded against a different shop. Check the label again, or call {above}.</X></Card>;
 
-  const blocked = battery.alreadyReplaced ? 'This battery has already been replaced once — its replacement carries the cover now. Check the label again.'
-    : !cover.inWarranty ? `Cover has ended for this chain. ${Above} will not accept a warranty replacement for it.` : null;
-  return <Card style={{ borderColor: blocked ? '#F0C7BC' : '#B8DFCB', backgroundColor: blocked ? '#FFF8F6' : '#F7FCF9', marginBottom: 14 }}>
+  const blocked = battery.alreadyReplaced ? 'This battery has already been replaced once — its replacement carries the cover now. Check the label again.' : null;
+  const bad = !!blocked || !!cover.noWarranty;
+  return <Card style={{ borderColor: bad ? '#F0C7BC' : '#B8DFCB', backgroundColor: bad ? '#FFF8F6' : '#F7FCF9', marginBottom: 14 }}>
     <CardH title="Found on record" right={<Chip tone={battery.alreadyReplaced ? 'bad' : chipTone} icon={battery.alreadyReplaced ? 'lock' : status === 'Active' ? 'shield' : 'clock'} label={battery.alreadyReplaced ? 'Already replaced' : chipLabel} />} />
     <KV pairs={pairs} />
     <WarrantyLeft start={cover.startDate} expiry={cover.expiryDate} from={chain && !chain.isOriginal ? "first battery's manufacture date" : 'manufacture date'} months={cover.termMonths} grace={cover.graceMonths} />
     {chain && !chain.isOriginal && <Hint icon="link" style={{ marginTop: 10 }}>This is a replacement battery. Its cover runs from the FIRST battery in the chain ({dLong(cover.startDate)}), not from its own manufacture month.</Hint>}
     {blocked && <Hint tone="err" style={{ marginTop: 10 }}>{blocked}</Hint>}
+    {!blocked && <SpecialNotice cover={cover} style={{ marginTop: 10 }} />}
   </Card>;
 }
 
@@ -417,6 +435,7 @@ export function D11() {
   const next = () => {
     const all = dealerErrors(e, state), mine = itemErrors(all, i, ['oldSerial', 'fault']);
     if (!it.oldModel) mine.oldModel = 'Choose the model and code printed on the old battery.';
+    if (lookup?.cover.noWarranty) mine.oldSerial = 'This battery has no warranty — it cannot be replaced under warranty.';
     if (all['items.0.customer']) mine.customer = all['items.0.customer'];
     setErrs(mine);
     if (Object.keys(mine).length) { saveDraft(); d.toast('Saved as a draft. Fix the marked field now, or come back to it from My requests.'); return; }
@@ -560,7 +579,7 @@ export function D31() {
     <Plate style={{ marginBottom: 13 }}>
       <PlateLab>{cover ? `OLD BATTERY · COVER STARTED ${dLong(cover.start).toUpperCase()}` : 'OLD BATTERY · COVER FROM THE LABEL'}</PlateLab><PlateVal>{it.oldSerial || '—'}</PlateVal>
       <X s={12} w={6} c={T.volt} style={{ textAlign: 'center', letterSpacing: 0.96, marginTop: 9, marginBottom: 7 }}>SAME COVER MOVES ACROSS</X>
-      <PlateLab>{cover ? `NEW BATTERY · COVER STILL ENDS ${dLong(cover.expiry).toUpperCase()}` : 'NEW BATTERY · COVER SET ON APPROVAL'}</PlateLab><PlateVal color="#7FD3A9">{it.code || '—'}</PlateVal>
+      <PlateLab>{cover ? (cover.status === 'Expired' ? 'NEW BATTERY · NO WARRANTY' : `NEW BATTERY · COVER STILL ENDS ${dLong(cover.expiry).toUpperCase()}`) : 'NEW BATTERY · COVER SET ON APPROVAL'}</PlateLab><PlateVal color="#7FD3A9">{it.code || '—'}</PlateVal>
     </Plate>
     {cover ? <>
       <Card><CardH title="Cover remaining" right={<Chip tone={cover.status === 'Expired' ? 'bad' : 'live'} icon="clock" label={cover.status === 'Expired' ? 'Cover ended' : `${spanShort(cover.leftSpan)} left`} />} />
@@ -568,22 +587,22 @@ export function D31() {
         <Gap h={12} />
         <KV pairs={[['Cover started', dLong(cover.start)], ['Cover ends', dLong(cover.expiry)], ['Already used', spanLong(cover.usedSpan)], ['Still remaining', cover.status === 'Expired' ? 'None' : spanLong(cover.leftSpan)], ['Policy', `Standard · ${cover.months} months`]]} />
       </Card>
-      <View style={{ flexDirection: 'row', gap: 9, marginTop: 11 }}>
+      {cover.status !== 'Expired' && <View style={{ flexDirection: 'row', gap: 9, marginTop: 11 }}>
         <View style={{ flex: 1, borderRadius: 9, paddingVertical: 11, paddingHorizontal: 12, backgroundColor: T.terminalSoft, borderWidth: 1, borderColor: '#F0C7BC' }}>
           <Ic n="x" color="#8C2612" /><X s={12} w={7} c="#8C2612" style={{ marginBottom: 5 }}>Not what happens</X><X s={13} lh={1.35} c="#8C2612">New battery gets a fresh {cover.months} months from today, ending {fresh}.</X></View>
         <View style={{ flex: 1, borderRadius: 9, paddingVertical: 11, paddingHorizontal: 12, backgroundColor: T.liveSoft, borderWidth: 1, borderColor: '#B8DFCB' }}>
           <Ic n="check" color="#0F5537" /><X s={12} w={7} c="#0F5537" style={{ marginBottom: 5 }}>What happens</X><X s={13} lh={1.35} c="#0F5537">New battery keeps the original dates. Cover ends {dLong(cover.expiry)}, as it always would have.</X></View>
-      </View>
-      {cover.status === 'Expired'
-        ? <Banner tone="bad" icon="alert" style={{ marginTop: 13 }}><B>Cover ended on {dLong(cover.expiry)}.</B> Head office must approve an override before this replacement can be sent.</Banner>
+      </View>}
+      {cover.status === 'Expired' ? null
         : <Banner tone="warn" icon="shield" style={{ marginTop: 13 }}><B>A replacement never extends cover.</B> The end date belongs to the first sale in the chain, not to the battery in your hand. It is the same for the second replacement and the tenth.</Banner>}
       <SecT title="Before you continue" />
       <Card style={{ flexDirection: 'row', gap: 11, alignItems: 'center', borderColor: '#B8DFCB' }} label="Record that the customer was told" onPress={() => { upd({ coverTold: new Date().toISOString() }); d.toast(`Noted on the entry: customer told the cover ends ${dLong(cover.expiry)}.`); }}>
         <Avatar n="check" tone={e.coverTold ? 'green' : 'mute'} />
-        <View style={{ flex: 1 }}><X s={14.5} w={6}>I told the customer cover ends {dLong(cover.expiry)}</X>
+        <View style={{ flex: 1 }}><X s={14.5} w={6}>{cover.status === 'Expired' ? 'I told the customer the new battery has no warranty' : `I told the customer cover ends ${dLong(cover.expiry)}`}</X>
           <X s={12.5} c={T.slate} style={{ marginTop: 2 }}>{e.coverTold ? `Recorded at ${tShort(e.coverTold)} — this line goes on the entry` : 'Tap to record it — this line goes on the entry and settles arguments later'}</X></View></Card>
     </> : labelCover ? <Banner tone={labelCover.inWarranty ? 'info' : 'bad'} icon="shield"><B>{labelCover.inWarranty ? `In cover until ${dLong(labelCover.expiryDate)}.` : `Cover ended on ${dLong(labelCover.expiryDate)}.`}</B> This battery was sold before the app, so its cover is worked out from the manufacture month on its label ({labelCover.termMonths} + {labelCover.graceMonths} months). A replacement never starts a new term.</Banner>
       : <Banner tone="info" icon="clock"><B>Working out the cover…</B> It comes from the manufacture month on the old battery’s label.</Banner>}
+    {lookup && <SpecialNotice cover={lookup.cover} style={{ marginTop: 13 }} />}
     <Hint icon="lock" style={{ marginTop: 11 }}>There is no field anywhere in this app where an end date can be typed. It is always worked out from the policy and the first sale.</Hint>
     <Btn kind="primary" big icon="check" label="Next: send for approval" style={{ marginTop: 13 }} onPress={() => d.go('d16')} />
     <Btn kind="ghost" icon="cam" label="Add photos before sending" style={{ marginTop: 9 }} onPress={() => d.go('d15')} />
@@ -645,13 +664,14 @@ function ReviewItem({ it, i, e, rep, token }: { it: Item; i: number; e: Entry; r
   const cover = rep && lookup ? lookup.cover : null, chained = !!(lookup?.found && lookup.cover.warrantyStart);
   return <React.Fragment>
     <Card style={{ marginTop: 11 }}>
-      <CardH title={`Item ${i + 1}`} right={!rep ? <Chip tone="info" icon="truck" label="Returned" /> : !cover ? null : !cover.inWarranty ? <Chip tone="bad" icon="clock" label="Cover ended" /> : <StatusChip status="Active" label={chained ? 'Warranty continues' : 'In cover'} />} />
+      <CardH title={`Item ${i + 1}`} right={!rep ? <Chip tone="info" icon="truck" label="Returned" /> : !cover ? null : cover.noWarranty ? <Chip tone="bad" icon="lock" label="No warranty" /> : cover.coverCase && cover.coverCase !== 'normal' ? <Chip tone="warn" icon="alert" label="Special request" /> : !cover.inWarranty ? <Chip tone="bad" icon="clock" label="Cover ended" /> : <StatusChip status="Active" label={chained ? 'Warranty continues' : 'In cover'} />} />
       <Plate style={{ marginBottom: 11 }}>{rep ? <>
         <PlateLab>OLD BATTERY OUT</PlateLab><PlateVal>{it.oldSerial || '—'}</PlateVal>
         <X s={19} c={T.volt} style={{ textAlign: 'center', marginVertical: 5 }}>↓</X>
         <PlateLab>NEW BATTERY IN</PlateLab><PlateVal color="#7FD3A9">{it.code || '—'}</PlateVal></> : <><PlateLab>RETURNED BATTERY</PlateLab><PlateVal>{it.code || '—'}</PlateVal></>}</Plate>
       <KV pairs={[['Model', it.model], ['Mfg month', monthShort(it.mfg)], ['Quantity', '1'], [rep ? 'Cover ends' : 'Reason', rep ? (cover ? dLong(cover.expiryDate) : 'Set on approval') : (it.remarks || '—')], ['Photos', `${photoCount(e, i)} attached`], ['Signature', e.signature ? 'Captured' : 'Not captured']]} />
     </Card>
+    {cover && <SpecialNotice cover={cover} style={{ marginTop: 12 }} />}
     {cover && chained && cover.inWarranty && <Banner tone="warn" icon="shield" style={{ marginTop: 12 }}><B>Warranty carried over, not restarted.</B> This battery is covered until {dLong(cover.expiryDate)} — the date the first battery in the chain got. {spanLong(span(today(), cover.expiryDate))} remain. No new period is created.</Banner>}
   </React.Fragment>;
 }
@@ -696,6 +716,7 @@ export function D16() {
       let photosFailed = 0;
       if (e.evidence.length) { setPhase(`Sending ${e.evidence.length} ${e.evidence.length === 1 ? 'photo' : 'photos'}…`); photosFailed = (await uploadEntryPhotos(e, result.id, token)).failed; }
       const data: Entry = { ...e, id: result.ref, apiId: result.id, status: result.status === 'approved' ? 'Approved' : result.status === 'with_distributor' ? 'With distributor' : 'Submitted', createdAt: result.createdAt, date: result.entryDate,
+        special: result.specialStatus === 'pending' ? 'Pending' : undefined,
         items: e.items.map(it => ({ ...it, wr: it.oldSerial || it.wr })),
         handover: rep ? `Given to ${e.customer || 'the customer'} at the counter · ${dLong(result.createdAt)}, ${tShort(result.createdAt)}` : e.handover };
       setState(s => audit({ ...s, entries: [data, ...s.entries.filter(x => x.id !== e.id)] }, 'Entry submitted', data.id, 'Sent from the app'));
@@ -750,6 +771,7 @@ export function D17({ p }: { p?: string }) {
     <Card style={{ marginTop: 12 }}><KV pairs={rep
       ? [['Old battery', list('oldSerial'), 'mono'], ['New battery', list('code'), 'mono'], ['Cover ends', cover ? dLong(cover.expiryDate) : 'Set on approval'], ['Remaining', cover ? spanShort(span(today(), cover.expiryDate)) : '—'], [queued ? 'Saved' : 'Sent', tShort(e.createdAt)], ['Claim decided', 'After the battery is checked']]
       : [['Returned battery', list('code'), 'mono'], ['Model', e.items.map(it => it.model).join(', ')], [queued ? 'Saved' : 'Sent', tShort(e.createdAt)], ['Decision', 'By head office']]} /></Card>
-    {rep && <Banner tone="warn" icon="shop" style={{ marginTop: 12 }}><B>Keep the old battery in your shop.</B> Hand it over at the next pickup — the claim cannot be settled until the company has checked it.</Banner>}
+    {e.special && <Banner tone="warn" icon="alert" style={{ marginTop: 12 }}><B>Sent as a special request.</B> {viaDistributor ? 'Hand the old battery to your distributor.' : 'Keep the old battery until head office approves.'}</Banner>}
+    {rep && !e.special && <Banner tone="warn" icon="shop" style={{ marginTop: 12 }}><B>Keep the old battery in your shop.</B> Hand it over at the next pickup — the claim cannot be settled until the company has checked it.</Banner>}
   </Screen>;
 }

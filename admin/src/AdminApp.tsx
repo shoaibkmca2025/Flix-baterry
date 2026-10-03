@@ -10,6 +10,7 @@ import { X, Ic, IconName, Btn, Line, Avatar, Chip } from '@felix/shared/ui/kit';
 import { ACtx, AdminCtx, ARoute, Dialog, Page, useA, useWide } from './ui';
 import { Home } from './Home';
 import { Approvals, Corrections, EntryDetail, Entries, NewEntry } from './Entries';
+import { specialWaiting } from '@felix/shared/data';
 import { Dealers, DealerProfile, Registrations, Customers } from './Dealers';
 import { Search, BatteryDetail, Warranty, Catalogue } from './Batteries';
 import { Stock, Returns, ByPlant } from './Stock';
@@ -20,8 +21,8 @@ type NavItem = [route: string, label: string, icon: IconName, badge?: (s: State)
 export const NAV: [string, NavItem[]][] = [
   ['Daily work', [
     ['home', 'Dashboard', 'chart'],
-    ['approvals', 'Requests to approve', 'check', s => s.entries.filter(e => ['Submitted', 'Under Review', 'Conflict'].includes(e.status)).length],
-    ['corrections', 'Correction requests', 'pen', s => s.entries.filter(e => e.correction?.status === 'Pending').length],
+    ['approvals', 'Requests to approve', 'check', s => s.entries.filter(e => ['Submitted', 'Under Review', 'Conflict'].includes(e.status) && !specialWaiting(e)).length],
+    ['corrections', 'Correction requests', 'pen', s => s.entries.filter(e => e.correction?.status === 'Pending' || specialWaiting(e)).length],
     ['returns', 'Old battery returns', 'truck', s => s.entries.filter(e => e.returnState === 'In transit').length],
   ]],
   ['Records', [['entries', 'All entries', 'list'], ['new', 'Record an entry', 'plus'], ['dealers', 'Distributors & dealers', 'shop'], ['registrations', 'New distributors', 'people', s => s.dealers.filter(d => d.status === 'Pending Approval').length], ['customers', 'Customers', 'user'], ['search', 'Battery search', 'search']]],

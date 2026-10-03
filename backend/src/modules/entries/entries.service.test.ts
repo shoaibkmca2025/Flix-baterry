@@ -72,6 +72,7 @@ vi.mock('./entries.repository', () => ({
   listEntries: vi.fn(),
   upsertPhoto: vi.fn(),
   setDistributorDecision: vi.fn(),
+  setSpecialDecision: vi.fn(),
   findPhotosByEntryId: vi.fn(),
 }));
 vi.mock('../../utils/storage', () => ({ putObject: vi.fn(), signedUrl: vi.fn(async (key: string) => `https://storage.example/${key}?sig=1`) }));
@@ -82,7 +83,7 @@ import * as claimsService from '../claims/claims.service';
 import * as returnsRepo from '../returns/returns.repository';
 import { postMovementInTx } from '../stock/stock.service';
 import * as repo from './entries.repository';
-import { addPhoto, approve, correctItem, create, distributorDecide, getById, list, listPhotos, markArrived, reject, reviewItem, settle } from './entries.service';
+import { addPhoto, approve, correctItem, create, decideSpecial, distributorDecide, getById, list, listPhotos, markArrived, reject, reviewItem, settle } from './entries.service';
 import { putObject } from '../../utils/storage';
 import type { Ctx } from '../../utils/context';
 import type { EntryCreateBody } from './entries.validation';
@@ -787,5 +788,150 @@ describe("the distributor marks a dealer's old battery arrived (client, 3 Oct 20
     vi.mocked(repo.findEntryById).mockResolvedValue({ ...approvedByHim, dealerId: 'dealer-2a' } as never);
     await expect(markArrived(dealerCtx, 'entry-7')).rejects.toMatchObject({ code: 'entry_not_found', status: 404 });
     expect(repo.updateEntryItem).not.toHaveBeenCalled();
+  });
+});
+
+describe('special replacement requests — old battery past its term (client, 3 Oct 2026)', () => {
+  // today is 17 Sep 2026. An M5 has a 24-month term + 2 grace months, counted from manufacture.
+  const rep = (oldCode: string) => baseBody({ entryType: 'replacement', items: [{ modelId: 'M5', code: '26090001', oldCode, oldModelId: 'M5', faultCode: 'low_backup' }] } as never);
+  const childCtx: Ctx = { ...dealerCtx, user: { ...dealerCtx.user!, id: 'user-1a', dealerId: 'dealer-1a' } };
+  const item = { id: 'item-1', seq: 0, modelId: 'M5', batteryCode: 'M526090001', batteryCodeEntered: '26090001', oldBatteryCode: 'M524010047', oldBatteryCodeEntered: '24010047', batteryId: null };
+  const special = { id: 'entry-5', ref: 'ENT-26-09-0005', status: 'submitted', specialStatus: 'pending', dealerId: 'dealer-1a', entryType: 'replacement', entryDate: '2026-09-17' };
+
+  beforeEach(() => {
+    vi.mocked(repo.insertEntry).mockImplementation(async (_tx, input) => ({ ...input, id: 'entry-5' }) as never);
+  });
+
+  it('a battery within its term is a normal request', async () => {
+    await create(dealerCtx, rep('26010047'));
+    expect(repo.insertEntry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ specialStatus: null }));
+    expect(repo.insertEntryItem).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ coverCase: null }));
+  });
+
+  it('inside the 2 grace months it is a special request, judged on the server', async () => {
+    // made Aug 2024: the 24-month term ended 31 Jul 2026, the cover ends 30 Sep 2026
+    await create(dealerCtx, rep('24080047'));
+    expect(repo.insertEntry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ specialStatus: 'pending', status: 'submitted' }));
+    expect(repo.insertEntryItem).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ coverCase: 'extension', coverTermEnd: '2026-07-31', coverEnd: '2026-09-30' }));
+  });
+
+  it('past the cover it is a special request too, with no limit on the days — and a dealer still goes through his distributor', async () => {
+    await create(childCtx, rep('21030047'));
+    expect(repo.insertEntry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ specialStatus: 'pending', status: 'with_distributor' }));
+    expect(repo.insertEntryItem).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ coverCase: 'expired', coverEnd: '2023-04-30' }));
+  });
+
+  it('a battery on record is judged on its chain, not its label', async () => {
+    vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValue({ id: 'old-1', chainId: 'chain-1', noWarranty: false } as never);
+    vi.mocked(batteriesRepo.findChainById).mockResolvedValue({ id: 'chain-1', warrantyStart: '2024-08-10', warrantyExpiry: '2026-10-09', termMonths: 24 } as never);
+    await create(dealerCtx, rep('26010047')); // the label alone would say "within the term"
+    expect(repo.insertEntryItem).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ coverCase: 'extension', coverTermEnd: '2026-08-09' }));
+  });
+
+  it('a battery that was itself given with no warranty can never be replaced', async () => {
+    vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValue({ id: 'old-1', chainId: 'chain-1', noWarranty: true, noWarrantyReason: 'given on 2026-08-01 as a special replacement' } as never);
+    await expect(create(dealerCtx, rep('26010047'))).rejects.toMatchObject({ code: 'no_warranty', status: 422 });
+    expect(repo.insertEntry).not.toHaveBeenCalled();
+  });
+
+  it('head office cannot approve, settle or refuse it the normal way until it is decided in Correction requests', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(special as never);
+    await expect(approve(adminCtx, 'entry-5', 'ok')).rejects.toMatchObject({ code: 'special_pending', status: 409 });
+    await expect(settle(adminCtx, 'entry-5', { decision: 'approved', reason: 'Verified' })).rejects.toMatchObject({ code: 'special_pending' });
+    await expect(reject(adminCtx, 'entry-5', 'No')).rejects.toMatchObject({ code: 'special_pending' });
+  });
+
+  it('only head office decides it, only once, and only after the distributor approved it', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(special as never);
+    await expect(decideSpecial(dealerCtx, 'entry-5', 'approve', 'Looks fine')).rejects.toMatchObject({ code: 'unauthenticated' });
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...special, status: 'with_distributor' } as never);
+    await expect(decideSpecial(adminCtx, 'entry-5', 'approve', 'Looks fine')).rejects.toMatchObject({ code: 'with_distributor' });
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...special, specialStatus: 'approved' } as never);
+    await expect(decideSpecial(adminCtx, 'entry-5', 'reject', 'Changed my mind')).rejects.toMatchObject({ code: 'invalid_transition' });
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...special, specialStatus: null } as never);
+    await expect(decideSpecial(adminCtx, 'entry-5', 'approve', 'Looks fine')).rejects.toMatchObject({ code: 'not_special' });
+    expect(repo.setSpecialDecision).not.toHaveBeenCalled();
+  });
+
+  it('approving opens the way and puts nothing on record yet', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(special as never);
+    vi.mocked(repo.setSpecialDecision).mockResolvedValue({ ...special, specialStatus: 'approved' } as never);
+    const r = await decideSpecial(adminCtx, 'entry-5', 'approve', 'Photos and dates checked');
+    expect(repo.setSpecialDecision).toHaveBeenCalledWith(expect.anything(), 'entry-5', { approve: true, by: 'admin-1', reason: 'Photos and dates checked' });
+    expect(r.specialStatus).toBe('approved');
+    expect(batteriesRepo.insertBattery).not.toHaveBeenCalled();
+  });
+
+  it('rejecting ends it and records the battery the customer already has with NO warranty', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(special as never);
+    vi.mocked(repo.setSpecialDecision).mockResolvedValue({ ...special, status: 'rejected', specialStatus: 'rejected' } as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([item] as never);
+    vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValue(undefined);
+    vi.mocked(batteriesRepo.insertBattery).mockResolvedValue({ id: 'new-1' } as never);
+    await decideSpecial(adminCtx, 'entry-5', 'reject', 'Battery was sold separately');
+    expect(batteriesRepo.insertBattery).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ batteryCode: 'M526090001', noWarranty: true, custodian: 'customer', dealerId: 'dealer-1a' }));
+    expect(repo.updateEntryItemLinks).toHaveBeenCalledWith(expect.anything(), 'item-1', { batteryId: 'new-1' });
+  });
+
+  it('a battery already on record under that number is left alone', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(special as never);
+    vi.mocked(repo.setSpecialDecision).mockResolvedValue({ ...special, status: 'rejected', specialStatus: 'rejected' } as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([item] as never);
+    vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValue({ id: 'someone-elses' } as never);
+    await decideSpecial(adminCtx, 'entry-5', 'reject', 'Not covered');
+    expect(batteriesRepo.insertBattery).not.toHaveBeenCalled();
+  });
+
+  it("the distributor's refusal ends a special request the same way", async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...special, status: 'with_distributor' } as never);
+    vi.mocked(repo.setDistributorDecision).mockResolvedValue({ ...special, status: 'rejected' } as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([item] as never);
+    vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValue(undefined);
+    vi.mocked(batteriesRepo.insertBattery).mockResolvedValue({ id: 'new-1' } as never);
+    await distributorDecide(dealerCtx, 'entry-5', 'refuse', 'Not a genuine fault');
+    expect(repo.setSpecialDecision).toHaveBeenCalledWith(expect.anything(), 'entry-5', expect.objectContaining({ approve: false }));
+    expect(batteriesRepo.insertBattery).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ noWarranty: true }));
+  });
+
+  describe('once head office approved it, it is decided at the factory', () => {
+    const approvedSpecial = { ...special, specialStatus: 'approved' };
+    const oldOnRecord = { id: 'old-1', chainId: 'chain-1', custodian: 'customer', dealerId: 'dealer-1a', replacedById: null, noWarranty: false };
+    beforeEach(() => {
+      vi.mocked(repo.findEntryById).mockResolvedValue(approvedSpecial as never);
+      vi.mocked(repo.findItemsByEntryId).mockResolvedValue([item] as never);
+      vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValueOnce(oldOnRecord as never).mockResolvedValueOnce(undefined);
+      vi.mocked(batteriesRepo.insertBattery).mockResolvedValue({ id: 'new-1' } as never);
+      vi.mocked(claimsRepo.insertClaim).mockResolvedValue({ id: 'claim-1', ref: 'CLM-26-09-0001' } as never);
+      vi.mocked(repo.updateEntryStatus).mockResolvedValue({ id: 'entry-5', status: 'approved' } as never);
+    });
+
+    it('past the cover: the new battery joins the chain but carries NO warranty', async () => {
+      vi.mocked(batteriesRepo.findChainById).mockResolvedValue({ id: 'chain-1', warrantyStart: '2024-01-01', warrantyExpiry: '2026-02-28', replacementCount: 0 } as never);
+      await approve(adminCtx, 'entry-5', 'Checked at the factory');
+      expect(batteriesRepo.insertBattery).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ batteryCode: 'M526090001', chainId: 'chain-1', noWarranty: true }));
+    });
+
+    it('inside the grace months: the new battery inherits the old end date, even with days left', async () => {
+      vi.mocked(batteriesRepo.findChainById).mockResolvedValue({ id: 'chain-1', warrantyStart: '2024-08-01', warrantyExpiry: '2026-09-30', replacementCount: 0 } as never);
+      await approve(adminCtx, 'entry-5', 'Checked at the factory');
+      const inserted = vi.mocked(batteriesRepo.insertBattery).mock.calls[0]![1] as { chainId: string; noWarranty?: boolean };
+      expect(inserted.chainId).toBe('chain-1');
+      expect(inserted.noWarranty).toBeUndefined();
+    });
+
+    it('refused at the factory: no credit, and the new battery is recorded with no warranty', async () => {
+      vi.mocked(batteriesRepo.findBatteryByCode).mockReset().mockResolvedValue(undefined);
+      vi.mocked(repo.updateEntryStatus).mockResolvedValue({ id: 'entry-5', status: 'rejected' } as never);
+      await reject(adminCtx, 'entry-5', 'Physical damage');
+      expect(batteriesRepo.insertBattery).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ noWarranty: true }));
+    });
+  });
+
+  it('a past-cover replacement that is NOT an approved special request is still refused', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...special, specialStatus: null } as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([item] as never);
+    vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValueOnce({ id: 'old-1', chainId: 'chain-1', custodian: 'customer', dealerId: 'dealer-1a', replacedById: null } as never);
+    vi.mocked(batteriesRepo.findChainById).mockResolvedValue({ id: 'chain-1', warrantyStart: '2024-01-01', warrantyExpiry: '2026-02-28' } as never);
+    await expect(approve(adminCtx, 'entry-5', 'ok')).rejects.toMatchObject({ code: 'warranty_expired' });
   });
 });

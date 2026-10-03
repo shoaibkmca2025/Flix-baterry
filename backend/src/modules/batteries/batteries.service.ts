@@ -1,6 +1,6 @@
 import { db } from '../../database/client';
 import { anyDigitLengths, deriveCode, fullCode, lengthsSentence } from '../../domain/serials';
-import { checkWarranty } from '../../domain/warranty';
+import { checkWarranty, coverCase } from '../../domain/warranty';
 import { graceMonths, serialDigitLengths } from '../../utils/settings';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
@@ -33,6 +33,16 @@ function coverFromChain(
     extendedByOverride: chain.expiryBeforeOverride !== null,
     expiryBeforeOverride: chain.expiryBeforeOverride,
   };
+}
+
+/**
+ * A replacement asked for today would be: 'normal' (within the term), 'extension' (inside the
+ * grace months) or 'expired' (past the cover). The last two are SPECIAL requests, and the app
+ * says so before the dealer sends one — "warranty exceeded by `daysOver` days" (client, 3 Oct 2026).
+ */
+function withCase<T extends { startDate: string; expiryDate: string; termMonths: number }>(cover: T, today: string) {
+  const c = coverCase(cover, today);
+  return { ...cover, coverCase: c.case, termEnd: c.termEnd, daysOver: c.daysOver };
 }
 
 // architecture.md §9.9 batteries.lookup — capture-time lookup. Never reveals which OTHER
@@ -71,7 +81,7 @@ export async function lookup(ctx: Ctx, code: string, modelIdHint?: string) {
     // Not on record under this product. Since D-11 the cover is still knowable from the label
     // alone — manufacture month + the product's term + grace.
     const hinted = productId ? await repo.findModelById(db, productId) : undefined;
-    const cover = checkWarranty(derived.mfgMonth!, todayIso(ctx), hinted?.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS, grace);
+    const cover = withCase(checkWarranty(derived.mfgMonth!, todayIso(ctx), hinted?.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS, grace), todayIso(ctx));
     // The same digits under a DIFFERENT product are a different battery — serials repeat
     // across products by design — so they are not mentioned here.
     return {
@@ -92,7 +102,10 @@ export async function lookup(ctx: Ctx, code: string, modelIdHint?: string) {
     battery.chainId ? repo.findChainById(db, battery.chainId) : undefined,
     battery.replacedFromId ? repo.findReplacementLinkByNewBatteryId(db, battery.id) : undefined,
   ]);
-  const cover = chain ? coverFromChain(chain, mfgMonth, todayIso(ctx)) : checkWarranty(mfgMonth!, todayIso(ctx), model?.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS, grace);
+  const dated = withCase(chain ? coverFromChain(chain, mfgMonth, todayIso(ctx)) : checkWarranty(mfgMonth!, todayIso(ctx), model?.warrantyMonths ?? DEFAULT_WARRANTY_MONTHS, grace), todayIso(ctx));
+  // A battery given against one whose cover was over has no warranty, whatever its chain's dates
+  // say (client, 3 Oct 2026) — and it can never be replaced under warranty itself.
+  const cover = battery.noWarranty ? { ...dated, inWarranty: false, noWarranty: true as const, noWarrantyReason: battery.noWarrantyReason } : dated;
 
   // custody never names which OTHER dealer holds it — 'other' is as specific as a dealer
   // caller gets. An admin caller additionally gets the real dealerId via `battery.dealerId`

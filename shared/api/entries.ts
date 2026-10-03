@@ -44,6 +44,10 @@ export type EntryResult = {
   decisionReason: string | null;
   distributorDecidedAt?: string | null;
   distributorReason?: string | null;
+  // a special request (a battery past its term): head office decides it in Correction requests
+  specialStatus?: 'pending' | 'approved' | 'rejected' | null;
+  specialDecidedAt?: string | null;
+  specialReason?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -74,6 +78,9 @@ export type EntryItemResult = {
   correctedAt: string | null;
   correctionReason: string | null;
   distributorReceivedAt?: string | null; // the distributor marked the dealer's old battery arrived
+  coverCase?: 'extension' | 'expired' | null; // the old battery was past its term when the request was made
+  coverTermEnd?: string | null;
+  coverEnd?: string | null;
 };
 export type EntryWithItems = EntryResult & { items: EntryItemResult[] };
 
@@ -122,4 +129,9 @@ export function distributorDecide(id: string, decision: 'approve' | 'refuse', re
 /** The dealer handed the old battery over: the distributor marks it arrived — one battery, or all still to come. */
 export function markArrived(id: string, accessToken: string, itemId?: string) {
   return apiPost<{ entryId: string; ref: string; items: EntryItemResult[] }>(`/entries/${id}/arrived`, itemId ? { itemId } : {}, { accessToken });
+}
+
+/** Head office approves or rejects a special replacement request, from Correction requests (client, 3 Oct 2026). */
+export function decideSpecial(id: string, decision: 'approve' | 'reject', reason: string, accessToken: string) {
+  return apiPost<EntryResult>(`/entries/${id}/special/${decision}`, { reason }, { accessToken });
 }

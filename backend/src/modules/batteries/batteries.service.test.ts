@@ -125,6 +125,25 @@ describe('lookup', () => {
     expect(result.cover.inWarranty).toBe(false);
   });
 
+  it('says which kind of replacement a request today would be, and how many days past the term (client, 3 Oct 2026)', async () => {
+    vi.mocked(repo.findBatteryByCode).mockResolvedValue(undefined);
+    vi.mocked(repo.findModelById).mockResolvedValue({ id: 'M5', type: 'IT tall tubular', capacity: '150Ah', warrantyMonths: 24 } as never);
+    const result = await lookup(dealerCtx, 'M100021030047'); // made March 2021 — long past its cover
+    expect(result.cover).toMatchObject({ coverCase: 'expired', termEnd: '2023-02-28' });
+    expect(result.cover.daysOver).toBeGreaterThan(365);
+  });
+
+  it('a battery given with no warranty reports none, whatever its chain says', async () => {
+    vi.mocked(repo.findBatteryByCode).mockResolvedValue({
+      id: 'batt-9', batteryCode: '26060303', serialNo: '0303', modelId: 'M5', mfgMonth: '2026-06',
+      state: 'replacement', custodian: 'customer', dealerId: 'dealer-1', chainId: 'chain-1', noWarranty: true, noWarrantyReason: 'given as a special replacement',
+    } as never);
+    vi.mocked(repo.findModelById).mockResolvedValue({ id: 'M5', type: 'IT tall tubular', capacity: '150Ah', warrantyMonths: 24 } as never);
+    vi.mocked(repo.findChainById).mockResolvedValue({ id: 'chain-1', warrantyStart: '2026-01-15', warrantyExpiry: '2028-01-14', termMonths: 24 } as never);
+    const result = await lookup(dealerCtx, 'M100026060303');
+    expect(result.cover).toMatchObject({ inWarranty: false, noWarranty: true });
+  });
+
   it('prefers the chain date over the mfg-month rule once a battery is part of a chain', async () => {
     vi.mocked(repo.findBatteryByCode).mockResolvedValue({
       id: 'batt-3', batteryCode: '26060303', serialNo: '0303', modelId: 'M5', mfgMonth: '2026-06',

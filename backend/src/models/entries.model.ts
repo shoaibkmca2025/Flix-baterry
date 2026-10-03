@@ -16,6 +16,11 @@ export const entryType = pgEnum('entry_type', ['replacement', 'sales_return', 'r
 // with_distributor: a dealer's request waiting for its distributor (client, 2 Oct 2026); his
 // approval moves it to submitted (head office), his refusal to rejected.
 export const entryStatus = pgEnum('entry_status', ['submitted', 'approved', 'rejected', 'with_distributor']);
+// A replacement for a battery past its term — inside the grace months or past the cover — is a
+// SPECIAL request (client, 3 Oct 2026): the distributor approves it, then head office decides it in
+// Correction requests. Until head office approves, its old battery cannot be dispatched.
+export const specialStatus = pgEnum('special_status', ['pending', 'approved', 'rejected']);
+export const coverCaseEnum = pgEnum('cover_case', ['extension', 'expired']);
 
 export const entries = pgTable(
   'entries',
@@ -43,6 +48,11 @@ export const entries = pgTable(
     distributorDecidedBy: uuid('distributor_decided_by'),
     distributorDecidedAt: timestamp('distributor_decided_at', { withTimezone: true }),
     distributorReason: text('distributor_reason'),
+    // null = a normal request; set when any battery on it is past its term (see specialStatus)
+    specialStatus: specialStatus('special_status'),
+    specialDecidedBy: uuid('special_decided_by'),
+    specialDecidedAt: timestamp('special_decided_at', { withTimezone: true }),
+    specialReason: text('special_reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -90,6 +100,11 @@ export const entryItems = pgTable(
     // so a challan never lists a battery he does not have (client, 3 Oct 2026).
     distributorReceivedAt: timestamp('distributor_received_at', { withTimezone: true }),
     distributorReceivedBy: uuid('distributor_received_by'),
+    // the old battery's cover as the server judged it when the request was made: null = within the
+    // term; 'extension' = inside the grace months; 'expired' = past the cover (client, 3 Oct 2026)
+    coverCase: coverCaseEnum('cover_case'),
+    coverTermEnd: text('cover_term_end'), // 'YYYY-MM-DD' — "warranty exceeded by X days" counts from here
+    coverEnd: text('cover_end'), // 'YYYY-MM-DD' — term + grace (+ any override)
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('entry_items_entry_idx').on(t.entryId)],
