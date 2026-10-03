@@ -77,12 +77,18 @@ export function DealerApp({ signedIn, onSignedIn, onSignOut }: { signedIn: boole
   const Current = SCREENS[guarded.id] || D02;
   const phone = <View style={{ flex: 1, backgroundColor: T.zinc, overflow: 'hidden', borderRadius: framed ? 28 : 0 }}>
     {ready && Current ? <Current key={`${guarded!.id}:${guarded!.p || ''}`} p={guarded!.p} /> : <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: T.deep }}><ActivityIndicator color={T.white} /></View>}
-    {/* 10s, and tappable: a message that can only leave on a timer is hard for anyone who reads
-        slowly (HIG accessibility: "prefer dismissing views with an explicit action"). */}
-    {!!toastMsg && <Pressable accessibilityRole="button" accessibilityLabel={`${toastMsg}. Tap to dismiss.`} onPress={() => setToastMsg('')}
-      style={{ position: 'absolute', left: 15, right: 15, bottom: 84, zIndex: 50, flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44, backgroundColor: T.ink, paddingVertical: 13, paddingHorizontal: 15, borderRadius: 11, shadowColor: '#000', shadowOpacity: 0.6, shadowRadius: 30, shadowOffset: { width: 0, height: 12 }, elevation: 12 }}>
-      <Ic n="check" size={19} color="#5BD65B" /><X s={13.5} c={T.white} style={{ flex: 1 }}>{toastMsg}</X>
-      <Ic n="x" size={16} color="#8B97A6" /></Pressable>}
+    {/* 10s and dismissible, but it must not swallow taps: it sits over the fixed footer on
+        Send back and Done, so making the whole card pressable stopped "Dispatch" working for ten
+        seconds after any message (client, 3 Oct 2026). `box-none` lets every touch through except
+        the close control, and it now rides above a footer as well as the tab bar. */}
+    {!!toastMsg && <View pointerEvents="box-none" style={{ position: 'absolute', left: 15, right: 15, bottom: 150, zIndex: 50 }}>
+      <View accessibilityRole="alert" pointerEvents="box-none" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: T.ink, paddingVertical: 13, paddingLeft: 15, paddingRight: 6, borderRadius: 11, shadowColor: '#000', shadowOpacity: 0.6, shadowRadius: 30, shadowOffset: { width: 0, height: 12 }, elevation: 12 }}>
+        <View pointerEvents="none" style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <Ic n="check" size={19} color="#5BD65B" /><X s={13.5} c={T.white} style={{ flex: 1 }}>{toastMsg}</X></View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Dismiss this message" hitSlop={10} onPress={() => setToastMsg('')}
+          style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}><Ic n="x" size={16} color="#8B97A6" /></Pressable>
+      </View>
+    </View>}
   </View>;
 
   return <DCtx.Provider value={ctx}>

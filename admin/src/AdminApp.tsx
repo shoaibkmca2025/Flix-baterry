@@ -84,14 +84,15 @@ export function AdminApp({ session, onSignedIn, onSignOut }: { session: Session 
         {wide && <Sidebar />}
         <View style={{ flex: 1, minWidth: 0 }}>{body}{!wide && <TabBar />}</View>
       </View>
-      {/* These carry refusal reasons, so they stay 10s — but a view that can only go away on a
-          timer is a problem for anyone who reads slowly or uses a screen reader, so it can also be
-          tapped away (HIG accessibility: "prefer dismissing views with an explicit action"). */}
-      {!!toastMsg && <View accessibilityRole="alert" style={{ position: 'absolute', left: wide ? 250 : 15, right: 15, bottom: wide ? 24 : 84, alignItems: 'center' }}>
-        <Pressable accessibilityRole="button" accessibilityLabel={`${toastMsg}. Tap to dismiss.`} onPress={() => setToastMsg('')}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: T.ink, paddingVertical: 13, paddingHorizontal: 15, borderRadius: 11, maxWidth: 560, minHeight: 44, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 12 }}>
-          <Ic n="check" size={19} color={T.volt} /><X s={13.5} c={T.white} style={{ flexShrink: 1 }}>{toastMsg}</X>
-          <Ic n="x" size={16} color="#8B97A6" /></Pressable></View>}
+      {/* Dismissible, but `box-none` so the card never swallows a tap meant for whatever is under
+          it — a 10s overlay that eats clicks is worse than one that vanishes (client, 3 Oct 2026). */}
+      {!!toastMsg && <View pointerEvents="box-none" accessibilityRole="alert" style={{ position: 'absolute', left: wide ? 250 : 15, right: 15, bottom: wide ? 24 : 84, alignItems: 'center' }}>
+        <View pointerEvents="box-none" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: T.ink, paddingVertical: 13, paddingLeft: 15, paddingRight: 6, borderRadius: 11, maxWidth: 560, shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 12 }}>
+          <View pointerEvents="none" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 }}>
+            <Ic n="check" size={19} color={T.volt} /><X s={13.5} c={T.white} style={{ flexShrink: 1 }}>{toastMsg}</X></View>
+          <Pressable accessibilityRole="button" accessibilityLabel="Dismiss this message" hitSlop={10} onPress={() => setToastMsg('')}
+            style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}><Ic n="x" size={16} color="#8B97A6" /></Pressable>
+        </View></View>}
       <Dialog open={account} title="Your account" onClose={() => setAccount(false)} width={460}>
         <View style={{ flexDirection: 'row', gap: 11, alignItems: 'center', backgroundColor: T.white, borderWidth: 1, borderColor: T.zinc2, borderRadius: 10, padding: 13, marginBottom: 14 }}>
           <Avatar n="user" tone="amber" />
