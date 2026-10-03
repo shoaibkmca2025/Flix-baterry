@@ -88,7 +88,12 @@ export async function updateDealerStatus(tx: Tx, id: string, input: DealerStatus
   return row!;
 }
 
-export type DealerProfileUpdate = { contactPerson?: string; email?: string | null; address?: string; place?: string | null };
+// A dealer edits a few of its own fields (updateMe); head office may change any of them, and
+// which distributor the shop sits under (client, 4 Oct 2026).
+export type DealerProfileUpdate = {
+  name?: string; contactPerson?: string; mobile?: string; email?: string | null;
+  cityId?: string; state?: string; address?: string; place?: string | null; distributorId?: string;
+};
 
 export async function updateDealerProfile(tx: Tx, id: string, input: DealerProfileUpdate) {
   const [row] = await tx.update(dealers).set({ ...input, updatedAt: new Date() }).where(eq(dealers.id, id)).returning();

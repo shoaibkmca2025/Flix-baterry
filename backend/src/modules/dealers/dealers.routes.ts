@@ -10,7 +10,7 @@ import {
   DealerReasonBody,
   DealerRegisterBody,
   AdminDealerCreateBody,
-  DealerAssignBody,
+  DealerAdminUpdateBody,
 } from './dealers.validation';
 
 // M-05 dealers — architecture.md §19. `/register` is public (gated by auth's verifiedToken,
@@ -31,8 +31,8 @@ export async function registerDealerRoutes(app: FastifyInstance) {
   app.post<{ Body: AdminDealerCreateBody }>(
     '/', { preHandler: [requireAuth, requirePermission('dealers.approve')], schema: { body: AdminDealerCreateBody } }, controller.createDealerForDistributor,
   );
-  app.post<{ Params: { id: string }; Body: DealerAssignBody }>(
-    '/:id/distributor', { preHandler: [requireAuth, requirePermission('dealers.approve')], schema: { body: DealerAssignBody } }, controller.assignDistributor,
+  app.patch<{ Params: { id: string }; Body: DealerAdminUpdateBody }>(
+    '/:id', { preHandler: [requireAuth, requirePermission('dealers.approve')], schema: { body: DealerAdminUpdateBody } }, controller.updateDealer,
   );
 
   app.get<{ Querystring: DealerListQuery }>('/', { preHandler: [requireAuth, requirePermission('dealers.read')] }, controller.list);

@@ -8,7 +8,7 @@ import { invalidateAccountStatus } from '../users/users.service';
 import { verifyVerifiedToken } from '../auth/auth.tokens';
 import { findCityByName } from '../masters/masters.repository';
 import * as repo from './dealers.repository';
-import type { AdminDealerCreateBody, DealerApproveBody, DealerAssignBody, DealerCreateBody, DealerListQuery, DealerProfileUpdateBody, DealerReasonBody, DealerRegisterBody } from './dealers.validation';
+import type { AdminDealerCreateBody, DealerAdminUpdateBody, DealerApproveBody, DealerCreateBody, DealerListQuery, DealerProfileUpdateBody, DealerReasonBody, DealerRegisterBody } from './dealers.validation';
 import { findUserByMobile } from '../users/users.repository';
 
 function decodeCursor(cursor?: string) {
@@ -298,26 +298,77 @@ export async function createDealerForDistributor(ctx: Ctx, input: AdminDealerCre
   });
 }
 
-/** Move a dealer to another distributor. Its requests and history follow it — nothing is rewritten. */
-export async function assignDistributor(ctx: Ctx, dealerId: string, input: DealerAssignBody) {
+/**
+ * Head office correcting a shop's record (client, 4 Oct 2026).
+ *
+ * One call for the whole edit, including which distributor a dealer sits under — a shop changes
+ * its number, moves road, or an area passes to another distributor, and all of it is the same
+ * act of putting the record right. Only the fields that actually changed are written, and the
+ * before and after of each go into the audit log with the reason.
+ *
+ * Nothing the shop has already recorded moves or is rewritten: its requests, batteries and
+ * history stay exactly where they are.
+ */
+export async function updateDealer(ctx: Ctx, dealerId: string, input: DealerAdminUpdateBody) {
   await requireAdminActor(ctx);
   const dealer = await repo.findDealerById(db, dealerId);
   if (!dealer) throw new AppError('dealer_not_found', 404, 'Dealer not found.');
-  if (dealer.kind !== 'dealer') throw new AppError('not_a_dealer', 409, 'Only a dealer sits under a distributor.');
-  if (dealer.distributorId === input.distributorId) {
-    throw new AppError('invalid_transition', 409, 'This dealer is already under that distributor.');
+
+  const set: repo.DealerProfileUpdate = {};
+  const before: Record<string, unknown> = {}, after: Record<string, unknown> = {};
+  const change = <K extends keyof repo.DealerProfileUpdate>(key: K, was: unknown, now: repo.DealerProfileUpdate[K]) => {
+    if (now === undefined || now === was) return;
+    set[key] = now; before[key] = was; after[key] = now;
+  };
+
+  change('name', dealer.name, input.name);
+  change('contactPerson', dealer.contactPerson, input.contactPerson);
+  change('state', dealer.state, input.state);
+  change('address', dealer.address, input.address);
+  change('place', dealer.place, input.place === undefined ? undefined : input.place || null);
+  change('email', dealer.email, input.email === undefined ? undefined : input.email || null);
+
+  // the mobile number is how the shop signs in, so it may not land on another account
+  if (input.mobile !== undefined && input.mobile !== dealer.mobile) {
+    if (await repo.findDealerByMobile(db, input.mobile) || await findUserByMobile(db, input.mobile)) {
+      throw new AppError('mobile_taken', 409, 'This mobile number already has an account.', { field: 'mobile' });
+    }
+    change('mobile', dealer.mobile, input.mobile);
   }
-  const to = await requireDistributorShop(input.distributorId);
-  const from = dealer.distributorId ? await repo.findDealerById(db, dealer.distributorId) : null;
+
+  if (input.city !== undefined) {
+    const city = await findCityByName(db, input.city);
+    if (!city) throw new AppError('city_invalid', 422, 'Choose a city from the list.', { field: 'city' });
+    change('cityId', dealer.cityId, city.id);
+  }
+
+  // moving a dealer under another distributor: only a dealer sits under one, and only an active
+  // distributor may take it
+  let moved: { from: string | null; to: string } | null = null;
+  if (input.distributorId !== undefined && input.distributorId !== dealer.distributorId) {
+    if (dealer.kind !== 'dealer') throw new AppError('not_a_dealer', 409, 'Only a dealer sits under a distributor.');
+    const to = await requireDistributorShop(input.distributorId);
+    const from = dealer.distributorId ? await repo.findDealerById(db, dealer.distributorId) : null;
+    change('distributorId', dealer.distributorId, to.id);
+    moved = { from: from?.name ?? null, to: to.name };
+  }
+
+  if (!Object.keys(set).length) throw new AppError('nothing_to_change', 409, 'Nothing was changed.');
 
   return withTransaction(async (tx) => {
-    const after = await repo.updateDealerDistributor(tx, dealerId, to.id);
+    const row = await repo.updateDealerProfile(tx, dealerId, set);
+    // a changed mobile number signs the shop out: the next sign-in uses the new one
+    if (set.mobile) {
+      invalidateAccountStatus();
+      for (const u of await repo.findUsersByDealerId(tx, dealerId)) await revokeAllSessionsForUser(tx, u.id, 'dealer_updated');
+    }
     await audit(tx, {
-      ctx, action: 'dealer.distributor_changed', entityType: 'dealer', entityId: dealerId, entityRef: dealer.name,
-      before: { distributorId: dealer.distributorId, distributor: from?.name ?? null },
-      after: { distributorId: to.id, distributor: to.name }, reason: input.reason, outcome: 'ok',
+      ctx, action: 'dealer.updated', entityType: 'dealer', entityId: dealerId, entityRef: dealer.name,
+      before: moved ? { ...before, distributor: moved.from } : before,
+      after: moved ? { ...after, distributor: moved.to } : after,
+      reason: input.reason, outcome: 'ok',
     });
-    return after;
+    return row;
   });
 }
 

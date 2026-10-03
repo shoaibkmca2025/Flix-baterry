@@ -5,7 +5,7 @@ import { Entry, Item, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approv
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, ChipRow, Label, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
-import { approvedForRefund, batteryUnits, entryErrors, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, specialLine, specialOutcome, specialWaiting, tShort, monthShort, salesReturnsOf } from '@felix/shared/data';
+import { approvedForRefund, batteryUnits, entryErrors, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, specialLine, specialOutcome, specialWaiting, tShort, monthShort, salesReturnsOf, monthLong } from '@felix/shared/data';
 import { listPhotos, splitTag, uploadEntryPhotos } from '@felix/shared/api/photos';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
@@ -821,7 +821,7 @@ export function NewEntry({ id }: { id?: string }) {
    */
   const adminErrors = (e: Entry): Record<string, string> => {
     const errs: Record<string, string> = {};
-    if (!e.dealerId) errs.dealerId = 'Choose the distributor this entry belongs to.';
+    if (!active.some(d => d.id === e.dealerId)) errs.dealerId = 'Choose the distributor this entry belongs to.';
     e.items.forEach((it, i) => { if (!it.code.trim()) errs[`items.${i}.code`] = 'Enter the battery number.'; });
     return errs;
   };
@@ -858,7 +858,13 @@ export function NewEntry({ id }: { id?: string }) {
       <Steps labels={['1 · Details', '2 · Batteries', '3 · Photos & proof', '4 · Check']} now={step} />
       <View style={{ height: 14 }} />
       {step === 1 && <Card>
-        <Cols><Select label="Distributor / dealer" req value={dealer?.name || ''} options={active.map(d => ({ v: d.name, sub: `${d.code || d.id} · ${d.city}` }))} onChange={v => { const d = active.find(x => x.name === v)!; upd({ dealerId: d.id, place: d.place || entry.place }); }} />
+        {/* Head office records against a DISTRIBUTOR, never a dealer (client, 4 Oct 2026). The
+            value is held to the same list: a draft saved earlier may name a dealer, and it must
+            read as unset so it is chosen again rather than sent as it stands. */}
+        <Cols><Select label="Distributor" req value={active.some(d => d.id === entry.dealerId) ? dealer?.name || '' : ''}
+          ph={dealer && !active.some(d => d.id === entry.dealerId) ? `${dealer.name} is a dealer — choose its distributor` : 'Choose the distributor'}
+          options={active.map(d => ({ v: d.name, sub: `${d.code || d.id} · ${d.city} · ${state.dealers.filter(x => x.distributorId === d.id).length} dealers` }))}
+          onChange={v => { const d = active.find(x => x.name === v)!; upd({ dealerId: d.id, place: d.place || entry.place }); }} />
           {/* changing the type re-tags the draft (RP / SR) and drops a kind that no longer applies */}
           <Select label="Entry type" req value={entry.type} options={[...ENTRY_TYPES]}
             onChange={type => upd({ type, id: nextEntryId(state, type), returnKind: type === 'Sales Return' ? entry.returnKind ?? 'Unsold' : undefined })}
@@ -889,11 +895,11 @@ export function NewEntry({ id }: { id?: string }) {
                 tail={<CapBtn n="scan" tone="alt" label={`Scan battery ${i + 1}`} onPress={() => setScan(i)} />} hint="Leading zeros are kept exactly as printed." hintIcon="lock" />
             </Cols>
             <PlateModelSelect label="New battery" req value={it.model} error={k('model')} onChange={model => item(i, { model })} />
-            <Cols>
-              {/* whatever follows the YYMM: 3 digits on a 7-digit code, 4 on an 8, 5 on a 9 */}
-              <Field label="Short serial" req mono numeric maxLength={newMax - 4} value={it.serial} onChange={serial => item(i, { serial })} error={k('serial')} hint="Filled from the code." hintIcon="lock" />
-              <Field label="Manufacturing month" mono value={it.mfg} onChange={mfg => item(i, { mfg })} ph="YYYY-MM" error={k('mfg')} />
-            </Cols>
+            {/* The short serial is whatever follows the YYMM — it is read off the code, never
+                typed, so asking for it was asking twice (client, 4 Oct 2026). The manufacturing
+                month is read the same way and shown read-only beside it. */}
+            <Field label="Manufacturing month" readonly mono value={it.mfg ? monthLong(it.mfg) : 'From the serial'}
+              hint="Worked out from the serial. Nothing to fill in." hintIcon="lock" />
             {/* a sales return is one battery and nothing else — no old battery to ask about
                 (client, 3 Oct 2026). The dealer app has never asked. */}
             {rep && <Cols>

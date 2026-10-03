@@ -39,7 +39,7 @@ import * as repo from './dealers.repository';
 import { findCityByName } from '../masters/masters.repository';
 import { revokeAllSessionsForUser } from '../auth/auth.repository';
 import { verifyVerifiedToken } from '../auth/auth.tokens';
-import { activate, approve, assignDistributor, createDealerForDistributor, createMyDealer, distributorShopIds, getById, getMe, list, listMyDealers, register, reject, setMyDealerStatus, suspend } from './dealers.service';
+import { activate, approve, createDealerForDistributor, createMyDealer, updateDealer, distributorShopIds, getById, getMe, list, listMyDealers, register, reject, setMyDealerStatus, suspend } from './dealers.service';
 import { findUserByMobile } from '../users/users.repository';
 import { AppError } from '../../utils/errors';
 import type { Ctx } from '../../utils/context';
@@ -287,25 +287,51 @@ describe('head office adds and moves dealers', () => {
     await expect(createDealerForDistributor(adminCtx, input)).rejects.toMatchObject({ code: 'distributor_inactive', status: 422 });
   });
 
-  it('moves a dealer to another distributor and records where it came from', async () => {
-    vi.mocked(repo.findDealerById).mockImplementation(async (_db, id) => (
-      id === 'shop-1' ? { id: 'shop-1', name: 'Patil Batteries', kind: 'dealer', distributorId: 'dist-1' }
-        : id === 'dist-1' ? distributor : other) as never);
-    vi.mocked(repo.updateDealerDistributor).mockResolvedValue({ id: 'shop-1', distributorId: 'dist-2' } as never);
+  // One edit for the whole record, including which distributor a dealer sits under (client,
+  // 4 Oct 2026). Only what actually changed is written.
+  const shop = { id: 'shop-1', name: 'Patil Batteries', contactPerson: 'Ravi', mobile: '9822001122', email: null, cityId: 'city-nsk', state: 'Maharashtra', place: null, address: 'Main Road', kind: 'dealer', distributorId: 'dist-1' };
+  const shops = async (_db: unknown, id: string) => (id === 'shop-1' ? shop : id === 'dist-1' ? distributor : other) as never;
 
-    const after = await assignDistributor(adminCtx, 'shop-1', { distributorId: 'dist-2', reason: 'Nashik agency takes this area now' });
+  it('writes only the fields that changed, and records the before and after', async () => {
+    vi.mocked(repo.findDealerById).mockImplementation(shops);
+    vi.mocked(repo.updateDealerProfile).mockResolvedValue({ ...shop, address: 'Shop 4, Nasik Road' } as never);
 
-    expect(after.distributorId).toBe('dist-2');
-    expect(repo.updateDealerDistributor).toHaveBeenCalledWith(expect.anything(), 'shop-1', 'dist-2');
+    await updateDealer(adminCtx, 'shop-1', { address: 'Shop 4, Nasik Road', contactPerson: 'Ravi', reason: 'Shop moved down the road' });
+
+    // contactPerson was sent but is unchanged, so it is not written
+    expect(repo.updateDealerProfile).toHaveBeenCalledWith(expect.anything(), 'shop-1', { address: 'Shop 4, Nasik Road' });
   });
 
-  it('will not move a distributor, nor move a dealer to where it already is', async () => {
-    vi.mocked(repo.findDealerById).mockResolvedValue(distributor as never);
-    await expect(assignDistributor(adminCtx, 'dist-1', { distributorId: 'dist-2', reason: 'a good reason' }))
-      .rejects.toMatchObject({ code: 'not_a_dealer', status: 409 });
+  it('moves a dealer to another distributor as part of the same edit', async () => {
+    vi.mocked(repo.findDealerById).mockImplementation(shops);
+    vi.mocked(repo.updateDealerProfile).mockResolvedValue({ ...shop, distributorId: 'dist-2' } as never);
 
-    vi.mocked(repo.findDealerById).mockResolvedValue({ id: 'shop-1', kind: 'dealer', distributorId: 'dist-1' } as never);
-    await expect(assignDistributor(adminCtx, 'shop-1', { distributorId: 'dist-1', reason: 'a good reason' }))
-      .rejects.toMatchObject({ code: 'invalid_transition', status: 409 });
+    const after = await updateDealer(adminCtx, 'shop-1', { distributorId: 'dist-2', reason: 'Nashik agency takes this area now' });
+
+    expect(after.distributorId).toBe('dist-2');
+    expect(repo.updateDealerProfile).toHaveBeenCalledWith(expect.anything(), 'shop-1', { distributorId: 'dist-2' });
+  });
+
+  it('a changed mobile number must be free, and signs the shop out', async () => {
+    vi.mocked(repo.findDealerById).mockImplementation(shops);
+    vi.mocked(repo.findDealerByMobile).mockResolvedValue({ id: 'someone-else' } as never);
+    await expect(updateDealer(adminCtx, 'shop-1', { mobile: '9000000000', reason: 'New number' }))
+      .rejects.toMatchObject({ code: 'mobile_taken', status: 409 });
+
+    vi.mocked(repo.findDealerByMobile).mockResolvedValue(undefined as never);
+    vi.mocked(findUserByMobile).mockResolvedValue(undefined as never);
+    vi.mocked(repo.findUsersByDealerId).mockResolvedValue([{ id: 'u-1' }] as never);
+    vi.mocked(repo.updateDealerProfile).mockResolvedValue({ ...shop, mobile: '9000000000' } as never);
+
+    await updateDealer(adminCtx, 'shop-1', { mobile: '9000000000', reason: 'New number' });
+    expect(revokeAllSessionsForUser).toHaveBeenCalledWith(expect.anything(), 'u-1', 'dealer_updated');
+  });
+
+  it('will not move a distributor, nor change nothing at all', async () => {
+    vi.mocked(repo.findDealerById).mockImplementation(shops);
+    await expect(updateDealer(adminCtx, 'dist-1', { distributorId: 'dist-2', reason: 'a good reason' }))
+      .rejects.toMatchObject({ code: 'not_a_dealer', status: 409 });
+    await expect(updateDealer(adminCtx, 'shop-1', { distributorId: 'dist-1', address: 'Main Road', reason: 'a good reason' }))
+      .rejects.toMatchObject({ code: 'nothing_to_change', status: 409 });
   });
 });

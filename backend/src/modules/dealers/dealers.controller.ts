@@ -1,7 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { buildCtx } from '../../middleware/context';
 import * as service from './dealers.service';
-import type { AdminDealerCreateBody, DealerApproveBody, DealerAssignBody, DealerCreateBody, DealerListQuery, DealerProfileUpdateBody, DealerReasonBody, DealerRegisterBody } from './dealers.validation';
+import type { AdminDealerCreateBody, DealerAdminUpdateBody, DealerApproveBody, DealerCreateBody, DealerListQuery, DealerProfileUpdateBody, DealerReasonBody, DealerRegisterBody } from './dealers.validation';
 
 export async function register(request: FastifyRequest<{ Body: DealerRegisterBody }>, reply: FastifyReply) {
   const result = await service.register(buildCtx(request), request.body);
@@ -70,6 +70,6 @@ export async function createDealerForDistributor(request: FastifyRequest<{ Body:
   reply.status(201).send(await service.createDealerForDistributor(buildCtx(request), request.body));
 }
 
-export async function assignDistributor(request: FastifyRequest<{ Params: { id: string }; Body: DealerAssignBody }>, reply: FastifyReply) {
-  reply.status(200).send(await service.assignDistributor(buildCtx(request), request.params.id, request.body));
+export async function updateDealer(request: FastifyRequest<{ Params: { id: string }; Body: DealerAdminUpdateBody }>, reply: FastifyReply) {
+  reply.status(200).send(await service.updateDealer(buildCtx(request), request.params.id, request.body));
 }

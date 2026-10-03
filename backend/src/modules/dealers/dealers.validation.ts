@@ -64,6 +64,27 @@ export const DealerProfileUpdateBody = z.object({
 });
 export type DealerProfileUpdateBody = z.infer<typeof DealerProfileUpdateBody>;
 
+/**
+ * Head office correcting a shop's record (client, 4 Oct 2026).
+ *
+ * Every field is optional: the console sends only what changed, so an edit to the address
+ * cannot quietly rewrite the mobile number. A reason is required, like every other decision —
+ * the before and after go into the audit log with it.
+ */
+export const DealerAdminUpdateBody = z.object({
+  name: z.string().trim().min(1, 'Enter the shop name.').optional(),
+  contactPerson: z.string().trim().min(1, 'Enter the owner or contact person.').optional(),
+  mobile: z.string().regex(/^\d{10}$/, 'Enter the 10-digit mobile number.').optional(),
+  email: z.string().email('Check the email address.').optional().or(z.literal('')),
+  city: z.string().trim().min(1, 'Choose the city.').optional(),
+  state: z.string().trim().min(1, 'Enter the state.').optional(),
+  place: z.string().trim().optional(),
+  address: z.string().trim().min(1, 'Enter the full shop address.').optional(),
+  distributorId: z.string().uuid('Choose the distributor this dealer belongs to.').optional(),
+  reason,
+});
+export type DealerAdminUpdateBody = z.infer<typeof DealerAdminUpdateBody>;
+
 export const DealerListQuery = z.object({
   status: z.enum(['pending_approval', 'active', 'rejected', 'suspended']).optional(),
   limit: z.coerce.number().int().positive().max(200).default(50),

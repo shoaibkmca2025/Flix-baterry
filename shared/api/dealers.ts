@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './client';
+import { apiGet, apiPatch, apiPost } from './client';
 
 export type DealerStatus = 'pending_approval' | 'active' | 'rejected' | 'suspended';
 export type ApiDealer = {
@@ -78,7 +78,11 @@ export function setMyDealerStatus(id: string, to: 'suspended' | 'active', reason
 export function createDealerForDistributor(input: MyDealerInput & { distributorId: string }, accessToken: string) {
   return apiPost<ApiDealer>('/dealers', input, { accessToken });
 }
-/** Move a dealer to another distributor. Its requests and history follow it. */
-export function assignDistributor(id: string, distributorId: string, reason: string, accessToken: string) {
-  return apiPost<ApiDealer>(`/dealers/${id}/distributor`, { distributorId, reason }, { accessToken });
+/**
+ * Head office correcting a shop's record — any of its details, and which distributor a dealer
+ * sits under (client, 4 Oct 2026). Send only what changed; a reason is required.
+ */
+export type DealerEdit = Partial<Omit<MyDealerInput, 'email'>> & { email?: string; distributorId?: string };
+export function updateDealer(id: string, change: DealerEdit, reason: string, accessToken: string) {
+  return apiPatch<ApiDealer>(`/dealers/${id}`, { ...change, reason }, { accessToken });
 }

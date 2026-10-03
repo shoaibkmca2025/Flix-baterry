@@ -8,7 +8,7 @@ import { refunds, dLong, dShort, personOf, toSendBack } from '@felix/shared/data
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, Tabs, ReasonDialog, Select, EntryTable, Empty, fmtAt, useA } from './ui';
 import { StaffManager } from './Governance';
 import { getAccessToken } from '@felix/shared/api/session';
-import { activateDealer, approveDealer, assignDistributor, createDealerForDistributor, rejectDealer, suspendDealer } from '@felix/shared/api/dealers';
+import { activateDealer, approveDealer, createDealerForDistributor, updateDealer, type DealerEdit, rejectDealer, suspendDealer } from '@felix/shared/api/dealers';
 import { errorMessage } from '@felix/shared/api/client';
 import { useSync } from '@felix/shared/api/sync';
 
@@ -220,9 +220,11 @@ export function NewDealer() {
 export function DealerProfile({ id }: { id?: string }) {
   const a = useA(); const { state, canEdit } = useStore(); const decide = useDealerDecision(); const { sync } = useSync();
   const [tab, setTab] = useState('profile'), [act, setAct] = useState<'Approve' | 'Reject' | 'Suspend' | 'Activate' | ''>('');
-  // Head office can move a dealer to another distributor — an area changes hands, a distributor
-  // closes (client, 3 Oct 2026). The dealer's requests and history follow it; nothing is rewritten.
-  const [moving, setMoving] = useState(false), [moveTo, setMoveTo] = useState('');
+  // Head office corrects a shop's record: any of its details, and which distributor a dealer
+  // sits under (client, 4 Oct 2026). Nothing it has already recorded moves or is rewritten.
+  const [editing, setEditing] = useState(false);
+  const blank = { name: '', contact: '', mobile: '', email: '', city: '', state: '', place: '', address: '', distributor: '' };
+  const [form, setForm] = useState(blank), [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const d = state.dealers.find(x => x.id === id);
   if (!d) return <Page back title="Dealer"><Empty icon="alert" title="Dealer not found" /></Page>;
   const entries = state.entries.filter(e => e.dealerId === d.id);
@@ -235,7 +237,7 @@ export function DealerProfile({ id }: { id?: string }) {
   return <Page back title={d.name} sub={`${isDealer ? `Dealer under ${parent?.name || 'a distributor'}` : 'Distributor'} · ${d.city} · ${dealerCode(d)} · ${d.status.toLowerCase()}`}
     tabs={<Tabs value={tab} onChange={setTab} items={tabItems} />}>
     {isDealer && <Banner tone="info" icon="people" style={{ marginBottom: 14 }}><B>Dealer under {parent?.name || 'no distributor yet'}.</B> {parent ? 'The distributor approves this dealer’s requests first and sends its old batteries to head office. ' : 'Nobody checks this dealer’s requests until a distributor is set. '}
-      {parent && <B u onPress={() => a.go('dealer', parent.id)}>Open distributor</B>}{canEdit && parent ? ' · ' : ''}{canEdit && <B u onPress={() => { setMoveTo(''); setMoving(true); }}>Move to another distributor</B>}</Banner>}
+      {parent && <B u onPress={() => a.go('dealer', parent.id)}>Open distributor</B>}</Banner>}
     {tab === 'dealers' && <Box title={`Dealers under ${d.name}`} right={<Chip tone="mute" label="Added by the distributor in the app" />}>
       {children.length ? <View style={{ paddingHorizontal: 14 }}>{children.map((c, i) => <Line key={c.id} last={i === children.length - 1} onPress={() => a.go('dealer', c.id)} av={<Avatar n="shop" tone={c.status === 'Active' ? 'green' : 'mute'} />}
         title={c.name} sub={`${c.contact} · +91 ${c.mobile} · ${c.city}`} right={<StatusChip status={c.status} />} />)}</View>
@@ -246,9 +248,14 @@ export function DealerProfile({ id }: { id?: string }) {
         {d.reason && <Banner tone={d.status === 'Active' ? 'info' : 'warn'} icon="alert" style={{ marginTop: 12 }}><B>Last decision:</B> {d.reason}</Banner>}
         {canEdit && <View style={{ flexDirection: 'row', gap: 9, marginTop: 13, flexWrap: 'wrap' }}>
           {actions.map(x => <Btn key={x} sm kind={x === 'Approve' || x === 'Activate' ? 'blue' : 'ghost'} color={x === 'Suspend' || x === 'Reject' ? T.terminal : undefined} borderColor={x === 'Suspend' || x === 'Reject' ? '#F0C7BC' : undefined} label={`${x === 'Reject' ? 'Refuse' : x} ${isDealer ? 'dealer' : 'distributor'}`} onPress={() => setAct(x)} />)}
-          {/* which distributor a dealer sits under is head office's to set, so it is an action
-              here and not only a line in the banner above (client, 3 Oct 2026) */}
-          {isDealer && <Btn sm kind="ghost" icon="people" label={parent ? 'Move to another distributor' : 'Assign a distributor'} onPress={() => { setMoveTo(''); setMoving(true); }} />}
+          {/* one action for the whole record, including which distributor a dealer sits under —
+              a shop changes its number, moves road, or an area passes on (client, 4 Oct 2026) */}
+          <Btn sm kind="ghost" icon="pen" label={isDealer ? 'Modify dealer' : 'Modify distributor'} onPress={() => {
+            setFieldErr({});
+            setForm({ name: d.name, contact: d.contact, mobile: d.mobile, email: d.email || '', city: d.city,
+              state: d.state, place: d.place || '', address: d.address, distributor: parent?.name || '' });
+            setEditing(true);
+          }} />
         </View>}
         <Hint icon="shield" style={{ marginTop: 10 }}>Suspending stops new entries at once. It never removes anything the dealer already recorded.</Hint>
       </Card>
@@ -260,23 +267,66 @@ export function DealerProfile({ id }: { id?: string }) {
     {tab === 'entries' && <Box><EntryTable showDealer={false} entries={entries} onOpen={e => a.go(e.status === 'Draft' ? 'new' : 'entry', e.id)} empty="No entries from this dealer yet." /></Box>}
     {tab === 'staff' && <StaffManager dealerId={d.id} />}
     {tab === 'history' && <Box title="Status history">{history.length ? <View style={{ paddingHorizontal: 14 }}>{history.map((h, i) => <Line key={h.id} last={i === history.length - 1} av={<Avatar n={/Approve|Activate/.test(h.action) ? 'check' : /Reject|Suspend/.test(h.action) ? 'x' : 'doc'} tone={/Approve|Activate/.test(h.action) ? 'green' : /Reject|Suspend/.test(h.action) ? 'red' : 'mute'} />} title={h.action} sub={`${fmtAt(h.at)} · ${personOf(h.actor)}${h.reason ? ` — ${h.reason}` : ''}`} right={h.before ? <Chip tone="mute" label={`${h.before} → ${h.after}`} /> : undefined} />)}</View> : <X s={13.5} c={T.slate} style={{ padding: 14 }}>No status changes yet.</X>}</Box>}
-    {moving && <ReasonDialog open title={`Move ${d.name}`} confirm="Move this dealer" onClose={() => setMoving(false)}
-      disabled={!moveTo}
-      intro="The dealer's requests, batteries and history stay exactly as they are. From now on the new distributor checks its requests and collects its old batteries."
+    {editing && <ReasonDialog open title={`Modify ${d.name}`} confirm="Save the changes" width={820} onClose={() => setEditing(false)}
+      intro="Change what is wrong on this record. Everything the shop has already recorded — its requests, batteries and history — stays exactly where it is. Your name, the time and the reason are written into the audit log."
       onConfirm={r => {
-        const to = state.dealers.find(x => x.name === moveTo && x.kind !== 'Dealer');
-        if (!to) { a.toast('Choose the distributor to move this dealer to.'); return false; }
+        const e: Record<string, string> = {};
+        if (!form.name.trim()) e.name = 'Enter the shop name.';
+        if (!form.contact.trim()) e.contact = 'Enter the owner or manager.';
+        if (!/^\d{10}$/.test(form.mobile)) e.mobile = 'Enter the 10-digit mobile number.';
+        if (form.email.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) e.email = 'Check the email address.';
+        if (!form.city) e.city = 'Choose the city.';
+        if (!form.state.trim()) e.state = 'Enter the state.';
+        if (!form.address.trim()) e.address = 'Enter the full shop address.';
+        if (isDealer && !form.distributor) e.distributor = 'Choose the distributor this dealer belongs to.';
+        setFieldErr(e);
+        if (Object.values(e).some(Boolean)) { a.toast('Some details need a look — they are marked in red.'); return false; }
+
+        // send only what actually changed, so saving an address cannot rewrite a mobile number
+        const to = state.dealers.find(x => x.name === form.distributor && x.kind !== 'Dealer');
+        const change: DealerEdit = {};
+        if (form.name.trim() !== d.name) change.name = form.name.trim();
+        if (form.contact.trim() !== d.contact) change.contactPerson = form.contact.trim();
+        if (form.mobile !== d.mobile) change.mobile = form.mobile;
+        if (form.email.trim() !== (d.email || '')) change.email = form.email.trim();
+        if (form.city !== d.city) change.city = form.city;
+        if (form.state.trim() !== d.state) change.state = form.state.trim();
+        if (form.place.trim() !== (d.place || '')) change.place = form.place.trim();
+        if (form.address.trim() !== d.address) change.address = form.address.trim();
+        if (isDealer && to && to.id !== d.distributorId) change.distributorId = to.id;
+        if (!Object.keys(change).length) { a.toast('Nothing was changed.'); return false; }
+
         void (async () => {
           const token = await getAccessToken();
-          if (!token) { a.toast('Sign in again to move a dealer.'); return; }
-          try { await assignDistributor(d.id, to.id, r, token); a.toast(`${d.name} is now under ${to.name}.`); }
-          catch (err) { a.toast(errorMessage(err)); }
+          if (!token) { a.toast('Sign in again to change a shop.'); return; }
+          try {
+            await updateDealer(d.id, change, r, token);
+            a.toast(change.mobile ? `${form.name.trim()} saved. The new number signs in from now on.` : `${form.name.trim()} saved.`);
+          } catch (err) { a.toast(errorMessage(err)); }
           finally { sync(true); }
         })();
-        setMoving(false);
+        setEditing(false);
       }}>
-      <Select label="New distributor" req value={moveTo} onChange={setMoveTo}
-        options={state.dealers.filter(x => x.kind !== 'Dealer' && x.status === 'Active' && x.id !== d.distributorId).map(x => ({ v: x.name, sub: `${x.city} · ${state.dealers.filter(y => y.distributorId === x.id).length} dealers` }))} />
+      <Cols>
+        <Field label="Shop name" req value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} error={fieldErr.name} />
+        <Field label="Contact person" req value={form.contact} onChange={v => setForm(f => ({ ...f, contact: v }))} error={fieldErr.contact} />
+      </Cols>
+      <Cols>
+        <Field label="Mobile number" req mono numeric maxLength={10} value={form.mobile} onChange={v => setForm(f => ({ ...f, mobile: digits(v).slice(0, 10) }))}
+          error={fieldErr.mobile} hintIcon="phone" hint={form.mobile !== d.mobile ? 'Changing this signs the shop out — the new number signs in from then on.' : 'How the shop signs in.'} />
+        <Field label="Email" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} ph="name@shop.in (optional)" error={fieldErr.email} />
+      </Cols>
+      {isDealer && <Select label="Distributor" req value={form.distributor} onChange={v => setForm(f => ({ ...f, distributor: v }))} error={fieldErr.distributor} hintIcon="people"
+        hint="This dealer's requests go to this distributor first, and its old batteries go to him."
+        options={state.dealers.filter(x => x.kind !== 'Dealer' && x.status === 'Active').map(x => ({ v: x.name, sub: `${x.city} · ${state.dealers.filter(y => y.distributorId === x.id).length} dealers` }))} />}
+      <Cols>
+        <Select label="City" req value={form.city} onChange={v => setForm(f => ({ ...f, city: v }))} options={state.cities} error={fieldErr.city} hintIcon="pin" hint="From the company city list." />
+        <Field label="State" req value={form.state} onChange={v => setForm(f => ({ ...f, state: v }))} error={fieldErr.state} />
+      </Cols>
+      <Cols>
+        <Field label="Place / area" value={form.place} onChange={v => setForm(f => ({ ...f, place: v }))} ph="Road or area" />
+        <Field label="Full address" req value={form.address} onChange={v => setForm(f => ({ ...f, address: v }))} error={fieldErr.address} />
+      </Cols>
     </ReasonDialog>}
     {act && <ReasonDialog open title={`${act === 'Reject' ? 'Refuse' : act} ${d.name}`} confirm={`${act === 'Reject' ? 'Refuse' : act} ${isDealer ? 'dealer' : 'distributor'}`} kind={act === 'Approve' || act === 'Activate' ? 'blue' : 'danger'} onClose={() => setAct('')} onConfirm={r => decide(d, act, r)}
       intro={act === 'Suspend' ? 'New entries stop straight away. Their records, stock and history stay exactly as they are.' : act === 'Activate' ? 'The dealer can sign in and record entries again.' : undefined} />}
