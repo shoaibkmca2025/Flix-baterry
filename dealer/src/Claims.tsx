@@ -6,7 +6,7 @@ import { useStore } from '@felix/shared/store';
 import { Challan, Entry } from '@felix/shared/domain';
 import { printHtml, escapeHtml, saveHtmlDocument } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
-import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, BigOk, CheckBox, Kpis, Plate, PlateLab, PlateVal, AvTone, Tone, IconName } from '@felix/shared/ui/kit';
+import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, BigOk, CheckBox, Kpis, Plate, PlateLab, PlateVal, AvTone, Tone, IconName, tap } from '@felix/shared/ui/kit';
 import { Screen, AppBar, useD } from './shell';
 import { useMyDealerNames } from './Network';
 import { getAccessToken } from '@felix/shared/api/session';
@@ -134,7 +134,7 @@ export function D34({ p }: { p?: string }) {
   if (!c) return <Screen tab="truck" top={<AppBar title="Dispatch" back="d33" />}><X c={T.slate}>This challan could not be found.</X></Screen>;
   const eta = new Date(Date.parse(c.at) + 2 * 86400000).toISOString();
   return <Screen tab="truck" top={<View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 8, paddingHorizontal: 15, paddingBottom: 13, backgroundColor: T.zinc, borderBottomWidth: 1, borderBottomColor: T.zinc2 }}>
-    <View style={{ flex: 1 }} /><Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => d.back('d33')} style={{ width: 38, height: 38, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: T.white, borderWidth: 1, borderColor: T.zinc2 }}><Ic n="x" /></Pressable></View>}>
+    <View style={{ flex: 1 }} /><Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => d.back('d33')} style={[tap, { width: 38, height: 38, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: T.white, borderWidth: 1, borderColor: T.zinc2 }]}><Ic n="x" /></Pressable></View>}>
     <BigOk n="truck" />
     <X s={22} w={7} f="c" style={{ textAlign: 'center', marginBottom: 5 }}>{c.rows.length} {c.rows.length === 1 ? 'battery' : 'batteries'} dispatched</X>
     <X s={15} c={T.slate} style={{ textAlign: 'center', marginBottom: 16 }}>They are off your list and on the company’s. Show this screen to the driver if he asks.</X>

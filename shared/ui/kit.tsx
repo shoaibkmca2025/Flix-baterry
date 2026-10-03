@@ -67,6 +67,18 @@ export const B = ({ children, onPress, u }: { children: React.ReactNode; onPress
 export const Mono = ({ children }: { children: React.ReactNode }) => <Text style={{ fontFamily: family('m', 6) }}>{children}</Text>;
 
 const WEB = Platform.OS === 'web';
+// Both apps ship as web builds, so Platform.OS alone cannot tell a dealer's phone from head
+// office's desktop. The pointer does: a finger is a coarse pointer, a mouse a fine one. Apple's
+// HIG puts the minimum hit region at 44x44 pt wherever a fingertip is the input
+// (components/menus-and-actions/buttons.md), so every touch surface gets it — the dealer app in
+// a phone browser included, which is where the fault chips and the small row buttons live.
+// hitSlop cannot do this job here: react-native-web's Pressable does not implement it, so on a
+// web build only the box's own size counts.
+const TOUCH = !WEB || (typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+  ? window.matchMedia('(pointer: coarse)').matches : false);
+/** Apple's 44x44 pt minimum hit region, for a control whose own padding is smaller than that —
+ *  a chip used as a button, a bare icon. Null off touch, so the console stays compact. */
+export const tap = (TOUCH ? { minHeight: 44, minWidth: 44, justifyContent: 'center', alignItems: 'center' } : null) as ViewStyle | null;
 const noOutline = WEB ? ({ outlineStyle: 'none' } as any) : null;
 // Keyboard focus on the web (the head-office console is used with a keyboard): every focusable
 // control gets a visible ring, but only for keyboard focus (:focus-visible), never on a mouse click.
@@ -110,7 +122,7 @@ export function Btn({ label, icon, iconAfter, kind = 'dark', sm, onPress, disabl
   const size = sm ? 14 : big ? 17 : 16;
   return <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={disabled} onPress={onPress}
     style={({ pressed, hovered }: PState) => [{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, paddingTop: pv, paddingBottom: inset ? pv - 3 : pv, paddingHorizontal: sm ? 14 : 16, borderRadius: 10, backgroundColor: bg },
-      sm && !WEB && { minHeight: 44 }, WEB && hovered && !disabled && !pressed && { opacity: 0.9 },
+      sm && TOUCH && { minHeight: 44 }, WEB && hovered && !disabled && !pressed && { opacity: 0.9 },
       inset && { borderBottomWidth: 3, borderBottomColor: kind === 'primary' ? 'rgba(0,0,0,0.16)' : 'rgba(0,0,0,0.2)' },
       kind === 'ghost' && { borderWidth: 1.5, borderColor: borderColor || T.zinc3 },
       sm && { alignSelf: 'flex-start' }, pressed && { opacity: 0.85 }, disabled && { opacity: 0.45 }, style]}>
@@ -120,11 +132,11 @@ export function Btn({ label, icon, iconAfter, kind = 'dark', sm, onPress, disabl
 export const BtnRow = ({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) =>
   <View style={[{ flexDirection: 'row', gap: 9, marginTop: 11 }, style]}>{React.Children.map(children, c => c && <View style={{ flex: 1 }}>{c}</View>)}</View>;
 export function IconBtn({ n, onPress, dark, label }: { n: IconName; onPress?: () => void; dark?: boolean; label: string }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} hitSlop={3} style={(st: PState) => [{ width: 38, height: 38, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: dark ? 'rgba(255,255,255,0.1)' : T.white, borderWidth: 1, borderColor: dark ? 'rgba(255,255,255,0.16)' : T.zinc2 }, fx(st, dark ? 'rgba(255,255,255,0.18)' : T.zinc)]}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} hitSlop={3} style={(st: PState) => [{ width: TOUCH ? 44 : 38, height: TOUCH ? 44 : 38, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: dark ? 'rgba(255,255,255,0.1)' : T.white, borderWidth: 1, borderColor: dark ? 'rgba(255,255,255,0.16)' : T.zinc2 }, fx(st, dark ? 'rgba(255,255,255,0.18)' : T.zinc)]}>
     <Ic n={n} size={20} color={dark ? T.white : T.ink} /></Pressable>;
 }
 export function CapBtn({ n, tone = 'dark', onPress, label }: { n: IconName; tone?: 'dark' | 'alt' | 'done'; onPress?: () => void; label: string }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} hitSlop={1} style={({ pressed }) => [{ width: 42, height: 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: tone === 'alt' ? T.steel : tone === 'done' ? T.live : T.deep }, pressed && { opacity: 0.85 }]}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} hitSlop={1} style={({ pressed }) => [{ width: TOUCH ? 44 : 42, height: TOUCH ? 44 : 42, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: tone === 'alt' ? T.steel : tone === 'done' ? T.live : T.deep }, pressed && { opacity: 0.85 }]}>
     <Ic n={n} size={21} color={T.white} /></Pressable>;
 }
 
@@ -218,7 +230,7 @@ export function OtpBoxes({ value, onChange, count = 6, autoFocus }: { value: str
 export function ChipRow({ options, value, onChange }: { options: string[]; value: string; onChange: (v: string) => void }) {
   return <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: -5, marginBottom: 14 }}>{options.map(o => {
     const on = o === value;
-    return <Pressable key={o} accessibilityRole="radio" accessibilityState={{ checked: on }} onPress={() => onChange(o)} style={(st: PState) => [{ backgroundColor: on ? T.steel : T.white, borderWidth: 1.5, borderColor: on ? T.steel : T.line, borderRadius: 22, paddingVertical: 9, paddingHorizontal: 15, justifyContent: 'center' }, !WEB && { minHeight: 44 }, fx(st, on ? undefined : T.zinc)]}>
+    return <Pressable key={o} accessibilityRole="radio" accessibilityState={{ checked: on }} onPress={() => onChange(o)} style={(st: PState) => [{ backgroundColor: on ? T.steel : T.white, borderWidth: 1.5, borderColor: on ? T.steel : T.line, borderRadius: 22, paddingVertical: 9, paddingHorizontal: 15, justifyContent: 'center' }, TOUCH && { minHeight: 44 }, fx(st, on ? undefined : T.zinc)]}>
       <X s={13.5} w={6} c={on ? T.white : T.ink}>{o}</X></Pressable>;
   })}</View>;
 }

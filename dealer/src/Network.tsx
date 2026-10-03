@@ -6,7 +6,7 @@ import { useSync } from '@felix/shared/api/sync';
 import { distributorDecide, markArrived } from '@felix/shared/api/entries';
 import { listPhotos, type EntryPhoto } from '@felix/shared/api/photos';
 import { T } from '@felix/shared/ui/theme';
-import { X, B, Mono, Btn, Card, Chip, StatusChip, Field, Hint, Banner, Line, Avatar, Gap, KV, SecT, Plate, PlateLab, PlateVal } from '@felix/shared/ui/kit';
+import { X, B, Mono, Btn, Card, Chip, StatusChip, Field, Hint, Banner, Line, Avatar, Gap, KV, SecT, Plate, PlateLab, PlateVal, tap } from '@felix/shared/ui/kit';
 import { PickList } from '@felix/shared/ui/pick';
 import { dLong, dShort, monthShort, tShort, distributorStage, type DistributorStage } from '@felix/shared/data';
 import { getAccessToken, dealerStatusLabel } from '@felix/shared/api/session';
@@ -193,7 +193,7 @@ export function D43({ p }: { p?: string }) {
     overlay={<Sheet open={!!ask} title={ask === 'approve' ? 'Approve and send to head office' : 'Refuse this request'} onClose={() => setAsk(null)}>
       <X s={14} c={T.slate} style={{ marginBottom: 12 }}>{ask === 'approve' ? `Head office makes the final decision${rep ? ' once the old battery reaches the factory' : ''}. Approving also records that you have the old battery from the dealer.` : 'The request ends here. The dealer sees your reason in their app.'}</X>
       <View style={{ flexDirection: 'row', gap: 7, flexWrap: 'wrap', marginBottom: 10 }}>{reasons.map(t =>
-        <Pressable key={t} accessibilityRole="button" onPress={() => setWhy(t)}><Chip tone={why === t ? 'info' : 'mute'} label={t} /></Pressable>)}</View>
+        <Pressable key={t} accessibilityRole="button" onPress={() => setWhy(t)} style={tap}><Chip tone={why === t ? 'info' : 'mute'} label={t} /></Pressable>)}</View>
       <Field label="Reason" req value={why} onChange={setWhy} ph="Why you are deciding this" multiline />
       <Btn kind={ask === 'approve' ? 'primary' : 'danger'} label={busy ? 'Saving…' : ask === 'approve' ? 'Approve and send' : 'Refuse request'} onPress={decide} disabled={busy} />
     </Sheet>}>
@@ -281,7 +281,7 @@ export function D44({ p }: { p?: string }) {
   const shown = rows.filter(({ e, it }) => FILTERS.find(x => x[0] === f)![2](distributorStage(e, it).key));
   return <Screen top={<AppBar title={names[p || ''] || 'Dealer'} back="d18" />}>
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 12 }}>{FILTERS.map(([k, l]) =>
-      <Pressable key={k} accessibilityRole="button" accessibilityState={{ selected: f === k }} onPress={() => setF(k)}><Chip tone={f === k ? 'info' : 'mute'} label={l} /></Pressable>)}</View>
+      <Pressable key={k} accessibilityRole="button" accessibilityState={{ selected: f === k }} onPress={() => setF(k)} style={tap}><Chip tone={f === k ? 'info' : 'mute'} label={l} /></Pressable>)}</View>
     <Card>{shown.length ? shown.map(({ e, it }, i) => {
       const s = distributorStage(e, it);
       return <View key={`${e.id}#${it.id}`} style={{ paddingVertical: 11, borderBottomWidth: i === shown.length - 1 ? 0 : 1, borderBottomColor: T.zinc2 }}>

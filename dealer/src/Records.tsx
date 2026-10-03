@@ -4,7 +4,7 @@ import { useStore } from '@felix/shared/store';
 import { Audit, normalize, today } from '@felix/shared/domain';
 import { printHtml, escapeHtml } from '@felix/shared/reports';
 import { T, family } from '@felix/shared/ui/theme';
-import { X, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, IconBtn, Plate, PlateLab, PlateVal, AvTone, B } from '@felix/shared/ui/kit';
+import { X, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, IconBtn, Plate, PlateLab, PlateVal, AvTone, B, tap } from '@felix/shared/ui/kit';
 import { Screen, AppBar, Sheet, useD } from './shell';
 import { PickList } from '@felix/shared/ui/pick';
 import { EntryLine, openEntry, useSyncNow } from './Home';
@@ -32,7 +32,7 @@ export function D18({ p }: { p?: string }) {
   const rows = all.filter(test[f]).filter(e => !code || e.items.some(i => normalize(i.code) === code || normalize(i.oldSerial) === code));
   const pills: [string, string][] = [['all', `All ${all.length}`], ['rep', 'Replacement'], ['month', 'This month'], ['fix', `Needs fixing ${fix.length}`], ['notsent', `Not sent ${notSent.length}`]];
   const Pill = ({ on, label, onPress, x }: { on: boolean; label: string; onPress: () => void; x?: boolean }) =>
-    <Pressable accessibilityRole="button" accessibilityState={{ selected: on }} onPress={onPress} style={{ flexDirection: 'row', gap: 7, alignItems: 'center', backgroundColor: on ? T.steelSoft : T.white, borderWidth: 1, borderColor: on ? '#6FAF7F' : T.zinc3, borderRadius: 7, paddingVertical: 5, paddingHorizontal: 10 }}>
+    <Pressable accessibilityRole="button" accessibilityState={{ selected: on }} onPress={onPress} style={[tap, { flexDirection: 'row', gap: 7, alignItems: 'center', backgroundColor: on ? T.steelSoft : T.white, borderWidth: 1, borderColor: on ? '#6FAF7F' : T.zinc3, borderRadius: 7, paddingVertical: 5, paddingHorizontal: 10 }]}>
       <X s={12.5} c={on ? T.steel : T.ink} numberOfLines={1}>{label}</X>{x && <Ic n="x" size={13} color={T.slate} />}</Pressable>;
   return <Screen tab="list" top={<AppBar title="My entries" back="d07" right={<IconBtn n="filter" label="Filter entries" onPress={() => setSheet(true)} />} />}
     overlay={<Sheet open={sheet} title="Show entries" onClose={() => setSheet(false)}><PickList options={pills.map(([k, l]) => ({ v: l, sub: k === 'fix' ? 'Serial exceptions and refused requests' : k === 'notsent' ? 'Unfinished or saved on this phone' : undefined }))} value={pills.find(x => x[0] === f)![1]} onPick={v => { setF(pills.find(x => x[1] === v)![0]); setSheet(false); }} /></Sheet>}>
@@ -132,7 +132,7 @@ export function D23({ p }: { p?: string }) {
         <Ic n="search" color={T.slate} />
         <TextInput accessibilityLabel="Search serial, customer or request" value={q} onChangeText={setQ} placeholder="Serial, customer or request" placeholderTextColor={T.hint} autoCorrect={false} autoCapitalize="none" returnKeyType="search"
           style={[{ flex: 1, fontFamily: family(q ? 'm' : 'b', q ? 6 : 4), fontSize: 16, color: T.ink, padding: 0 }, Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null]} />
-        {!!q && <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setQ('')}><Ic n="x" color={T.slate} /></Pressable>}
+        {!!q && <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setQ('')} style={tap}><Ic n="x" color={T.slate} /></Pressable>}
       </View>
       <IconBtn n="scan" label="Scan a battery" onPress={() => setScan(true)} />
     </View>}>

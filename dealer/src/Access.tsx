@@ -3,7 +3,7 @@ import { View, Pressable, Platform } from 'react-native';
 import { useStore } from '@felix/shared/store';
 import { Dealer } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
-import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, OtpBoxes, Gap, TestCode } from '@felix/shared/ui/kit';
+import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, OtpBoxes, Gap, TestCode, tap } from '@felix/shared/ui/kit';
 import { Screen, AppBar, Sheet, useD } from './shell';
 import { PickList } from '@felix/shared/ui/pick';
 import { Photo, pickDocument, takePhoto } from '@felix/shared/ui/media';
@@ -134,8 +134,8 @@ export function D02() {
     {unregistered && <Banner tone="info" icon="shop" style={{ marginTop: -4, marginBottom: 13 }}><B>No shop uses +91 {grouped(mobile)} yet.</B> Check the number for a typo, or register this number as a new shop.</Banner>}
     {unregistered && <Btn kind="blue" icon="plus" label="Register this number" style={{ marginBottom: 13 }} onPress={() => d.go('d04', mobile)} />}
     <Card style={{ marginBottom: 13 }}>
-      <CardH title="SMS code (OTP)" right={!sent ? <Pressable accessibilityRole="button" onPress={send}><Chip tone="info" icon="phone" label="Send code" /></Pressable>
-        : left > 0 ? <Chip tone="mute" icon="clock" label={`Resend in ${left}s`} /> : <Pressable accessibilityRole="button" onPress={send}><Chip tone="info" icon="sync" label="Resend code" /></Pressable>} />
+      <CardH title="SMS code (OTP)" right={!sent ? <Pressable accessibilityRole="button" onPress={send} style={tap}><Chip tone="info" icon="phone" label="Send code" /></Pressable>
+        : left > 0 ? <Chip tone="mute" icon="clock" label={`Resend in ${left}s`} /> : <Pressable accessibilityRole="button" onPress={send} style={tap}><Chip tone="info" icon="sync" label="Resend code" /></Pressable>} />
       <OtpBoxes value={code} onChange={v => { setCode(v); setError({}); }} />
       {error.code ? <Hint tone="err">{error.code}</Hint> : <Hint icon="lock">Tap Send code, then type the 6-digit number from the SMS. Your shop code (like FPP-014) is not needed to sign in.</Hint>}
     </Card>
@@ -152,7 +152,7 @@ function ServerLink() {
   useEffect(() => { getApiBaseUrl().then(u => { setCurrent(u); setUrl(u); }); }, [open]);
   const save = async (v: string) => { const u = await setApiBaseUrl(v); setCurrent(u); setOpen(false); d.toast(`Server: ${u}`); };
   return <>
-    <Pressable accessibilityRole="button" onPress={() => setOpen(true)} style={{ alignSelf: 'center', marginTop: 4, padding: 6 }}><X s={11.5} c={T.slate} numberOfLines={1}>Server: {current.replace(/^https?:\/\//, '').replace(/\/api\/v\d+$/, '')}</X></Pressable>
+    <Pressable accessibilityRole="button" onPress={() => setOpen(true)} style={[tap, { alignSelf: 'center', marginTop: 4, padding: 6 }]}><X s={11.5} c={T.slate} numberOfLines={1}>Server: {current.replace(/^https?:\/\//, '').replace(/\/api\/v\d+$/, '')}</X></Pressable>
     <Sheet open={open} title="Server address" onClose={() => setOpen(false)}>
       <Hint icon="cloud">The computer or website running the Felix backend, for example 10.178.23.168:4000 or api.felixbatteries.in.</Hint>
       <Field label="Address" value={url} onChange={setUrl} mono ph="10.178.23.168:4000" />
@@ -253,7 +253,7 @@ export function D04({ p }: { p?: string } = {}) {
     <Field label="Distributor / company name" req mr="दुकानाचे नाव" value={f.name} onChange={set('name')} ph="Shop name on the board" error={err.name} />
     <Field label="Contact person" req value={f.contact} onChange={set('contact')} ph="Owner or manager" error={err.contact} />
     <Field label="Mobile number" req mono phone value={grouped(f.mobile)} onChange={v => { set('mobile')(digits(v, 10)); setVerified(false); }} ph="98765 43210" maxLength={11} error={err.mobile}
-      tail={verified ? <Chip tone="live" icon="check" label="OTP verified" /> : f.mobile.length === 10 ? <Pressable accessibilityRole="button" onPress={openVerify}><Chip tone="info" icon="phone" label="Verify" /></Pressable> : undefined} />
+      tail={verified ? <Chip tone="live" icon="check" label="OTP verified" /> : f.mobile.length === 10 ? <Pressable accessibilityRole="button" onPress={openVerify} style={tap}><Chip tone="info" icon="phone" label="Verify" /></Pressable> : undefined} />
     <Field label="Email" mr="for alerts and recovery" value={f.email} onChange={set('email')} ph="name@shop.in" error={err.email} />
     <Field select label="City" req value={f.city} ph="Choose city" onPress={() => setCityOpen(true)} error={err.city} hint="Chosen from the company city list — not typed." hintIcon="pin" />
     <View style={{ flexDirection: 'row', gap: 9 }}>
