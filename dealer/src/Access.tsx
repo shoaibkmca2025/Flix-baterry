@@ -95,7 +95,7 @@ export function D02() {
         id: dealer.id, name: dealer.name, contact: dealer.contactPerson, mobile: dealer.mobile,
         email: dealer.email || '', city: cities.find(c => c.id === dealer.cityId)?.name || dealer.cityId,
         place: dealer.place || '', address: dealer.address,
-        pin: dealer.pin, state: dealer.state, status: dealerStatusLabel(dealer.status),
+        pin: dealer.pin ?? '', state: dealer.state, status: dealerStatusLabel(dealer.status),
         kind: dealer.kind === 'dealer' ? 'Dealer' : 'Distributor', distributorId: dealer.distributorId ?? undefined,
         distributor: dealer.distributor ? { id: dealer.distributor.id, name: dealer.distributor.name, mobile: dealer.distributor.mobile, contact: dealer.distributor.contactPerson } : undefined,
       };
@@ -188,7 +188,7 @@ export function D03() {
 export function D04({ p }: { p?: string } = {}) {
   const d = useD(); const { setState } = useStore();
   const cities = useCities();
-  const [f, setF] = useState({ name: '', contact: '', mobile: /^\d{10}$/.test(p ?? '') ? p! : '', email: '', city: '', state: 'Maharashtra', pin: '', place: '', address: '', password: '' });
+  const [f, setF] = useState({ name: '', contact: '', mobile: /^\d{10}$/.test(p ?? '') ? p! : '', email: '', city: '', state: 'Maharashtra', place: '', address: '', password: '' });
   const [gst, setGst] = useState(''), [shopPhoto, setShopPhoto] = useState(''), [verified, setVerified] = useState(false), [otpOpen, setOtpOpen] = useState(false), [otp, setOtp] = useState(''), [cityOpen, setCityOpen] = useState(false), [err, setErr] = useState<Record<string, string>>({});
   const [regCode, setRegCode] = useState(''); // TEMPORARY: OTP shown on screen until SMS is connected
   const [challengeId, setChallengeId] = useState(''), [verifiedToken, setVerifiedToken] = useState(''), [busy, setBusy] = useState(false);
@@ -220,7 +220,6 @@ export function D04({ p }: { p?: string } = {}) {
     if (f.email && !/^\S+@\S+\.\S+$/.test(f.email)) e.email = 'This email does not look right.';
     if (!f.city) e.city = 'Choose your city.';
     if (!f.state.trim()) e.state = 'Enter the state.';
-    if (!/^\d{6}$/.test(f.pin)) e.pin = '6 digits.';
     if (!f.address.trim()) e.address = 'Enter the full shop address.';
     if (f.password.length < 8) e.password = 'At least 8 characters.';
     setErr(e); if (Object.values(e).some(Boolean)) { d.toast('Some details need a look — they are marked in red.'); return; }
@@ -228,10 +227,10 @@ export function D04({ p }: { p?: string } = {}) {
     try {
       const result = await registerDealer({
         verifiedToken, name: f.name.trim(), contactPerson: f.contact.trim(), mobile: f.mobile,
-        email: f.email.trim() || undefined, city: f.city, state: f.state.trim(), pin: f.pin,
+        email: f.email.trim() || undefined, city: f.city, state: f.state.trim(),
         place: f.place.trim() || undefined, address: f.address.trim(), password: f.password,
       });
-      const dealer: Dealer = { id: result.id, name: result.name, contact: f.contact.trim(), mobile: f.mobile, email: f.email.trim(), city: f.city, place: f.place.trim(), address: f.address.trim(), pin: f.pin, state: f.state.trim(), status: dealerStatusLabel(result.status), documents: [gst && `GST certificate · ${gst}`, shopPhoto && 'Shop photo'].filter(Boolean) as string[] };
+      const dealer: Dealer = { id: result.id, name: result.name, contact: f.contact.trim(), mobile: f.mobile, email: f.email.trim(), city: f.city, place: f.place.trim(), address: f.address.trim(), pin: '', state: f.state.trim(), status: dealerStatusLabel(result.status), documents: [gst && `GST certificate · ${gst}`, shopPhoto && 'Shop photo'].filter(Boolean) as string[] };
       setState(s => ({ ...s, dealers: [dealer, ...s.dealers] }));
       d.go('d05', dealer.id);
     } catch (e) {
@@ -256,10 +255,7 @@ export function D04({ p }: { p?: string } = {}) {
       tail={verified ? <Chip tone="live" icon="check" label="OTP verified" /> : f.mobile.length === 10 ? <Pressable accessibilityRole="button" onPress={openVerify} style={tap}><Chip tone="info" icon="phone" label="Verify" /></Pressable> : undefined} />
     <Field label="Email" mr="for alerts and recovery" value={f.email} onChange={set('email')} ph="name@shop.in" error={err.email} />
     <Field select label="City" req value={f.city} ph="Choose city" onPress={() => setCityOpen(true)} error={err.city} hint="Chosen from the company city list — not typed." hintIcon="pin" />
-    <View style={{ flexDirection: 'row', gap: 9 }}>
-      <Field style={{ flex: 1 }} label="State" req value={f.state} onChange={set('state')} error={err.state} />
-      <Field style={{ flex: 1 }} label="PIN code" req mono numeric maxLength={6} value={f.pin} onChange={v => set('pin')(digits(v, 6))} ph="424001" error={err.pin} />
-    </View>
+    <Field label="State" req value={f.state} onChange={set('state')} error={err.state} />
     <Field label="Place / area" value={f.place} onChange={set('place')} ph="Road or area" />
     <Field label="Full address" req value={f.address} onChange={set('address')} ph="Shop number, building, road" error={err.address} />
     <Field label="Distributor code" value="" ph="Head office will assign one" readonly />

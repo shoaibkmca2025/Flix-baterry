@@ -67,6 +67,9 @@ export type EntryItemResult = {
   batteryCode: string;
   batteryCodeEntered: string;
   oldBatteryCode: string | null;
+  // the old battery's own plate + model when it differs from the new one. Without it a stored
+  // code cannot be split back into its digits, which is what a correction edits.
+  oldModelId: string | null;
   faultCode: string | null;
   remarks: string | null;
   batteryId: string | null;

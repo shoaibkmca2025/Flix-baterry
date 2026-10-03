@@ -8,7 +8,7 @@ import { invalidateAccountStatus } from '../users/users.service';
 import { verifyVerifiedToken } from '../auth/auth.tokens';
 import { findCityByName } from '../masters/masters.repository';
 import * as repo from './dealers.repository';
-import type { DealerApproveBody, DealerCreateBody, DealerListQuery, DealerProfileUpdateBody, DealerReasonBody, DealerRegisterBody } from './dealers.validation';
+import type { AdminDealerCreateBody, DealerApproveBody, DealerAssignBody, DealerCreateBody, DealerListQuery, DealerProfileUpdateBody, DealerReasonBody, DealerRegisterBody } from './dealers.validation';
 import { findUserByMobile } from '../users/users.repository';
 
 function decodeCursor(cursor?: string) {
@@ -49,7 +49,7 @@ export async function register(ctx: Ctx, input: DealerRegisterBody) {
       email: input.email || null,
       cityId: city.id,
       state: input.state,
-      pin: input.pin,
+      pin: input.pin ?? null,
       place: input.place || null,
       address: input.address,
       registeredVia: 'self',
@@ -234,7 +234,7 @@ export async function createMyDealer(ctx: Ctx, input: DealerCreateBody) {
   return withTransaction(async (tx) => {
     const d = await repo.insertDealer(tx, {
       name: input.name, contactPerson: input.contactPerson, mobile: input.mobile, email: input.email || null,
-      cityId: city.id, state: input.state, pin: input.pin, place: input.place || null, address: input.address,
+      cityId: city.id, state: input.state, pin: input.pin ?? null, place: input.place || null, address: input.address,
       registeredVia: 'distributor', kind: 'dealer', distributorId: me.id, status: 'active',
     });
     await repo.insertDealerUser(tx, { dealerId: d.id, name: input.contactPerson, mobile: input.mobile, email: input.email || null, passwordHash: null });
@@ -256,6 +256,67 @@ export async function setMyDealerStatus(ctx: Ctx, dealerId: string, to: 'suspend
     invalidateAccountStatus();
     if (to === 'suspended') for (const u of await repo.findUsersByDealerId(tx, dealerId)) await revokeAllSessionsForUser(tx, u.id, 'dealer_suspended');
     await audit(tx, { ctx, action: to === 'suspended' ? 'dealer.suspended' : 'dealer.activated', entityType: 'dealer', entityId: dealerId, entityRef: dealer.name, before: { status: dealer.status }, after: { status: to }, reason: input.reason, outcome: 'ok' });
+    return after;
+  });
+}
+
+// --- head office adds and moves dealers (client, 3 Oct 2026) -----------------
+// The same two powers a distributor has over his own dealers, except head office says which
+// distributor the dealer belongs under instead of it being himself.
+
+/** The shop must exist and be an active distributor for a dealer to be put under it. */
+async function requireDistributorShop(id: string) {
+  const shop = await repo.findDealerById(db, id);
+  if (!shop || shop.kind !== 'distributor') {
+    throw new AppError('distributor_not_found', 422, 'Choose a distributor from the list.', { field: 'distributorId' });
+  }
+  if (shop.status !== 'active') {
+    throw new AppError('distributor_inactive', 422, `${shop.name} is ${shop.status.replace('_', ' ')} — a dealer cannot be put under it.`, { field: 'distributorId' });
+  }
+  return shop;
+}
+
+/** Head office adds a dealer under the distributor it names. Active at once, like a distributor's. */
+export async function createDealerForDistributor(ctx: Ctx, input: AdminDealerCreateBody) {
+  await requireAdminActor(ctx);
+  const distributor = await requireDistributorShop(input.distributorId);
+  if (await repo.findDealerByMobile(db, input.mobile) || await findUserByMobile(db, input.mobile)) {
+    throw new AppError('mobile_taken', 409, 'This mobile number already has an account.', { field: 'mobile' });
+  }
+  const city = await findCityByName(db, input.city);
+  if (!city) throw new AppError('city_invalid', 422, 'Choose a city from the list.', { field: 'city' });
+
+  return withTransaction(async (tx) => {
+    const d = await repo.insertDealer(tx, {
+      name: input.name, contactPerson: input.contactPerson, mobile: input.mobile, email: input.email || null,
+      cityId: city.id, state: input.state, pin: null, place: input.place || null, address: input.address,
+      registeredVia: 'admin', kind: 'dealer', distributorId: distributor.id, status: 'active',
+    });
+    await repo.insertDealerUser(tx, { dealerId: d.id, name: input.contactPerson, mobile: input.mobile, email: input.email || null, passwordHash: null });
+    await audit(tx, { ctx, action: 'dealer.created_by_admin', entityType: 'dealer', entityId: d.id, entityRef: d.name, after: { kind: 'dealer', distributorId: distributor.id, distributor: distributor.name }, outcome: 'ok' });
+    return d;
+  });
+}
+
+/** Move a dealer to another distributor. Its requests and history follow it — nothing is rewritten. */
+export async function assignDistributor(ctx: Ctx, dealerId: string, input: DealerAssignBody) {
+  await requireAdminActor(ctx);
+  const dealer = await repo.findDealerById(db, dealerId);
+  if (!dealer) throw new AppError('dealer_not_found', 404, 'Dealer not found.');
+  if (dealer.kind !== 'dealer') throw new AppError('not_a_dealer', 409, 'Only a dealer sits under a distributor.');
+  if (dealer.distributorId === input.distributorId) {
+    throw new AppError('invalid_transition', 409, 'This dealer is already under that distributor.');
+  }
+  const to = await requireDistributorShop(input.distributorId);
+  const from = dealer.distributorId ? await repo.findDealerById(db, dealer.distributorId) : null;
+
+  return withTransaction(async (tx) => {
+    const after = await repo.updateDealerDistributor(tx, dealerId, to.id);
+    await audit(tx, {
+      ctx, action: 'dealer.distributor_changed', entityType: 'dealer', entityId: dealerId, entityRef: dealer.name,
+      before: { distributorId: dealer.distributorId, distributor: from?.name ?? null },
+      after: { distributorId: to.id, distributor: to.name }, reason: input.reason, outcome: 'ok',
+    });
     return after;
   });
 }

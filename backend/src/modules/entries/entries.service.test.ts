@@ -400,6 +400,21 @@ describe('getById — dealer scoping', () => {
 
     expect(result.id).toBe('entry-1');
   });
+
+  // A battery is stored as its whole label (plate + model + digits). To split one back into the
+  // digits — which is all a correction edits — the reader needs the product each half hangs off,
+  // and the old battery can be a different product from the new one. Head office's correction box
+  // mangled serials for want of it (client, 3 Oct 2026).
+  it("sends each item's product, and the old battery's own product with it", async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue({ id: 'entry-1', dealerId: 'dealer-1' } as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([
+      { id: 'i1', modelId: 'GPI700', batteryCode: 'GPI700260945678', oldModelId: 'G400', oldBatteryCode: 'G40026012145' },
+    ] as never);
+
+    const [item] = (await getById(dealerCtx, 'entry-1')).items;
+
+    expect(item).toMatchObject({ modelId: 'GPI700', oldModelId: 'G400' });
+  });
 });
 
 describe('list', () => {

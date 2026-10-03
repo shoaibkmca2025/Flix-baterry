@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Image, Pressable, Linking } from 'react-native';
 import { useStore } from '@felix/shared/store';
-import { Entry, Item, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approveEntry, deriveCode, expiryFrom, today, isValidDigits, lengthsLabel, filterEntries, newEntry, newItem, normalize, uid, validateEntry, warranty } from '@felix/shared/domain';
+import { Entry, Item, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approveEntry, correctionOf, deriveCode, fullCode, expiryFrom, today, isValidDigits, lengthsLabel, filterEntries, newEntry, newItem, normalize, uid, validateEntry, warranty } from '@felix/shared/domain';
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, ChipRow, Label, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
@@ -453,7 +453,11 @@ export function EntryDetail({ id }: { id?: string }) {
   const [one, setOne] = useState<{ u: Entry; kind: 'approve' | 'reject' } | null>(null);
   const [specialAct, setSpecialAct] = useState<'approve' | 'reject' | null>(null);
   // review / correct act on ONE battery (client, 2 Oct 2026) — the card's item, not the request
-  const [workOn, setWorkOn] = useState<{ itemId: string; n: number; kind: 'review' | 'correct'; code: string; oldSerial: string } | null>(null);
+  // A correction edits DIGITS. What is stored is the whole label — the plate + model, then the
+  // digits (fullCode) — so GPI700260245678 went into a digits-only box and the first keystroke
+  // stripped GPI and left 700260245: a different battery, saved without a word (client,
+  // 3 Oct 2026). workOn keeps the two halves apart, and each field shows its own prefix.
+  const [workOn, setWorkOn] = useState<{ itemId: string; n: number; kind: 'review' | 'correct'; code: string; oldSerial: string; model: string; oldModel: string } | null>(null);
   const [fixCode, setFixCode] = useState(''), [fixOld, setFixOld] = useState('');
   // a corrected serial is held to the same lengths as the original (7, 8 or 9 for a new battery)
   const newMaxLen = Math.max(...NEW_BATTERY_DIGIT_LENGTHS), oldMaxLen = Math.max(...anyDigitLengths(state.serialDigitLengths));
@@ -617,9 +621,13 @@ export function EntryDetail({ id }: { id?: string }) {
                 requests only: these call the API, which is the only place they exist. */}
             {canEdit && pending && e.apiId && <View style={{ flexDirection: 'row', gap: 9, marginTop: 11, flexWrap: 'wrap' }}>
               <Btn kind="ghost" sm icon="eye" label={it.reviewStartedAt ? 'Update the check note' : 'Check this battery'}
-                onPress={() => { setWorkOn({ itemId: it.id, n: i + 1, kind: 'review', code: it.code, oldSerial: it.oldSerial }); }} />
+                onPress={() => { setWorkOn({ itemId: it.id, n: i + 1, kind: 'review', code: it.code, oldSerial: it.oldSerial, model: it.model, oldModel: it.oldModel || it.model }); }} />
               <Btn kind="ghost" sm icon="pen" label="Correct this battery"
-                onPress={() => { setFixCode(it.code); setFixOld(it.oldSerial); setWorkOn({ itemId: it.id, n: i + 1, kind: 'correct', code: it.code, oldSerial: it.oldSerial }); }} />
+                onPress={() => {
+                  const c = correctionOf(it);
+                  setFixCode(c.code); setFixOld(c.oldSerial);
+                  setWorkOn({ itemId: it.id, n: i + 1, kind: 'correct', ...c });
+                }} />
             </View>}
             {it.reviewNote && <Hint icon="eye" style={{ marginTop: 9 }}>Check note: {it.reviewNote}</Hint>}
             {it.correctionReason && <Hint icon="pen" style={{ marginTop: 4 }}>Corrected: {it.correctionReason}</Hint>}
@@ -694,10 +702,18 @@ export function EntryDetail({ id }: { id?: string }) {
         void dec.correctOne(e, workOn.itemId, change, r);
       }}
       intro="Only this battery's numbers change. The server checks them exactly as it checked the dealer's — length, month, model, and no clash with another battery on this request.">
+      {/* the plate + model sits outside the box: it is not what a correction changes, and seeing
+          it is the only way to read the whole number the way it is printed on the label */}
       <Field label="New battery serial" mono numeric maxLength={newMaxLen} value={fixCode} onChange={v => setFixCode(v.replace(/\D/g, '').slice(0, newMaxLen))}
-        hint={fixCode.trim() !== (workOn?.code ?? '') ? `was ${workOn?.code}` : undefined} hintIcon="pen" />
+        pre={<X s={16} f="m" w={6} c={T.slate}>{workOn?.model}</X>}
+        hint={fixCode.trim() !== (workOn?.code ?? '')
+          ? `was ${fullCode(workOn?.model ?? '', workOn?.code ?? '')}`
+          : `Saves as ${fullCode(workOn?.model ?? '', fixCode.trim())}`} hintIcon="pen" />
       {!!workOn?.oldSerial && <Field label="Old battery serial" mono numeric maxLength={oldMaxLen} value={fixOld} onChange={v => setFixOld(v.replace(/\D/g, '').slice(0, oldMaxLen))}
-        hint={fixOld.trim() !== (workOn?.oldSerial ?? '') ? `was ${workOn?.oldSerial}` : undefined} hintIcon="pen" />}
+        pre={<X s={16} f="m" w={6} c={T.slate}>{workOn?.oldModel}</X>}
+        hint={fixOld.trim() !== (workOn?.oldSerial ?? '')
+          ? `was ${fullCode(workOn?.oldModel ?? '', workOn?.oldSerial ?? '')}`
+          : `Saves as ${fullCode(workOn?.oldModel ?? '', fixOld.trim())}`} hintIcon="pen" />}
     </ReasonDialog>
     {/* entry-wide review only exists for local demo data — the server has no such thing */}
     {!e.apiId && <ReasonDialog open={act === 'review'} title="Start a review" confirm="Mark under review" suggestions={['Waiting for the old battery to arrive', 'Checking the label photo', 'Calling the dealer']} onClose={() => setAct('')} onConfirm={r => dec.review(e, r)} />}

@@ -145,8 +145,15 @@
     {
       "idx": 20,
       "version": "7",
-      "when": 1791023853879,
-      "tag": "0020_special_replacement",
+      "when": 1791024062592,
+      "tag": "0020_no_pin_and_admin_dealers",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791027756894,
+      "tag": "0021_special_replacement",
       "breakpoints": true
     }
   ]

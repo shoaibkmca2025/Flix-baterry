@@ -1,5 +1,5 @@
 {
-  "id": "250f8dd8-ee5a-412b-9ba5-9b8880df5dd4",
+  "id": "5f175d5c-65e6-4bf1-b00f-8f3e25e066e3",
   "prevId": "1579bb5a-239a-43c3-a7fb-05e441f6808a",
   "version": "7",
   "dialect": "postgresql",
@@ -1523,7 +1523,7 @@
           "name": "pin",
           "type": "char(6)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "place": {
           "name": "place",
