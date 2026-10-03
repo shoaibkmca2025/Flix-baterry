@@ -213,7 +213,10 @@ export function readLabel(
     for (const len of lengthsDesc(lengths)) {
       const tail = code.slice(-len), head = code.slice(0, -len);
       if (!head || !isValidDigits(tail, lengths)) continue;
-      const matches = products.filter((m) => m.modelNo && normalize(m.modelNo) === head);
+      // A 12-digit UPC-A read as EAN-13 comes back with a leading zero, and some printers pad
+      // the model number to a fixed width, so "1000" can arrive as "01000".
+      const bare = head.replace(/^0+/, '') || head;
+      const matches = products.filter((m) => m.modelNo && [head, bare].includes(normalize(m.modelNo)));
       code = tail;
       if (matches.length === 1) modelId = matches[0]!.id;
       break;

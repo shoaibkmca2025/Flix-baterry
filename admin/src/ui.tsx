@@ -5,7 +5,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useStore } from '@felix/shared/store';
 import { Entry, tagOf } from '@felix/shared/domain';
 import { T, family } from '@felix/shared/ui/theme';
-import { X, Ic, IconName, Btn, Field, Chip, StatusChip, Mono, IconBtn, Line, Avatar, AvTone, ChipRow, Hint, TagChip } from '@felix/shared/ui/kit';
+import { X, Ic, IconName, Btn, Field, Chip, StatusChip, Mono, IconBtn, Line, Avatar, AvTone, ChipRow, Hint, TagChip, BARCODE_TYPES } from '@felix/shared/ui/kit';
 import { PickList } from '@felix/shared/ui/pick';
 import { dShort, avatarTone } from '@felix/shared/data';
 
@@ -226,7 +226,7 @@ export function ScanDialog({ open, onClose, onCode }: { open: boolean; onClose: 
   const use = (code: string) => { setActive(false); onCode(code); onClose(); };
   return <Dialog open={open} title="Scan a battery" onClose={onClose} width={460}>
     <View style={{ backgroundColor: T.ink, borderRadius: 12, height: 212, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-      {active && <CameraView style={StyleSheet.absoluteFill} facing="back" barcodeScannerSettings={{ barcodeTypes: ['qr', 'code128', 'code39', 'ean13', 'ean8', 'upc_a', 'datamatrix'] }} onBarcodeScanned={({ data }) => { if (fired.current) return; fired.current = true; use(data); }} />}
+      {active && <CameraView style={StyleSheet.absoluteFill} facing="back" barcodeScannerSettings={{ barcodeTypes: [...BARCODE_TYPES] }} onBarcodeScanned={({ data }) => { if (fired.current) return; fired.current = true; use(data); }} />}
       <View style={{ width: 196, height: 118, borderWidth: 3, borderColor: T.volt, borderRadius: 8 }}><View style={{ position: 'absolute', left: 8, right: 8, top: '50%', height: 2, backgroundColor: T.terminal }} /></View>
       <X s={12.5} c="#A8B6C7" style={{ position: 'absolute', bottom: 12 }}>Hold the label inside the box</X>
     </View>

@@ -106,6 +106,20 @@ export function Chip({ tone = 'mute', icon, label, mono, style }: { tone?: Tone;
  * — but a request is read in a list far more often than its number is, so the tag is also a chip:
  * green for a replacement, violet for a sales return, the same two colours they wear everywhere.
  */
+/**
+ * Every symbology the detector can read, not a hand-picked few.
+ *
+ * The list used to leave out ITF (interleaved 2 of 5), and that is almost certainly what is on a
+ * Felix label: ITF is the plain numeric barcode used on industrial labels, it requires an EVEN
+ * number of digits, and all three labels photographed have exactly that — 12, 12 and 10. A
+ * symbology left off the list is never even attempted, so the camera sat there reading nothing
+ * (client, 4 Oct 2026).
+ *
+ * There is no cost to naming them all: the detector tries the formats it is given, and a label
+ * printed on another machine tomorrow will still read.
+ */
+export const BARCODE_TYPES = ['aztec', 'codabar', 'code39', 'code93', 'code128', 'datamatrix', 'ean8', 'ean13', 'itf14', 'pdf417', 'qr', 'upc_a', 'upc_e'] as const;
+
 export const TagChip = ({ tag, style }: { tag: 'RP' | 'SR'; style?: StyleProp<ViewStyle> }) =>
   <Chip tone={tag === 'SR' ? 'vio' : 'live'} label={tag} style={style} />;
 

@@ -4,7 +4,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useStore } from '@felix/shared/store';
 import { Entry, Item, State, DEFAULT_DIGIT_LENGTHS, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, deriveCode, digitsOf, expiryFrom, fullCode, isValidDigits, lengthsLabel, newEntry, newItem, normalize, sameBattery, splitLabel, today, validateEntry, ReturnKind, RETURN_KINDS, RETURN_KIND_HELP, readLabel } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
-import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, BigTile, ChipRow, CapBtn, IconBtn, Plate, PlateLab, PlateVal, Meter, Gap } from '@felix/shared/ui/kit';
+import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, BigTile, ChipRow, CapBtn, IconBtn, Plate, PlateLab, PlateVal, Meter, Gap, BARCODE_TYPES } from '@felix/shared/ui/kit';
 import { Screen, AppBar, Sheet, useD, useAbove } from './shell';
 import { PickList } from '@felix/shared/ui/pick';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
@@ -263,7 +263,7 @@ function ScanBox({ code, active, onCode, photo, photoLabel = 'Photo you took', h
   const boxHeight = showPhoto ? Math.max(height, 270) : height;
   return <View style={{ backgroundColor: T.ink, borderRadius: 12, height: boxHeight, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
     {showPhoto && <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} resizeMode="contain" accessible accessibilityLabel={photoLabel} />}
-    {active && <CameraView style={StyleSheet.absoluteFill} facing="back" barcodeScannerSettings={{ barcodeTypes: ['qr', 'code128', 'code39', 'ean13', 'ean8', 'upc_a', 'datamatrix'] }}
+    {active && <CameraView style={StyleSheet.absoluteFill} facing="back" barcodeScannerSettings={{ barcodeTypes: [...BARCODE_TYPES] }}
       onBarcodeScanned={({ data }) => { if (fired.current) return; fired.current = true; onCode(data); }} />}
     {!!code && (showPhoto
       ? <OnPhoto top={12}><X s={13} f="m" w={5} c={T.white} numberOfLines={1}>{code}</X></OnPhoto>

@@ -170,3 +170,17 @@ test('every way this label could be encoded reads to the same battery', () => {
   assert.equal(read('M 1000 2609 0676').modelId, 'M1000');
   assert.equal(read('M100026090676').modelId, 'M1000');
 });
+
+/**
+ * The barcode is a linear one — ITF, EAN-13 or UPC-A (client, 4 Oct 2026). Each hands back
+ * digits, and each has its own habits about leading zeros.
+ */
+test('a linear barcode reads whatever padding it arrives with', () => {
+  // ITF: plain digits, always an even count — which is what the client's labels have (12, 12, 10)
+  assert.equal(read('100026090676').code, '26090676');
+  assert.equal(read('6026090023').code, '26090023');
+  // EAN-13 adds a leading zero to a 12-digit UPC-A; the model number is still found behind it
+  assert.deepEqual(read('0135026090001'), { modelId: 'Q1350', code: '26090001', serial: '0001', mfg: '2026-09', valid: true });
+  // and a printer that pads the model number to a fixed width does not hide it either
+  assert.equal(read('0100026090676').code, '26090676');
+});
