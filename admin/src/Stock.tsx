@@ -239,7 +239,9 @@ export function Returns({ id }: { id?: string }) {
       right={<View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: a.wide ? 420 : 170 }}>
         <Chip tone={t} icon={ic} label={l} />
         {showActions && canEdit && (STAGE_NEXT[e.returnState || ''] || []).filter(([to]) => !(to === 'Closed' && undecided(e))).map(([to, label, kind]) => <Btn key={to} kind={kind === 'danger' ? 'ghost' : kind} sm label={label} color={kind === 'danger' ? T.terminal : undefined} borderColor={kind === 'danger' ? '#F0C7BC' : undefined} onPress={() => openAct({ entries: [e], to, label })} />)}
-        {showActions && canEdit && arrived && e.apiId && plants.length > 0 && <Btn kind="ghost" sm label={plantOf(e) ? 'Change plant' : 'Set plant'} onPress={() => openRetag(e)} />}
+        {/* the plant is asked for when the arrival is confirmed, so this is only for the ones that
+            slipped through without one — a "Change plant" button on every row was noise (client, 3 Oct 2026) */}
+        {showActions && canEdit && arrived && e.apiId && plants.length > 0 && !plantOf(e) && <Btn kind="ghost" sm label="Set plant" onPress={() => openRetag(e)} />}
         {/* approve / reject happen on the battery's review page, after looking at it and its photos (client, 2 Oct 2026) */}
         {canEdit && e.returnState && e.returnState !== 'In transit' && e.returnState !== 'At dealer' && undecided(e) &&
           <Btn kind="blue" sm icon="eye" label="Review" onPress={() => review(e)} />}
@@ -272,7 +274,27 @@ export function Returns({ id }: { id?: string }) {
     const sel = pool.find(c => c.no === selChallan);
     const count = (n: number) => `${n} ${n === 1 ? 'battery' : 'batteries'}`;
     const shown = (c: Challan) => only ? `${c.rows.filter(r => inView(r.ref, r.itemId)).length} of ${count(c.rows.length)}` : count(c.rows.length);
-    const chip = (c: Challan) => c.receivedAt ? <Chip tone="live" icon="box" label={`Arrived ${dShort(c.receivedAt)}`} /> : <Chip tone="vio" icon="truck" label="On the way" />;
+    /**
+     * What the chip says depends on which list you are looking at. Every tab used to show
+     * "Arrived 03 Oct", so an approved challan, a rejected one and a tested one all read the same
+     * and the tab you were in was the only clue (client, 3 Oct 2026). Where a date can be derived
+     * — the latest decision on the batteries in view — it is shown; otherwise just the state.
+     */
+    const chip = (c: Challan) => {
+      if (tab === 'way') return <Chip tone="vio" icon="truck" label="On the way" />;
+      if (tab === 'dealers') return <Chip tone="warn" icon="shop" label="At the dealer" />;
+      if (tab === 'done') return <Chip tone="live" icon="check" label="Tested" />;
+      if (only) {
+        const mine = only.filter(u => challanOf(u)?.no === c.no);
+        const when = mine.map(u => u.decidedAt).filter(Boolean).sort().pop();
+        const [label, tone, icon] = tab === 'rejected' ? ['Rejected', 'bad', 'x'] as const
+          : tab === 'settle' ? ['To claim', 'warn', 'clock'] as const
+          : tab === 'claimed' ? ['Settled', 'live', 'check'] as const
+          : ['Approved', 'live', 'check'] as const;
+        return <Chip tone={tone as Tone} icon={icon as IconName} label={when ? `${label} ${dShort(when)}` : label} />;
+      }
+      return c.receivedAt ? <Chip tone="live" icon="box" label={`Arrived ${dShort(c.receivedAt)}`} /> : <Chip tone="vio" icon="truck" label="On the way" />;
+    };
     const dealerCount = new Set(cs.map(c => c.dealerId)).size;
     const list = <Stack>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
@@ -341,7 +363,7 @@ export function Returns({ id }: { id?: string }) {
       : <Stack><Btn kind="ghost" sm label={only ? '← Back to the list' : '← All challans'} style={{ alignSelf: 'flex-start' }} onPress={() => a.back()} />{detail}</Stack>;
   };
   return <Page title="Old battery returns" sub="Every replaced battery, from the dealer’s shop to settled or rejected"
-    tabs={<Tabs value={tab} onChange={t => { setTab(t); setSelChallan(null); }} items={[['challans', `Pending challans ${pendingChallans.length}`], ['done', `Completed challans ${doneChallans.length}`], ['way', `On the way ${onWay.length}`], ['dealers', `At dealers ${atDealer.length}`], ['approved', `Approved ${approved.length}`], ['rejected', `Rejected ${rejected.length}`], ['settle', `Claim ${approved.length}`], ['claimed', `Settled ${claimed.length}`]]} />}>
+    tabs={<Tabs value={tab} onChange={t => { setTab(t); setSelChallan(null); }} items={[['way', `On the way ${onWay.length}`], ['challans', `Pending challans ${pendingChallans.length}`], ['done', `Completed challans ${doneChallans.length}`], ['dealers', `At dealers ${atDealer.length}`], ['approved', `Approved ${approved.length}`], ['rejected', `Rejected ${rejected.length}`], ['settle', `Claim ${approved.length}`], ['claimed', `Settled ${claimed.length}`]]} />}>
     <Kpis cols={a.wide ? 4 : 2} items={[{ v: String(atDealer.length), l: 'Still at dealers', tone: 'flag', onPress: () => setTab('dealers') }, { v: String(onWay.length), l: 'On the way', onPress: () => setTab('way') }, { v: String(receivedThisMonth), l: 'Arrived this month' }, { v: String(atDealer.filter(e => ageDays(e.date) > 30).length), l: 'At a dealer over 30 days', tone: 'bad', onPress: () => setTab('dealers') }]} />
     <View style={{ height: 14 }} />
     {tab === 'challans' && challanView(undefined, { icon: 'truck', title: 'Nothing pending', text: 'Every challan has arrived and every battery on it is approved or refused. New challans appear here when a dealer dispatches old batteries.' }, c => !challanDone(c))}
