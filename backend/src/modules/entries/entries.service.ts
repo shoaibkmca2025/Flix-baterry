@@ -16,6 +16,7 @@ import { requireDistributor, visibleShopIds } from '../dealers/dealers.service';
 import { postMovementInTx } from '../stock/stock.service';
 import * as returnsRepo from '../returns/returns.repository';
 import * as repo from './entries.repository';
+import { shopEntryIssues } from './entries.validation';
 import type { EntryCreateBody, EntryItemCorrectBody, EntryItemReviewBody, EntryListQuery, EntryPhotoBody, EntrySettleBody } from './entries.validation';
 
 // This module is the real, permanent home for what three temporary endpoints used to do
@@ -57,6 +58,26 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
   const shop = user.scope === 'dealer' ? await findDealerById(db, dealerId) : undefined;
   const status = shop?.kind === 'dealer' ? 'with_distributor' as const : 'submitted' as const;
 
+  /**
+   * Head office records what it finds, not what the rules expect (client, 3 Oct 2026).
+   *
+   * A shop's request is held to every rule — length, month, product, no duplicate, a fault on a
+   * replacement, a kind on a sales return. Head office is putting right what is already true in
+   * the world: an old serial in a form nobody issues any more, a battery whose model was retired,
+   * a request with no fault recorded because nobody wrote one down. Those checks are judgement,
+   * and head office is the judgement.
+   *
+   * Two things are still checked, because they are not judgement: the shop and the product must
+   * exist (both are foreign keys — a row naming neither cannot be written), and a code cannot be
+   * blank, or the battery could never be found again. Approving an entry whose new battery
+   * duplicates one already on record is still refused there, where the battery row is made.
+   */
+  const byAdmin = user.scope === 'admin';
+  if (!byAdmin) {
+    const issue = shopEntryIssues(input);
+    if (issue) throw new AppError('validation_error', 422, issue.message, { field: issue.field });
+  }
+
   // format-validate every item up front, and reject duplicate codes WITHIN the same entry —
   // before opening a transaction, matching architecture.md §9.3's "errors first" pipeline.
   const [modelRows, setting] = await Promise.all([batteriesRepo.listModels(db), serialDigitLengths(db)]);
@@ -71,9 +92,12 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
   const badNewFormat = input.entryType === 'sales_return' ? badFormat : `A new battery has ${lengthsSentence(NEW_BATTERY_DIGIT_LENGTHS)} that starts with the YYMM it was made.`;
   const derivedItems = input.items.map((item, i) => {
     const newDerived = deriveCode(item.code, modelIds, codeLengths);
-    if (!newDerived.valid) throw new AppError('format_mismatch', 422, badNewFormat, { field: `items.${i}.code` });
+    // head office may enter a form deriveCode cannot read; keep what was typed, normalised
+    if (byAdmin && !newDerived.valid) newDerived.normalised = item.code.trim().toUpperCase().replace(/\s/g, '');
+    if (!byAdmin && !newDerived.valid) throw new AppError('format_mismatch', 422, badNewFormat, { field: `items.${i}.code` });
+    if (!item.code.trim()) throw new AppError('code_required', 422, 'Enter the battery number — without it the battery can never be found again.', { field: `items.${i}.code` });
     const oldDerived = item.oldCode ? deriveCode(item.oldCode, modelIds, lengths) : null;
-    if (item.oldCode && !oldDerived!.valid) throw new AppError('format_mismatch', 422, badFormat, { field: `items.${i}.oldCode` });
+    if (!byAdmin && item.oldCode && !oldDerived!.valid) throw new AppError('format_mismatch', 422, badFormat, { field: `items.${i}.oldCode` });
     // the old battery's product: what the dealer chose, else what its label prefix says, else like-for-like
     const modelId = newDerived.modelId ?? item.modelId;
     const oldModelId = item.oldCode ? (item.oldModelId ?? oldDerived?.modelId ?? item.modelId) : null;
@@ -81,19 +105,20 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
     // BOTH match — 'M1000 26090001' and 'S1000 26090001' are different batteries.
     const batteryCode = fullCode(modelId, newDerived.normalised);
     const oldBatteryCode = oldDerived ? fullCode(oldModelId!, oldDerived.normalised) : null;
-    if (oldBatteryCode && oldBatteryCode === batteryCode) throw new AppError('old_equals_new', 422, 'Old and new batteries must be different.', { field: `items.${i}.oldCode` });
+    if (!byAdmin && oldBatteryCode && oldBatteryCode === batteryCode) throw new AppError('old_equals_new', 422, 'Old and new batteries must be different.', { field: `items.${i}.oldCode` });
     return { ...item, modelId, newDerived, oldDerived, oldModelId, batteryCode, oldBatteryCode };
   });
   const codes = derivedItems.map((i) => i.batteryCode);
   const dupe = codes.find((c, i) => codes.indexOf(c) !== i);
-  if (dupe) throw new AppError('duplicate_serial', 422, 'The same battery appears twice in this entry.', { field: 'items' });
+  if (!byAdmin && dupe) throw new AppError('duplicate_serial', 422, 'The same battery appears twice in this entry.', { field: 'items' });
   // every (plate, model) named must be a combination the factory makes — that row carries the warranty term
   for (const [i, item] of derivedItems.entries()) {
     for (const [field, id] of [['modelId', item.modelId], ['oldModelId', item.oldModelId]] as const) {
       if (!id) continue;
       const model = await batteriesRepo.findModelById(db, id);
       if (!model) throw new AppError('model_unknown', 422, `${id} is not a known plate + model combination.`, { field: `items.${i}.${field}` });
-      if (!model.active && field === 'modelId') throw new AppError('model_inactive', 422, `${id} is no longer sold.`, { field: `items.${i}.${field}` });
+      // a retired model is still a real product, and head office may be recording an old battery of one
+      if (!byAdmin && !model.active && field === 'modelId') throw new AppError('model_inactive', 422, `${id} is no longer sold.`, { field: `items.${i}.${field}` });
     }
   }
 
@@ -129,6 +154,7 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
       submittedBy: user.id,
       status,
       specialStatus: special ? 'pending' : null,
+      byAdmin,
       returnKind: input.entryType === 'sales_return' ? input.returnKind ?? null : null,
     });
 

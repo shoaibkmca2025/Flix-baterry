@@ -6,7 +6,7 @@ import { useStore } from '@felix/shared/store';
 import { Challan, Entry, tagOf } from '@felix/shared/domain';
 import { printHtml, escapeHtml, saveHtmlDocument } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
-import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, BigOk, CheckBox, Kpis, Plate, PlateLab, PlateVal, AvTone, Tone, IconName, tap, TagChip } from '@felix/shared/ui/kit';
+import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, BigOk, CheckBox, Kpis, Plate, PlateLab, PlateVal, AvTone, Tone, IconName, tap, TagChip, AdminChip } from '@felix/shared/ui/kit';
 import { Screen, AppBar, useD, useAbove } from './shell';
 import { useMyDealerNames } from './Network';
 import { getAccessToken } from '@felix/shared/api/session';
@@ -100,7 +100,7 @@ function D33Dispatch() {
     }
     const at = new Date().toISOString();
     const c: Challan = { no: nextChallanNo(state), dealerId, at, vehicle: vehicle.trim().toUpperCase(), driver: driver.trim(), entryIds: picked.map(e => e.id),
-      rows: picked.flatMap(e => e.items.filter(i => travellingSerial(e, i)).map(i => ({ serial: travellingSerial(e, i), model: findBattery(state, travellingSerial(e, i))?.model || i.model, ref: e.id, kind: tagOf(e), fault: i.fault || i.remarks || '—' }))) };
+      rows: picked.flatMap(e => e.items.filter(i => travellingSerial(e, i)).map(i => ({ serial: travellingSerial(e, i), model: findBattery(state, travellingSerial(e, i))?.model || i.model, ref: e.id, kind: tagOf(e), byAdmin: e.byAdmin, fault: i.fault || i.remarks || '—' }))) };
     record(c, ' (preview)');
   };
   return <Screen tab="truck" top={<AppBar title="Old batteries to send back" back="d07" right={<Chip tone="warn" label={`${rows.length} waiting`} />} />}
@@ -122,6 +122,7 @@ function D33Dispatch() {
           style={{ flexDirection: 'row', gap: 12, alignItems: 'center', paddingVertical: 13, borderBottomWidth: i < mine.length - 1 ? 1 : 0, borderBottomColor: T.zinc2 }}>
           <CheckBox on={on} />
           <View style={{ flex: 1, minWidth: 0 }}><X s={14.5} w={6} f="m">{oldList(e)}</X><X s={12.5} c={T.slate} style={{ marginTop: 2 }}>{findBattery(state, it.oldSerial)?.model || it.model} · {e.id}</X><X s={12.5} c={T.slate} style={{ marginTop: 2 }}>{e.dealerId === dealerId ? (e.customer || 'Customer not named') : `From ${names[e.dealerId] || 'your dealer'}`}</X></View>
+          {e.byAdmin && <AdminChip />}
           <Chip tone={age > 30 ? 'bad' : 'warn'} icon="clock" label={age === 0 ? 'Today' : `${age} ${age === 1 ? 'day' : 'days'}`} />
         </Pressable>;
       })}
@@ -143,6 +144,17 @@ function D33Dispatch() {
 }
 
 /* d34 · dispatched */
+/** What a van is carrying: the two sections, and what head office put on it. */
+function challanMix(c: Challan) {
+  const n = (f: (r: Challan['rows'][number]) => boolean) => c.rows.filter(f).length;
+  const rp = n(r => (r.kind ?? 'RP') === 'RP'), sr = n(r => r.kind === 'SR'), admin = n(r => !!r.byAdmin);
+  return <>
+    {rp > 0 && <Chip tone="live" label={`RP ${rp}`} />}
+    {sr > 0 && <Chip tone="vio" label={`SR ${sr}`} />}
+    {admin > 0 && <AdminChip n={admin} />}
+  </>;
+}
+
 export function D34({ p }: { p?: string }) {
   const d = useD(); const { state } = useStore();
   const c = state.challans.find(x => x.no === p);
@@ -156,6 +168,9 @@ export function D34({ p }: { p?: string }) {
     <Plate><PlateLab center>CHALLAN NUMBER</PlateLab><PlateVal size={22} center>{c.no}</PlateVal></Plate>
     <Card style={{ marginTop: 12 }}><KV pairs={[['Batteries', String(c.rows.length)], ['Handed to', c.vehicle ? `Company van · ${c.vehicle}` : 'Company van'], ['Date', `${dLong(c.at)}, ${tShort(c.at)}`], ['Expected at company', dLong(eta)]]} /></Card>
     <SecT title="On this challan" />
+    {/* what the van is carrying, in one line: the two sections, and how much of it head office
+        recorded rather than a shop (client, 3 Oct 2026) */}
+    <View style={{ flexDirection: 'row', gap: 7, flexWrap: 'wrap', marginBottom: 9 }}>{challanMix(c)}</View>
     <Card>{c.rows.map((r, i) => <Line key={r.serial} last={i === c.rows.length - 1} av={<Avatar n="check" tone="green" />} title={r.serial} titleMono sub={`${r.model} · ${r.ref}`} right={<StatusChip status={challanStatus(c, state).status} label={challanStatus(c, state).label} />} />)}</Card>
     <BtnRow><Btn kind="primary" icon="doc" label="Open challan" onPress={() => d.go('d36', c.no)} /><Btn kind="blue" icon="eye" label="Track it" onPress={() => d.go('d35')} /></BtnRow>
   </Screen>;
@@ -177,6 +192,7 @@ export function D35() {
       return <Card key={c.no} style={ci ? { marginTop: 11 } : undefined} onPress={() => d.go('d36', c.no)} label={`Open challan ${c.no}`}>
         <CardH mono title={c.no} right={<StatusChip status={st.status} label={st.label} />} />
         <X s={12.5} c={T.slate} style={{ marginBottom: 4 }}>Sent {dShort(c.at)} · {c.rows.length} {c.rows.length === 1 ? 'battery' : 'batteries'} · {st.sub}</X>
+        <View style={{ flexDirection: 'row', gap: 7, flexWrap: 'wrap', marginBottom: 7 }}>{challanMix(c)}</View>
         {outcomes.map((o, i) => <Line key={o.r.serial} last={i === outcomes.length - 1} title={o.r.serial} titleMono right={<Chip tone={o.tone} icon={o.icon} label={o.label} />} />)}
         {refused.length > 0 && <Banner tone="bad" icon="alert" style={{ marginTop: 11 }}><B>{refused.length === 1 ? 'One refused.' : `${refused.length} refused.`}</B> {refused.map(o => o.r.serial).join(', ')} — head office has raised it with you separately.</Banner>}
       </Card>;

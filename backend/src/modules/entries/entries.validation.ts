@@ -27,19 +27,29 @@ export const EntryCreateBody = z.object({
   coverTold: z.boolean().default(false),
   // Which kind of sales return: stock that never sold, or one that is faulty (client, 3 Oct 2026).
   returnKind: z.enum(['unsold', 'defective']).optional(),
-}).superRefine((v, ctx) => {
+});
+
+/**
+ * What a SHOP's request must say, beyond the shape of the body.
+ *
+ * These are judgement, not structure, so they live here rather than in the schema: head office
+ * records what it finds and is held to none of them (client, 3 Oct 2026). The schema cannot see
+ * who is calling, so the service applies this to a dealer's request only.
+ */
+export function shopEntryIssues(v: EntryCreateBody): { message: string; field: string } | null {
   if (v.entryType === 'replacement') {
-    v.items.forEach((item, i) => {
-      if (!item.oldCode) ctx.addIssue({ code: 'custom', message: 'Enter the old battery code.', path: ['items', i, 'oldCode'] });
-      if (!item.faultCode) ctx.addIssue({ code: 'custom', message: 'Choose what is wrong with the old battery.', path: ['items', i, 'faultCode'] });
-    });
+    for (const [i, item] of v.items.entries()) {
+      if (!item.oldCode) return { message: 'Enter the old battery code.', field: `items.${i}.oldCode` };
+      if (!item.faultCode) return { message: 'Choose what is wrong with the old battery.', field: `items.${i}.faultCode` };
+    }
   }
   // A sales return must say which kind it is; the fault stays optional, because stock coming
   // back unsold has nothing wrong with it to name.
   if (v.entryType === 'sales_return' && !v.returnKind) {
-    ctx.addIssue({ code: 'custom', message: 'Say whether this is unsold stock or a faulty battery.', path: ['returnKind'] });
+    return { message: 'Say whether this is unsold stock or a faulty battery.', field: 'returnKind' };
   }
-});
+  return null;
+}
 export type EntryCreateBody = z.infer<typeof EntryCreateBody>;
 
 const reason = z.string().trim().min(5, 'Give a short reason (at least 5 characters).');

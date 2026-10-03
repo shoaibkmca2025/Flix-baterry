@@ -49,6 +49,7 @@ export const challanLines = pgTable(
       .references(() => entryItems.id),
     // One challan carries both kinds in two sections (client, 3 Oct 2026); the line says which.
     kind: claimKind('kind').notNull().default('replacement'),
+    byAdmin: boolean('by_admin').notNull().default(false), // from an entry head office recorded
     batteryCode: text('battery_code').notNull(), // the battery travelling: a replacement's OLD one, or the returned one
     modelId: text('model_id').notNull(),
     faultCode: text('fault_code'),

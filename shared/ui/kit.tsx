@@ -109,6 +109,14 @@ export function Chip({ tone = 'mute', icon, label, mono, style }: { tone?: Tone;
 export const TagChip = ({ tag, style }: { tag: 'RP' | 'SR'; style?: StyleProp<ViewStyle> }) =>
   <Chip tone={tag === 'SR' ? 'vio' : 'live'} label={tag} style={style} />;
 
+/**
+ * A request head office recorded itself, rather than one a shop sent in (client, 3 Oct 2026).
+ * A distributor finds it in his queue and on his challan without having raised it, so it says
+ * where it came from wherever he meets it.
+ */
+export const AdminChip = ({ n, style }: { n?: number; style?: StyleProp<ViewStyle> }) =>
+  <Chip tone="info" icon="lock" label={n == null ? 'Head office' : `Head office ${n}`} style={style} />;
+
 export const ST: Record<string, [Tone, IconName]> = {
   Approved: ['live', 'check'], Submitted: ['info', 'clock'], 'Pending sync': ['warn', 'sync'], 'Serial exception': ['bad', 'alert'], Conflict: ['bad', 'alert'],
   'With distributor': ['info', 'people'], 'Under Review': ['vio', 'eye'], Rejected: ['bad', 'x'], Draft: ['mute', 'pen'], Corrected: ['info', 'pen'], Cancelled: ['mute', 'x'],

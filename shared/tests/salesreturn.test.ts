@@ -110,3 +110,27 @@ test('claims are split by tag as quantities', () => {
   assert.equal(tagSummary({ RP: 0, SR: 3 }), '3 SR');
   assert.equal(tagSummary({ RP: 0, SR: 0 }), '');
 });
+
+/* ---------- what head office records (client, 3 Oct 2026) ---------- */
+
+test('a challan says what it is carrying and what head office put on it', () => {
+  const rows: Challan['rows'] = [
+    { serial: 'A1', model: 'M5', ref: 'RP-26-10-0001', fault: 'Leakage', kind: 'RP' },
+    { serial: 'A2', model: 'M5', ref: 'RP-26-10-0002', fault: 'Leakage', kind: 'RP', byAdmin: true },
+    { serial: 'B1', model: 'M5', ref: 'SR-26-10-0001', fault: '—', kind: 'SR', byAdmin: true },
+  ];
+  const mix = {
+    RP: rows.filter(r => (r.kind ?? 'RP') === 'RP').length,
+    SR: rows.filter(r => r.kind === 'SR').length,
+    admin: rows.filter(r => r.byAdmin).length,
+  };
+  assert.deepEqual(mix, { RP: 2, SR: 1, admin: 2 });
+  // the two counts are independent: a head-office line is still a line of its own section
+  assert.equal(mix.RP + mix.SR, rows.length);
+});
+
+test('a challan line written before either flag existed reads as a shop replacement', () => {
+  const r: Challan['rows'][number] = { serial: 'A1', model: 'M5', ref: 'ENT-26-09-0414', fault: 'Leakage' };
+  assert.equal(r.kind ?? 'RP', 'RP');
+  assert.equal(!!r.byAdmin, false);
+});

@@ -762,7 +762,9 @@ export function EntryDetail({ id }: { id?: string }) {
 /* ---------- record an entry for a dealer ---------- */
 export function NewEntry({ id }: { id?: string }) {
   const a = useA(); const { state, setState, audit, canEdit } = useStore();
-  const active = state.dealers.filter(d => d.status === 'Active');
+  // Head office records against a distributor: it sees the chain one step down, and the
+  // distributor carries it on to his dealer (client, 3 Oct 2026).
+  const active = state.dealers.filter(d => d.status === 'Active' && d.kind !== 'Dealer');
   const [entry, setEntry] = useState<Entry>(() => {
     const draft = state.entries.find(e => e.id === id && e.status === 'Draft');
     if (draft) return draft;
@@ -806,10 +808,25 @@ export function NewEntry({ id }: { id?: string }) {
     } catch (err) { a.toast(errorMessage(err)); }
     finally { setBusy(false); }
   };
+  /**
+   * Head office is not held to the dealer's rules (client, 3 Oct 2026).
+   *
+   * A shop's request is checked for length, month, product, duplicate serials, a fault and
+   * expired cover — because a shop is recording what it was told. Head office is putting right
+   * what is already true: a serial in a form nobody issues any more, a battery whose model was
+   * retired, a request nobody wrote a fault for. The server lets it through too.
+   *
+   * Two things are still asked for, because without them the row cannot exist: the shop, and a
+   * battery number — a battery with no number can never be found again.
+   */
+  const adminErrors = (e: Entry): Record<string, string> => {
+    const errs: Record<string, string> = {};
+    if (!e.dealerId) errs.dealerId = 'Choose the distributor this entry belongs to.';
+    e.items.forEach((it, i) => { if (!it.code.trim()) errs[`items.${i}.code`] = 'Enter the battery number.'; });
+    return errs;
+  };
   const next = () => {
-    // the same bar the dealer app sets (shared/data.ts entryErrors): fault, duplicate serials,
-    // expired cover, customer name — the console records on a dealer's behalf (client, 2 Oct 2026)
-    const all = entryErrors(entry, state);
+    const all = adminErrors(entry);
     const relevant = Object.fromEntries(Object.entries(all).filter(([k]) => step === 1 ? !k.startsWith('items') : k.startsWith('items')));
     setErrors(relevant); if (!Object.keys(relevant).length) setStep(step + 1);
   };
@@ -830,7 +847,7 @@ export function NewEntry({ id }: { id?: string }) {
     {step < 4 ? <Btn kind="primary" iconAfter="chev" label="Continue" onPress={step === 3 ? () => setStep(4) : next} />
       : <Btn kind="primary" icon="check" label={state.offline ? 'Save and send later' : 'Send for approval'} onPress={() => {
         // place is optional to type; fall back to the dealer's own area so the column is never empty
-        const all = entryErrors(placed(), state); setErrors(all); if (Object.keys(all).length) { a.toast('Some details need fixing — see the list above.'); return; }
+        const all = adminErrors(placed()); setErrors(all); if (Object.keys(all).length) { a.toast('Some details need fixing — see the list above.'); return; }
         if (dealer?.status !== 'Active') { a.toast('This dealer is not active. Save a draft until the account is restored.'); return; }
         if (!state.offline && dealer && /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(dealer.id)) { sendLive(); return; }
         setDone(save(state.offline ? 'Pending sync' : 'Submitted'));
@@ -877,11 +894,13 @@ export function NewEntry({ id }: { id?: string }) {
               <Field label="Short serial" req mono numeric maxLength={newMax - 4} value={it.serial} onChange={serial => item(i, { serial })} error={k('serial')} hint="Filled from the code." hintIcon="lock" />
               <Field label="Manufacturing month" mono value={it.mfg} onChange={mfg => item(i, { mfg })} ph="YYYY-MM" error={k('mfg')} />
             </Cols>
-            <Cols>
-              <Field label={rep ? 'Old battery serial' : 'Old battery serial (optional)'} req={rep} mono numeric maxLength={oldMax} value={it.oldSerial} onChange={v => item(i, { oldSerial: v.replace(/\D/g, '').slice(0, oldMax) })} error={k('oldSerial')} ph="The battery that came back" />
+            {/* a sales return is one battery and nothing else — no old battery to ask about
+                (client, 3 Oct 2026). The dealer app has never asked. */}
+            {rep && <Cols>
+              <Field label="Old battery serial" req mono numeric maxLength={oldMax} value={it.oldSerial} onChange={v => item(i, { oldSerial: v.replace(/\D/g, '').slice(0, oldMax) })} error={k('oldSerial')} ph="The battery that came back" />
               {/* the OLD battery's own model decides its warranty term — the dealer app asks for it,
                   so the console must too, or the cover is worked out from the wrong term */}
-            </Cols>
+            </Cols>}
             {rep ? <PlateModelSelect label="Old battery" value={it.oldModel || ''} error={k('oldModel')} optional="Same as the new battery" onChange={oldModel => item(i, { oldModel })} /> : null}
             {/* The server refuses a replacement without a fault, so without this the console could
                 not record one at all (client, 2 Oct 2026). Same list as the dealer app. */}

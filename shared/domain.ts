@@ -17,6 +17,8 @@ export type Entry = { id: string; dealerId: string; type: string; date: string; 
   special?: 'Pending' | 'Approved' | 'Rejected'; specialReason?: string; specialDecidedAt?: string;
   /** why a sales return came back: unsold stock, or a faulty battery (client, 3 Oct 2026) */
   returnKind?: ReturnKind;
+  /** recorded by head office itself, not sent in by a shop (client, 3 Oct 2026) */
+  byAdmin?: boolean;
   /** set when this Entry stands for ONE battery of a multi-battery replacement (see batteryUnits) */
   itemId?: string; part?: string };
 export type Battery = { code: string; serial: string; model: string; dealerId: string; customer: string; mfg: string; oldSerial?: string; start?: string; expiry?: string; policy?: string; state: string;
@@ -67,7 +69,9 @@ export type Challan = { no: string; dealerId: string; at: string; vehicle: strin
     /** what head office decided about this battery — the challan screens group by it (client, 2 Oct 2026) */
     outcome?: 'travelling' | 'arrived' | 'passed' | 'claimed' | 'rejected'; outcomeReason?: string;
     /** which section of the challan this line belongs to (client, 3 Oct 2026) */
-    kind?: 'RP' | 'SR' }[]; serverId?: string; receivedAt?: string };
+    kind?: 'RP' | 'SR';
+    /** from an entry head office recorded */
+    byAdmin?: boolean }[]; serverId?: string; receivedAt?: string };
 export type Staff = { id: string; name: string; email: string; role: string; roleKey?: string; status: string; dealerId?: string; permissions: string[] };
 export type State = { entries: Entry[]; batteries: Battery[]; dealers: Dealer[]; models: Model[]; movements: Movement[]; audits: Audit[]; customers: Customer[]; policies: Policy[]; notices: Notice[]; staff: Staff[]; reports: {id:string;name:string;type:string;model:string;status:string;schedule:string}[]; exports: {id:string;name:string;rows:number;date:string}[]; overrides: {id:string;code:string;days:number;reason:string;status:string}[]; cities: string[]; plateTypes?: { code: string; label: string; plateCount?: number | null }[]; serialDigitLengths?: number[]; plants?: Plant[]; graceMonths?: number; entryTypes: string[]; lastSync: string; offline: boolean; language: 'English'|'मराठी'; challans: Challan[]; smsAlerts?: boolean; };
 /**

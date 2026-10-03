@@ -192,10 +192,53 @@ describe('create', () => {
     expect(repo.insertEntry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ returnKind: null }));
   });
 
+  // Head office records what it finds, not what the rules expect (client, 3 Oct 2026).
+  describe('head office records without the judgement checks', () => {
+    const anything = (over: object = {}) => baseBody({
+      dealerId: 'dealer-1', entryType: 'replacement',
+      items: [{ modelId: 'M5', code: '999', oldCode: '1', faultCode: undefined, ...over }],
+    } as never);
+
+    beforeEach(() => {
+      vi.mocked(repo.insertEntry).mockResolvedValue({ id: 'entry-a', ref: 'RP-26-10-0009' } as never);
+      vi.mocked(repo.insertEntryItem).mockResolvedValue({ id: 'item-a' } as never);
+    });
+
+    it('takes a serial in no recognised form, and a replacement with no fault', async () => {
+      await expect(create(adminCtx, anything())).resolves.toBeTruthy();
+      expect(repo.insertEntry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ byAdmin: true }));
+    });
+
+    it('takes a sales return that does not say which kind it is', async () => {
+      await expect(create(adminCtx, baseBody({ dealerId: 'dealer-1', entryType: 'sales_return', items: [{ modelId: 'M5', code: 'xx' }] } as never))).resolves.toBeTruthy();
+    });
+
+    it('takes a model that is no longer sold', async () => {
+      vi.mocked(batteriesRepo.findModelById).mockResolvedValue({ id: 'M5', active: false, warrantyMonths: 24 } as never);
+      await expect(create(adminCtx, anything())).resolves.toBeTruthy();
+    });
+
+    it('still refuses a product that does not exist, and a blank serial', async () => {
+      vi.mocked(batteriesRepo.findModelById).mockResolvedValue(undefined as never);
+      await expect(create(adminCtx, anything())).rejects.toMatchObject({ code: 'model_unknown' });
+      vi.mocked(batteriesRepo.findModelById).mockResolvedValue({ id: 'M5', active: true, warrantyMonths: 24 } as never);
+      await expect(create(adminCtx, anything({ code: '   ' }))).rejects.toMatchObject({ code: 'code_required' });
+    });
+
+    it("a shop's own request is still held to every rule", async () => {
+      await expect(create(dealerCtx, baseBody({ entryType: 'replacement', items: [{ modelId: 'M5', code: '999', oldCode: '1', faultCode: 'low_backup' }] })))
+        .rejects.toMatchObject({ code: 'format_mismatch' });
+      await expect(create(dealerCtx, baseBody({ entryType: 'replacement', items: [{ modelId: 'M5', code: '26090001', oldCode: '26041212', faultCode: undefined }] } as never)))
+        .rejects.toMatchObject({ code: 'validation_error' });
+      await expect(create(dealerCtx, baseBody({ entryType: 'sales_return', items: [{ modelId: 'M5', code: '2605231' }] })))
+        .rejects.toMatchObject({ code: 'validation_error' });
+    });
+  });
+
   it('a sales return (a battery already in the field) may have 7 digits', async () => {
     vi.mocked(repo.insertEntry).mockResolvedValue({ id: 'entry-8', ref: 'ENT-26-09-0008' } as never);
     vi.mocked(repo.insertEntryItem).mockResolvedValue({ id: 'item-8' } as never);
-    await expect(create(dealerCtx, baseBody({ entryType: 'sales_return', items: [{ modelId: 'M5', code: '2605231' }] }))).resolves.toBeTruthy();
+    await expect(create(dealerCtx, baseBody({ entryType: 'sales_return', returnKind: 'unsold', items: [{ modelId: 'M5', code: '2605231' }] }))).resolves.toBeTruthy();
   });
 
   it('rejects a replacement item whose old and new codes are the same', async () => {

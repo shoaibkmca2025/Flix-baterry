@@ -9,7 +9,7 @@ import { errorMessage } from '@felix/shared/api/client';
 import { useSync } from '@felix/shared/api/sync';
 import { Challan, Entry, normalize, anyDigitLengths, isValidDigits, lengthsLabel, today, uid } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
-import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar, Plate, PlateLab, PlateVal, Tone, IconName } from '@felix/shared/ui/kit';
+import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar, Plate, PlateLab, PlateVal, Tone, IconName, AdminChip } from '@felix/shared/ui/kit';
 import { ageDays, batteryUnits, challanHtml, dLong, dShort, unitKey } from '@felix/shared/data';
 import { saveHtmlDocument } from '@felix/shared/reports';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, Tabs, Dialog, ReasonDialog, Select, Empty, useA } from './ui';
@@ -297,10 +297,13 @@ export function Returns({ id }: { id?: string }) {
     };
     /* One challan carries both kinds in two sections (client, 3 Oct 2026). The list says how
        many of each are on it, so a van's load reads without opening it. */
-    const sections = (c: Challan) => (['RP', 'SR'] as const).map(tag => {
-      const n = c.rows.filter(r => (r.kind ?? 'RP') === tag).length;
-      return n ? <Chip key={tag} tone={tag === 'SR' ? 'vio' : 'live'} label={`${tag} ${n}`} /> : null;
-    });
+    const sections = (c: Challan) => {
+      const admin = c.rows.filter(r => r.byAdmin).length;
+      return [...(['RP', 'SR'] as const).map(tag => {
+        const n = c.rows.filter(r => (r.kind ?? 'RP') === tag).length;
+        return n ? <Chip key={tag} tone={tag === 'SR' ? 'vio' : 'live'} label={`${tag} ${n}`} /> : null;
+      }), admin ? <AdminChip key="admin" n={admin} /> : null];
+    };
     const dealerCount = new Set(cs.map(c => c.dealerId)).size;
     const list = <Stack>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>

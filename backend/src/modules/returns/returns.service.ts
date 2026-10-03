@@ -87,6 +87,8 @@ export async function dispatch(ctx: Ctx, input: ChallanCreateBody) {
     if (!challan) throw new AppError('internal_error', 500, 'Could not create the challan.');
     const lines = await repo.insertLines(tx, items.map((it) => ({
       challanId: challan.id, entryId: it.entryId, entryItemId: it.id, kind: kindOf(it.entryId),
+      // carried from the entry so a van's load reads without joining back through every request
+      byAdmin: !!byId.get(it.entryId)?.byAdmin,
       batteryCode: travellingCode(it) as string, modelId: it.modelId, faultCode: it.faultCode,
     })));
     await audit(tx, { ctx, action: 'challan.dispatched', entityType: 'challan', entityId: challan.id, entityRef: no, after: { lines: lines.length, entryIds: ids }, outcome: 'ok' });

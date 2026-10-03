@@ -1,4 +1,4 @@
-import { index, integer, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { dealers } from './identity.model';
 import { batteryModels } from './masters.model';
 
@@ -41,6 +41,9 @@ export const entries = pgTable(
     totalQty: integer('total_qty').notNull().default(0), // recomputed from items on every write
     status: entryStatus('status').notNull().default('submitted'),
     returnKind: returnKind('return_kind'), // sales returns only
+    // recorded by head office itself, not sent in by a shop (client, 3 Oct 2026). The distributor
+    // sees it on his queue and his challan, so a request he never raised is explained.
+    byAdmin: boolean('by_admin').notNull().default(false),
     gps: text('gps'),
     signature: text('signature'),
     coverToldAt: timestamp('cover_told_at', { withTimezone: true }),

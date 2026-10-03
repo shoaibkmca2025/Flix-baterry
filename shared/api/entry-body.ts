@@ -21,7 +21,10 @@ export function buildEntryBody(e: Entry): EntryCreateInput {
   const items: EntryItemInput[] = e.items.map(it => ({
     modelId: it.model,
     code: it.code,
-    ...(entryType === 'replacement' ? { oldCode: it.oldSerial, oldModelId: it.oldModel || undefined, faultCode: it.fault ? faultCode(it.fault) : undefined } : {}),
+    // the old battery belongs to a replacement alone; the fault belongs to either — a dealer may
+    // name one on a sales return too, and it is how the battery is checked (client, 3 Oct 2026)
+    ...(entryType === 'replacement' ? { oldCode: it.oldSerial, oldModelId: it.oldModel || undefined } : {}),
+    ...(it.fault ? { faultCode: faultCode(it.fault) } : {}),
     remarks: it.remarks || undefined,
   }));
   return {

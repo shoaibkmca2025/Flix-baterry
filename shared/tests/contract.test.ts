@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildEntryBody } from '../api/entry-body';
 import { ENTRY_TYPES } from '../domain';
-import { EntryCreateBody } from '../../backend/src/modules/entries/entries.validation';
+import { EntryCreateBody, shopEntryIssues } from '../../backend/src/modules/entries/entries.validation';
 
 /**
  * What the apps SEND, checked against what the server ACCEPTS.
@@ -38,15 +38,36 @@ test('everything the apps send is something the server accepts', () => {
   assert.equal(sent(entry({ type: 'Sales Return', returnKind: 'Unsold', items: [{ ...base.items[0]!, oldSerial: '', fault: '' }] })).success, true);
   // a dealer may still name a fault on a defective one
   assert.equal(sent(entry({ type: 'Sales Return', returnKind: 'Defective', items: [{ ...base.items[0]!, oldSerial: '', fault: 'Leakage' }] })).success, true);
-  // ...and the server refuses one that does not say
-  assert.equal(sent(entry({ type: 'Sales Return', items: [{ ...base.items[0]!, oldSerial: '', fault: '' }] })).success, false);
 });
 
-test('the server refuses a replacement with no fault — so the apps must ask for one', () => {
-  const r = sent(entry({ items: [{ ...entry().items[0]!, fault: '' }] }));
-  assert.equal(r.success, false);
-  // both the dealer app and the console now collect this before sending (shared/data entryErrors)
-  assert.equal(r.success === false && r.error.issues[0]!.path.join('.'), 'items.0.faultCode');
+/**
+ * What a SHOP's request must say, beyond the shape of the body.
+ *
+ * These moved out of the schema when head office stopped being held to them (client,
+ * 3 Oct 2026): the schema cannot see who is calling, so the service applies them to a dealer's
+ * request only. They are still the bar both apps collect against before sending.
+ */
+const shopIssue = (e: ReturnType<typeof entry>) =>
+  shopEntryIssues({ ...buildEntryBody(e as never), dealerId: e.dealerId, entryDate: e.date } as never);
+
+test("a shop's replacement must name a fault, and a sales return must say which kind", () => {
+  assert.equal(shopIssue(entry()), null);
+  assert.equal(shopIssue(entry({ items: [{ ...entry().items[0]!, fault: '' }] }))?.field, 'items.0.faultCode');
+  assert.equal(shopIssue(entry({ items: [{ ...entry().items[0]!, oldSerial: '' }] }))?.field, 'items.0.oldCode');
+
+  const salesReturn = (over = {}) => entry({ type: 'Sales Return', items: [{ ...entry().items[0]!, oldSerial: '', fault: '' }], ...over });
+  assert.equal(shopIssue(salesReturn())?.field, 'returnKind');
+  assert.equal(shopIssue(salesReturn({ returnKind: 'Unsold' })), null);
+  // a fault is allowed on a sales return, never demanded
+  assert.equal(shopIssue(entry({ type: 'Sales Return', returnKind: 'Defective', items: [{ ...entry().items[0]!, oldSerial: '', fault: 'Leakage' }] })), null);
+});
+
+test('the body itself still carries everything those rules read', () => {
+  // head office sends the same shape; only the judgement is skipped for it
+  const body = buildEntryBody(entry({ type: 'Sales Return', returnKind: 'Defective', items: [{ ...entry().items[0]!, oldSerial: '', fault: 'Leakage' }] }) as never);
+  assert.equal(body.entryType, 'sales_return');
+  assert.equal(body.returnKind, 'defective');
+  assert.equal(body.items[0]!.faultCode, 'leakage');
 });
 
 /**

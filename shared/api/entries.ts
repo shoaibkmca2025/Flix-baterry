@@ -53,6 +53,7 @@ export type EntryResult = {
   createdAt: string;
   updatedAt: string;
   returnKind?: ReturnKindApi | null; // sales returns only
+  byAdmin?: boolean; // recorded by head office, not sent in by a shop (client, 3 Oct 2026)
 };
 
 export function createEntry(input: EntryCreateInput, accessToken: string) {

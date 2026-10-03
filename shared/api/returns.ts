@@ -9,6 +9,7 @@ export type ChallanLineResult = {
   entryItemId: string;
   batteryCode: string; // the battery travelling: a replacement's OLD one, or the returned one
   kind?: 'replacement' | 'sales_return'; // which section of the challan (client, 3 Oct 2026)
+  byAdmin?: boolean; // from an entry head office recorded
   modelId: string;
   faultCode: string | null;
   stage: ReturnStage;

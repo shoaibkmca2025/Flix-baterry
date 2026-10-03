@@ -162,6 +162,13 @@
       "when": 1791047477074,
       "tag": "0021_sales_returns",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791052067152,
+      "tag": "0022_head_office_entries",
+      "breakpoints": true
     }
   ]
 }

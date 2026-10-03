@@ -39,6 +39,7 @@ export type NewEntry = {
   submittedBy: string;
   status?: (typeof entryStatus.enumValues)[number]; // a dealer's request starts with_distributor
   returnKind?: 'unsold' | 'defective' | null; // sales returns only
+  byAdmin?: boolean; // recorded by head office, not sent in by a shop
   specialStatus?: 'pending' | null; // a battery on it is past its term — head office decides it in Correction requests
 };
 

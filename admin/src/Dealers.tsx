@@ -101,15 +101,26 @@ export function Dealers() {
   const hidden = state.dealers.length - ours.length;
   const rows = ours.filter(d => (status === 'all' || d.status === statusMap[status]) && (city === 'All' || d.city === city) && (kind === 'All' || (kind === 'Dealers') === isDealer(d))
     && [d.name, d.city, d.id, d.contact, d.mobile, isDealer(d) ? nameOf(d.distributorId) : ''].some(v => v.toLowerCase().includes(q.toLowerCase())));
+  // each distributor, then his own dealers under him; anything orphaned falls to the end
+  const grouped = (() => {
+    const out: typeof rows = [], seen = new Set<string>();
+    for (const d of rows.filter(x => !isDealer(x))) {
+      out.push(d); seen.add(d.id);
+      for (const c of rows.filter(x => isDealer(x) && x.distributorId === d.id)) { out.push(c); seen.add(c.id); }
+    }
+    return [...out, ...rows.filter(d => !seen.has(d.id))];
+  })();
   const count = (s: string) => ours.filter(d => d.status === s).length;
   const distributors = ours.filter(d => !isDealer(d)).length;
   return <Page title="Distributors & dealers" sub={`${distributors} distributors · ${ours.length - distributors} dealers added here · ${count('Active')} active`}
     actions={canEdit ? <Btn kind="primary" sm icon="plus" label="Add a dealer" onPress={() => a.go('newdealer')} /> : undefined}>
     {hidden > 0 && <Hint icon="people" style={{ marginBottom: 12 }}>{hidden} more {hidden === 1 ? 'dealer was' : 'dealers were'} added by their own distributor. Open a distributor to see its dealers.</Hint>}
     <Box filters={<><SearchBox value={q} onChange={setQ} ph="Name, city, code, mobile or distributor" /><Pills value={status} onChange={setStatus} items={[['all', 'All'], ['active', `Active ${count('Active')}`], ['pending', `Waiting ${count('Pending Approval')}`], ['suspended', `Suspended ${count('Suspended')}`], ['rejected', `Refused ${count('Rejected')}`]]} /><FilterPick label="Type" value={kind} options={['Distributors', 'Dealers']} onChange={setKind} /><FilterPick label="City" value={city} options={state.cities} onChange={setCity} /></>}>
-      <Table rows={rows} keyOf={d => d.id} onRow={d => a.go('dealer', d.id)} empty="No dealers match."
+      {/* Distributor first, then the dealers head office put under him — the chain reads top-down
+          instead of as one flat alphabetical list (client, 3 Oct 2026). */}
+      <Table rows={grouped} keyOf={d => d.id} onRow={d => a.go('dealer', d.id)} empty="No dealers match."
         cols={[
-          { h: 'Shop', w: 1.6, cell: d => <View><X s={13.5} w={7}>{d.name}</X><X s={12} c={T.slate}>{d.contact}</X></View> },
+          { h: 'Shop', w: 1.6, cell: d => <View style={isDealer(d) ? { paddingLeft: 16, borderLeftWidth: 2, borderLeftColor: T.zinc3 } : undefined}><X s={13.5} w={isDealer(d) ? 6 : 7}>{d.name}</X><X s={12} c={T.slate}>{d.contact}</X></View> },
           { h: 'Type', w: 1.2, cell: d => isDealer(d) ? <View><Chip tone="info" label="Dealer" /><X s={12} c={T.slate} style={{ marginTop: 3 }}>under {nameOf(d.distributorId)}</X></View> : <View><Chip tone="vio" label="Distributor" /><X s={12} c={T.slate} style={{ marginTop: 3 }}>{state.dealers.filter(x => x.distributorId === d.id).length} dealers</X></View> },
           { h: 'City', w: 0.9, cell: d => d.city },
           { h: 'Code', w: 1, cell: d => <X s={12.5} f="m" w={6}>{dealerCode(d)}</X> },

@@ -146,6 +146,7 @@ export function toEntry(e: EntryWithItems, claims: Map<string, ApiClaim>, batter
     date: e.entryDate,
     customer: e.customerName ?? '',
     returnKind: e.returnKind ? ((e.returnKind[0]!.toUpperCase() + e.returnKind.slice(1)) as 'Unsold' | 'Defective') : undefined,
+    byAdmin: e.byAdmin || undefined,
     place: e.place,
     order: '',
     remarks: e.remarks ?? '',
@@ -230,7 +231,7 @@ export function toChallan(c: ChallanResult, refOf: (entryId: string) => string):
     no: c.no, serverId: c.id, dealerId: c.dealerId, at: c.dispatchedAt, vehicle: c.vehicleNo ?? '', driver: c.driverName ?? '',
     receivedAt: c.receivedAt ?? undefined,
     entryIds: [...new Set(c.lines.map((l) => refOf(l.entryId)))],
-    rows: c.lines.map((l) => ({ serial: l.batteryCode, model: l.modelId, ref: refOf(l.entryId), kind: (l.kind === 'sales_return' ? 'SR' : 'RP') as 'RP' | 'SR', fault: faultLabel(l.faultCode) ?? '—', lineId: l.id, itemId: l.entryItemId, stage: RETURN_STAGE[l.stage], plantId: l.plantId ?? undefined, stagedAt: l.stagedAt ?? undefined, outcome: l.outcome, outcomeReason: l.outcomeReason ?? undefined })),
+    rows: c.lines.map((l) => ({ serial: l.batteryCode, model: l.modelId, ref: refOf(l.entryId), kind: (l.kind === 'sales_return' ? 'SR' : 'RP') as 'RP' | 'SR', byAdmin: l.byAdmin || undefined, fault: faultLabel(l.faultCode) ?? '—', lineId: l.id, itemId: l.entryItemId, stage: RETURN_STAGE[l.stage], plantId: l.plantId ?? undefined, stagedAt: l.stagedAt ?? undefined, outcome: l.outcome, outcomeReason: l.outcomeReason ?? undefined })),
   };
 }
 
