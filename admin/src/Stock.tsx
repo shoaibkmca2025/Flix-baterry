@@ -106,13 +106,22 @@ const STAGE_NEXT: Record<string, [string, string, 'blue' | 'ghost' | 'danger'][]
 };
 const stageChip = (s?: string): [string, Tone, IconName] => s === 'In transit' ? ['On the way', 'vio', 'truck'] : s === 'Received' ? ['Arrived', 'live', 'box'] : s === 'Testing' ? ['Being tested', 'warn', 'eye'] : s === 'Repaired' ? ['Repaired', 'live', 'wrench'] : s === 'Scrapped' ? ['Scrapped', 'mute', 'x'] : s === 'Closed' ? ['Claimed', 'live', 'check'] : ['At dealer', 'warn', 'shop'];
 
-export function Returns() {
+/**
+ * `id` carries which tab is open and which challan is selected, as "tab|CHL-26-10-0005".
+ *
+ * Both used to be local state, so opening a battery's request from a challan and pressing Back
+ * dropped you on the challan list with nothing selected and the tab reset — the screen remounts
+ * on every route change, and the route remembered none of it (client, 3 Oct 2026). Putting them
+ * in the route makes selecting a challan a step the Back button can return through.
+ */
+export function Returns({ id }: { id?: string }) {
   const a = useA(); const { state, setState, audit, canEdit } = useStore(); const { sync } = useSync();
+  const [routeTab, routeChallan] = (id || '').split('|');
   // `whole` is the challan's server id when the van is confirmed in one go ("Confirm all arrived")
-  const [tab, setTab] = useState('challans'), [act, setAct] = useState<{ entries: Entry[]; to: string; label: string; whole?: string } | null>(null), [handover, setHandover] = useState<Entry | null>(null);
+  const [tab, setTab] = useState(routeTab || 'challans'), [act, setAct] = useState<{ entries: Entry[]; to: string; label: string; whole?: string } | null>(null), [handover, setHandover] = useState<Entry | null>(null);
   // the plant that made the battery (memory.md D-19) — chosen in the arrival form, or corrected later
   const [plantName, setPlantName] = useState(''), [plantErr, setPlantErr] = useState(''), [retag, setRetag] = useState<Entry | null>(null), [plantF, setPlantF] = useState('All');
-  const [dealerF, setDealerF] = useState('All'), [selChallan, setSelChallan] = useState<string | null>(null);
+  const [dealerF, setDealerF] = useState('All'), [selChallan, setSelChallan] = useState<string | null>(routeChallan || null);
   // a battery is reviewed — and approved or rejected — on its request's page, opened on that battery
   const review = (e: Entry) => a.go('entry', e.itemId ? `${e.id}#${e.itemId}` : e.id);
   // at the factory and not yet decided: this is where head office approves or refuses (verified offline)
@@ -272,7 +281,7 @@ export function Returns() {
       </View>
       {!cs.length && !loose.length ? <Box><Empty icon={empty.icon} title={empty.title} text={empty.text} /></Box>
         : days.map(({ day, list: dayList }) => <Box key={day} title={`Sent ${day}`} right={<X s={12} c={T.slate}>{dayList.length} {dayList.length === 1 ? 'challan' : 'challans'}</X>}>
-          <View style={{ paddingHorizontal: 14 }}>{dayList.map((c, i) => <Line key={c.no} last={i === dayList.length - 1} onPress={() => setSelChallan(c.no)}
+          <View style={{ paddingHorizontal: 14 }}>{dayList.map((c, i) => <Line key={c.no} last={i === dayList.length - 1} onPress={() => a.go('returns', `${tab}|${c.no}`)}
             av={<Avatar n={c.receivedAt ? 'box' : 'truck'} tone={c.no === selChallan ? 'amber' : c.receivedAt ? 'green' : 'vio'} />}
             title={<Mono>{c.no}</Mono>} sub={`${dealerName(c.dealerId)} · ${shown(c)}${c.vehicle ? ` · ${c.vehicle}` : ''}`} right={chip(c)} />)}</View>
         </Box>)}
@@ -329,7 +338,7 @@ export function Returns() {
       </View>
     </Box>;
     return a.wide ? <Cols weights={[1, 1.45]}>{list}{detail}</Cols>
-      : <Stack><Btn kind="ghost" sm label={only ? '← Back to the list' : '← All challans'} style={{ alignSelf: 'flex-start' }} onPress={() => setSelChallan(null)} />{detail}</Stack>;
+      : <Stack><Btn kind="ghost" sm label={only ? '← Back to the list' : '← All challans'} style={{ alignSelf: 'flex-start' }} onPress={() => a.back()} />{detail}</Stack>;
   };
   return <Page title="Old battery returns" sub="Every replaced battery, from the dealer’s shop to settled or rejected"
     tabs={<Tabs value={tab} onChange={t => { setTab(t); setSelChallan(null); }} items={[['challans', `Pending challans ${pendingChallans.length}`], ['done', `Completed challans ${doneChallans.length}`], ['way', `On the way ${onWay.length}`], ['dealers', `At dealers ${atDealer.length}`], ['approved', `Approved ${approved.length}`], ['rejected', `Rejected ${rejected.length}`], ['settle', `Claim ${approved.length}`], ['claimed', `Settled ${claimed.length}`]]} />}>
