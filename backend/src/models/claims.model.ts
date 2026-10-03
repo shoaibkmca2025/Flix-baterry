@@ -10,6 +10,8 @@ import { warrantyChains } from './warranty.model';
 // see modules.md's returns module for the full design when that's actually needed.
 export const claimStatus = pgEnum('claim_status', ['raised', 'awaiting_return', 'received', 'checked', 'approved', 'refused']);
 export const claimDisposition = pgEnum('claim_disposition', ['repair', 'scrap', 'hold']);
+// Which kind of request a claim belongs to, so counts split by tag (RP / SR) without a join.
+export const claimKind = pgEnum('claim_kind', ['replacement', 'sales_return']);
 
 export const warrantyClaims = pgTable(
   'warranty_claims',
@@ -19,16 +21,15 @@ export const warrantyClaims = pgTable(
     dealerId: uuid('dealer_id')
       .notNull()
       .references(() => dealers.id),
-    chainId: uuid('chain_id')
-      .notNull()
-      .references(() => warrantyChains.id),
+    // A sales-return claim is one battery going back and coming home: no warranty chain and no
+    // new battery, so those two are optional. `oldBatteryId` means "the battery that went back"
+    // and a sales return has one too — it is the whole point of one — so it stays required.
+    chainId: uuid('chain_id').references(() => warrantyChains.id),
     oldBatteryId: uuid('old_battery_id')
       .notNull()
       .references(() => batteries.id),
-    newBatteryId: uuid('new_battery_id')
-      .notNull()
-      .unique()
-      .references(() => batteries.id),
+    newBatteryId: uuid('new_battery_id').unique().references(() => batteries.id),
+    kind: claimKind('kind').notNull().default('replacement'),
     status: claimStatus('status').notNull().default('raised'),
     findingCode: text('finding_code'),
     conditionNote: text('condition_note'),

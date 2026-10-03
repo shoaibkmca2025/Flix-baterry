@@ -15,6 +15,8 @@ export type Entry = { id: string; dealerId: string; type: string; date: string; 
   distributorDecidedAt?: string; distributorReason?: string;
   /** a SPECIAL request — a battery on it is past its term; head office decides it in Correction requests (client, 3 Oct 2026) */
   special?: 'Pending' | 'Approved' | 'Rejected'; specialReason?: string; specialDecidedAt?: string;
+  /** why a sales return came back: unsold stock, or a faulty battery (client, 3 Oct 2026) */
+  returnKind?: ReturnKind;
   /** set when this Entry stands for ONE battery of a multi-battery replacement (see batteryUnits) */
   itemId?: string; part?: string };
 export type Battery = { code: string; serial: string; model: string; dealerId: string; customer: string; mfg: string; oldSerial?: string; start?: string; expiry?: string; policy?: string; state: string;
@@ -63,7 +65,9 @@ export type Notice = { id: string; title: string; body: string; route: string; r
 export type Plant = { id: string; name: string; active: boolean };
 export type Challan = { no: string; dealerId: string; at: string; vehicle: string; driver: string; entryIds: string[]; rows: { serial: string; model: string; ref: string; fault: string; lineId?: string; itemId?: string; stage?: string; plantId?: string; stagedAt?: string;
     /** what head office decided about this battery — the challan screens group by it (client, 2 Oct 2026) */
-    outcome?: 'travelling' | 'arrived' | 'passed' | 'claimed' | 'rejected'; outcomeReason?: string }[]; serverId?: string; receivedAt?: string };
+    outcome?: 'travelling' | 'arrived' | 'passed' | 'claimed' | 'rejected'; outcomeReason?: string;
+    /** which section of the challan this line belongs to (client, 3 Oct 2026) */
+    kind?: 'RP' | 'SR' }[]; serverId?: string; receivedAt?: string };
 export type Staff = { id: string; name: string; email: string; role: string; roleKey?: string; status: string; dealerId?: string; permissions: string[] };
 export type State = { entries: Entry[]; batteries: Battery[]; dealers: Dealer[]; models: Model[]; movements: Movement[]; audits: Audit[]; customers: Customer[]; policies: Policy[]; notices: Notice[]; staff: Staff[]; reports: {id:string;name:string;type:string;model:string;status:string;schedule:string}[]; exports: {id:string;name:string;rows:number;date:string}[]; overrides: {id:string;code:string;days:number;reason:string;status:string}[]; cities: string[]; plateTypes?: { code: string; label: string; plateCount?: number | null }[]; serialDigitLengths?: number[]; plants?: Plant[]; graceMonths?: number; entryTypes: string[]; lastSync: string; offline: boolean; language: 'English'|'मराठी'; challans: Challan[]; smsAlerts?: boolean; };
 /**
@@ -75,6 +79,27 @@ export type State = { entries: Entry[]; batteries: Battery[]; dealers: Dealer[];
  * sales return, with nothing to say so. Both apps and both filters read the list from here.
  */
 export const ENTRY_TYPES = ['Replacement', 'Sales Return'] as const;
+
+/**
+ * The tag a request carries: RP for a replacement, SR for a sales return (client, 3 Oct 2026).
+ * It is the reference's own prefix — RP-26-10-0001 — so a number says what it is on screen, on
+ * the challan and over the phone. Requests numbered before this keep their ENT- reference, and
+ * fall back to their type.
+ */
+export const TAG: Record<string, 'RP' | 'SR'> = { Replacement: 'RP', 'Sales Return': 'SR' };
+export const tagOf = (e: { id?: string; type: string }): 'RP' | 'SR' =>
+  e.id?.startsWith('SR-') ? 'SR' : e.id?.startsWith('RP-') ? 'RP' : TAG[e.type] ?? 'RP';
+
+/**
+ * Why a battery came back: stock that never sold, or one that is faulty. A sales return says
+ * which; a replacement never has one.
+ */
+export const RETURN_KINDS = ['Unsold', 'Defective'] as const;
+export type ReturnKind = (typeof RETURN_KINDS)[number];
+export const RETURN_KIND_HELP: Record<ReturnKind, string> = {
+  Unsold: 'Stock that never sold. It goes back, is charged and checked, and comes home working.',
+  Defective: 'A battery that is not working. It goes back, is put right, and comes home working.',
+};
 export type EntryTypeName = (typeof ENTRY_TYPES)[number];
 export const isEntryType = (v: string): v is EntryTypeName => (ENTRY_TYPES as readonly string[]).includes(v);
 

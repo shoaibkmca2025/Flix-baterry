@@ -3,9 +3,9 @@ import { View, ScrollView, Pressable, Modal, StyleSheet, Switch, TextInput, Plat
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useStore } from '@felix/shared/store';
-import { Entry } from '@felix/shared/domain';
+import { Entry, tagOf } from '@felix/shared/domain';
 import { T, family } from '@felix/shared/ui/theme';
-import { X, Ic, IconName, Btn, Field, Chip, StatusChip, Mono, IconBtn, Line, Avatar, AvTone, ChipRow, Hint } from '@felix/shared/ui/kit';
+import { X, Ic, IconName, Btn, Field, Chip, StatusChip, Mono, IconBtn, Line, Avatar, AvTone, ChipRow, Hint, TagChip } from '@felix/shared/ui/kit';
 import { PickList } from '@felix/shared/ui/pick';
 import { dShort, avatarTone } from '@felix/shared/data';
 
@@ -206,7 +206,7 @@ export function EntryTable({ entries, onOpen, empty, showDealer = true, compact 
   return <Table compact={compact} rows={entries} keyOf={e => e.id} onRow={onOpen} empty={empty || 'No entries match.'}
     cols={[
       { h: 'Reference', w: 1.3, cell: e => <X s={13} f="m" w={6}>{e.id}</X> },
-      { h: 'Type', w: 1.1, cell: e => e.type },
+      { h: 'Type', w: 1.1, cell: e => <View style={{ flexDirection: 'row', gap: 7, alignItems: 'center' }}><TagChip tag={tagOf(e)} /><X s={13.5}>{e.type}</X></View> },
       { h: 'Model', w: 0.6, cell: e => <X s={13.5} w={7}>{e.items.map(i => i.model).join(', ')}</X> },
       { h: 'Serial', w: 1, cell: e => <X s={13} f="m" w={6}>{e.items[0]?.code || '—'}{e.items.length > 1 ? ` +${e.items.length - 1}` : ''}</X> },
       { h: 'Old serial', w: 1, cell: e => e.items[0]?.oldSerial ? <X s={13} f="m" w={6} c={T.steel}>{e.items[0].oldSerial}</X> : <X s={13.5} c={T.zinc3}>—</X> },
@@ -214,7 +214,7 @@ export function EntryTable({ entries, onOpen, empty, showDealer = true, compact 
       { h: 'Date', w: 0.7, cell: e => dShort(e.date) },
       { h: 'Status', w: 1.1, cell: e => <StatusChip status={e.status} /> },
     ]}
-    mobile={{ av: e => <Avatar n="batt" tone={avatarTone(e.status) as AvTone} />, title: e => <>{e.items[0]?.model} · <Mono>{e.items[0]?.code || '—'}</Mono></>, sub: e => <><Mono>{e.id}</Mono>{showDealer ? ` · ${dealerName(e.dealerId)}` : ''} · {dShort(e.date)}</>, right: e => <StatusChip status={e.status} /> }} />;
+    mobile={{ av: e => <Avatar n="batt" tone={avatarTone(e.status) as AvTone} />, title: e => <>{e.items[0]?.model} · <Mono>{e.items[0]?.code || '—'}</Mono></>, sub: e => <><Mono>{tagOf(e)} {e.id}</Mono>{showDealer ? ` · ${dealerName(e.dealerId)}` : ''} · {dShort(e.date)}</>, right: e => <StatusChip status={e.status} /> }} />;
 }
 
 /* ---------- scanner ---------- */

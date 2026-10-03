@@ -3,10 +3,10 @@ import { View, Pressable, Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { useStore } from '@felix/shared/store';
-import { Challan, Entry } from '@felix/shared/domain';
+import { Challan, Entry, tagOf } from '@felix/shared/domain';
 import { printHtml, escapeHtml, saveHtmlDocument } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
-import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, BigOk, CheckBox, Kpis, Plate, PlateLab, PlateVal, AvTone, Tone, IconName, tap } from '@felix/shared/ui/kit';
+import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, BigOk, CheckBox, Kpis, Plate, PlateLab, PlateVal, AvTone, Tone, IconName, tap, TagChip } from '@felix/shared/ui/kit';
 import { Screen, AppBar, useD, useAbove } from './shell';
 import { useMyDealerNames } from './Network';
 import { getAccessToken } from '@felix/shared/api/session';
@@ -14,7 +14,7 @@ import { createChallan } from '@felix/shared/api/returns';
 import { toChallan } from '@felix/shared/api/mapping';
 import { errorMessage } from '@felix/shared/api/client';
 import { useSync } from '@felix/shared/api/sync';
-import { ageDays, approvedForRefund, challanHtml, challanStatus, coverOf, dLong, dShort, decisionOf, findBattery, nextChallanNo, personOf, refunds, spanShort, tShort, toSendBack } from '@felix/shared/data';
+import { ageDays, approvedForRefund, challanHtml, challanStatus, coverOf, dLong, dShort, decisionOf, findBattery, nextChallanNo, personOf, refunds, spanShort, tShort, toSendBack, travellingSerial, tagSummary } from '@felix/shared/data';
 
 const oldList = (e: Entry) => e.items.map(i => i.oldSerial).filter(Boolean).join(', ');
 
@@ -100,24 +100,34 @@ function D33Dispatch() {
     }
     const at = new Date().toISOString();
     const c: Challan = { no: nextChallanNo(state), dealerId, at, vehicle: vehicle.trim().toUpperCase(), driver: driver.trim(), entryIds: picked.map(e => e.id),
-      rows: picked.flatMap(e => e.items.filter(i => i.oldSerial).map(i => ({ serial: i.oldSerial, model: findBattery(state, i.oldSerial)?.model || i.model, ref: e.id, fault: i.fault || i.remarks || '—' }))) };
+      rows: picked.flatMap(e => e.items.filter(i => travellingSerial(e, i)).map(i => ({ serial: travellingSerial(e, i), model: findBattery(state, travellingSerial(e, i))?.model || i.model, ref: e.id, kind: tagOf(e), fault: i.fault || i.remarks || '—' }))) };
     record(c, ' (preview)');
   };
   return <Screen tab="truck" top={<AppBar title="Old batteries to send back" back="d07" right={<Chip tone="warn" label={`${rows.length} waiting`} />} />}
     footer={rows.length ? <Btn kind="primary" big icon="truck" label={busy ? 'Sending…' : `Dispatch ${count} ${count === 1 ? 'battery' : 'batteries'} to company`} disabled={!count || busy} onPress={dispatch} /> : undefined}>
     <Banner tone="info" icon="truck" style={{ marginBottom: 13 }}>When the company van comes, tick the batteries you are handing over and tap the button. The challan is made for you — no paper list to write.</Banner>
     {held.length > 0 && <Banner tone="warn" icon="alert" style={{ marginBottom: 13 }}><B>{held.length} special {held.length === 1 ? 'request' : 'requests'} waiting for head office.</B> {held.map(e => e.id).join(', ')} — cannot be sent yet.</Banner>}
-    <Card><CardH title="Ready to hand over" right={<Chip tone="mute" label="Tap to tick" />} />
-      {rows.length ? rows.map((e, i) => {
+    {/* One challan, two sections (client, 3 Oct 2026). The van takes both, but a man counting
+        batteries into it counts replacements and sales returns separately, so they are never
+        shown as one run of ticks. An empty section is not drawn at all. */}
+    {(['RP', 'SR'] as const).map(tag => {
+      const mine = rows.filter(e => tagOf(e) === tag);
+      if (!mine.length) return null;
+      return <Card key={tag} style={tag === 'SR' ? { marginTop: 12 } : undefined}>
+        <CardH title={tag === 'RP' ? 'Replacements — old batteries' : 'Sales returns'}
+          right={<View style={{ flexDirection: 'row', gap: 7 }}><TagChip tag={tag} /><Chip tone="mute" label={`${mine.length}`} /></View>} />
+      {mine.map((e, i) => {
         const on = !off.includes(e.id), age = ageDays(e.date), it = e.items[0];
         return <Pressable key={e.id} accessibilityRole="checkbox" accessibilityState={{ checked: on }} onPress={() => setOff(o => on ? [...o, e.id] : o.filter(x => x !== e.id))}
-          style={{ flexDirection: 'row', gap: 12, alignItems: 'center', paddingVertical: 13, borderBottomWidth: i < rows.length - 1 ? 1 : 0, borderBottomColor: T.zinc2 }}>
+          style={{ flexDirection: 'row', gap: 12, alignItems: 'center', paddingVertical: 13, borderBottomWidth: i < mine.length - 1 ? 1 : 0, borderBottomColor: T.zinc2 }}>
           <CheckBox on={on} />
           <View style={{ flex: 1, minWidth: 0 }}><X s={14.5} w={6} f="m">{oldList(e)}</X><X s={12.5} c={T.slate} style={{ marginTop: 2 }}>{findBattery(state, it.oldSerial)?.model || it.model} · {e.id}</X><X s={12.5} c={T.slate} style={{ marginTop: 2 }}>{e.dealerId === dealerId ? (e.customer || 'Customer not named') : `From ${names[e.dealerId] || 'your dealer'}`}</X></View>
           <Chip tone={age > 30 ? 'bad' : 'warn'} icon="clock" label={age === 0 ? 'Today' : `${age} ${age === 1 ? 'day' : 'days'}`} />
         </Pressable>;
-      }) : <X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>Nothing to send back. Old batteries from new replacements appear here.</X>}
-    </Card>
+      })}
+    </Card>;
+    })}
+    {!rows.length && <Card><X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>Nothing to send back. Old batteries from replacements, and sales returns, appear here.</X></Card>}
     <Hint icon="lock" style={{ marginTop: 11 }}>The company decides each warranty claim only after it opens and checks that battery. Sending them back is what closes the claim.</Hint>
     {rows.length > 0 && <><SecT title="Pickup details" />
       <View style={{ flexDirection: 'row', gap: 9 }}>
@@ -266,12 +276,13 @@ export function D37() {
     <table><thead><tr><th>Request</th><th>Batteries</th><th>Approved on</th></tr></thead><tbody>${r.approved.map(x => `<tr><td>${escapeHtml(x.entry.id)}</td><td>${escapeHtml(x.entry.items.map(i => `${i.oldSerial} · ${i.model}`).join(', '))}</td><td>${escapeHtml(dLong(x.date))}</td></tr>`).join('')}</tbody></table>
     <p>Approved for refund: <b>${r.approved.length}</b> · Still being checked: ${r.checking.length} · Refused: ${r.refused.length}</p>`).then(() => d.toast('Statement ready.')).catch(() => d.toast('The statement could not be printed on this device.'));
   return <Screen tab="truck" top={<AppBar title="Refunds" back="d32" right={<Chip tone="live" label={`${r.monthCount} this month`} />} />}>
-    <Banner tone="ok" icon="check" style={{ marginBottom: 13 }}><B>These batteries are approved for refund.</B> Each one is approved after it is checked at the factory.</Banner>
-    <Kpis items={[{ v: String(r.monthCount), l: 'Approved this month' }, { v: String(r.approved.length), l: 'Approved for refund' }, { v: String(r.checking.length), l: 'Still being checked', tone: 'flag' }, { v: String(r.refused.length), l: 'Refused', tone: 'bad' }]} />
+    {/* Quantities, never an amount (client, 28 Sep 2026 D-20, restated 3 Oct 2026). */}
+    <Banner tone="ok" icon="check" style={{ marginBottom: 13 }}><B>These batteries are approved for refund.</B> Each one is approved after it is checked at the factory. Replacements and sales returns are counted apart.</Banner>
+    <Kpis items={[{ v: String(r.monthCount), l: 'Approved this month' }, { v: String(r.approved.length), l: 'Approved for refund', sub: tagSummary(r.byTag.approved) }, { v: String(r.checking.length), l: 'Still being checked', tone: 'flag' }, { v: String(r.refused.length), l: 'Refused', tone: 'bad' }]} />
     <SecT title="Approved for refund" />
     <Card>{r.approved.length ? r.approved.map((x, i) => <Line key={x.entry.id} last={i === r.approved.length - 1} onPress={() => d.go('d32', x.entry.id)} av={<Avatar n="check" tone="green" />} title={oldList(x.entry) || x.entry.id} titleMono
       sub={`${x.entry.items[0]?.model} · ${x.entry.id} · ${dShort(x.date)}`}
-      right={<StatusChip status="Approved" label="Approved for refund" />} />) : <X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>Nothing approved yet. Batteries appear here once head office approves them.</X>}</Card>
+      right={<View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}><TagChip tag={tagOf(x.entry)} /><StatusChip status="Approved" label="Approved for refund" /></View>} />) : <X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>Nothing approved yet. Batteries appear here once head office approves them.</X>}</Card>
     {r.refused.length > 0 && <><SecT title="Refused" />
       <Card>{r.refused.map((e, i) => <Line key={e.id} last={i === r.refused.length - 1} onPress={() => d.go('d32', e.id)} av={<Avatar n="x" tone="red" />} title={oldList(e) || e.id} titleMono
         sub={`${e.items[0]?.model} · ${dShort(e.date)} · ${decisionOf(state, e.id)?.reason || 'outside cover'}`} right={<StatusChip status="Rejected" label="Not approved" />} />)}

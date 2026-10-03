@@ -8,7 +8,13 @@ export function findClaimById(dbh: DbOrTx, id: string) {
   return dbh.select().from(warrantyClaims).where(eq(warrantyClaims.id, id)).then((r) => r[0]);
 }
 
-export type NewClaim = { ref: string; dealerId: string; chainId: string; oldBatteryId: string; newBatteryId: string };
+// `oldBatteryId` is the battery that went back — a replacement's old one, or the one a sales
+// return sent. A sales-return claim has no warranty chain and no new battery (client, 3 Oct 2026).
+export type NewClaim = {
+  ref: string; dealerId: string; oldBatteryId: string;
+  kind?: 'replacement' | 'sales_return';
+  chainId?: string | null; newBatteryId?: string | null;
+};
 
 export async function insertClaim(tx: Tx, input: NewClaim) {
   const [row] = await tx.insert(warrantyClaims).values(input).returning();

@@ -5,7 +5,7 @@ import { Entry, Item, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approv
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, ChipRow, Label, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
-import { approvedForRefund, batteryUnits, entryErrors, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, specialLine, specialOutcome, specialWaiting, tShort, monthShort } from '@felix/shared/data';
+import { approvedForRefund, batteryUnits, entryErrors, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, specialLine, specialOutcome, specialWaiting, tShort, monthShort, salesReturnsOf } from '@felix/shared/data';
 import { listPhotos, splitTag, uploadEntryPhotos } from '@felix/shared/api/photos';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
@@ -496,6 +496,9 @@ export function EntryDetail({ id }: { id?: string }) {
   // It opens here instead, straight from what the thumbnail already downloaded, so it is instant
   // (client, 2 Oct 2026). `open` stays for the "open the original" link inside the viewer.
   const open = (uri: string) => { Linking.openURL(uri).catch(() => a.toast('The photo could not be opened here.')); };
+  // every sales return this request's batteries have already been through
+  const priorReturns = e.id.startsWith('SR-') || e.type === 'Sales Return' ? []
+    : [...new Map(e.items.flatMap(it => salesReturnsOf(state, it.oldSerial, it.oldModel || it.model)).map(r => [r.id, r])).values()];
   const g = parseGps(e.gps);
   const banner = e.status === 'Conflict' ? <Banner tone="bad" icon="alert"><B>Serial exception — this cannot be approved yet.</B> {problems[0] || 'A serial needs checking.'} Ask the dealer for a correction, or correct it yourself.</Banner>
     : specialWaiting(e) ? <Banner tone="warn" icon="alert"><B>Special replacement request — decide it first.</B> The old battery was past its warranty term. {e.items.filter(i => i.coverCase).map(i => specialLine(i, e.date)).join(' · ')}. Until you approve it the distributor cannot dispatch the old battery. {canEdit ? <><B u onPress={() => setSpecialAct('approve')}>Approve</B> · <B u onPress={() => setSpecialAct('reject')}>Reject</B></> : null}</Banner>
@@ -519,6 +522,14 @@ export function EntryDetail({ id }: { id?: string }) {
       <Btn kind="ghost" sm icon="down" label="Print acknowledgement" onPress={() => { if (dealer) printEntry(e, dealer).catch(() => a.toast('Printing is not available on this device.')); }} />
     </>}>
     <View style={{ marginBottom: 14 }}>{banner}</View>
+    {/* A sales-returned battery comes home with the same serial, so the same number can turn up
+        later as the old battery on a replacement. Say so here, with what was found, or the same
+        battery goes round twice with nobody the wiser (client, 3 Oct 2026). */}
+    {priorReturns.length > 0 && <Banner tone="warn" icon="truck" style={{ marginBottom: 14 }}>
+      <B>A battery on this request has been sent back before.</B>{' '}
+      {priorReturns.map(r => `${r.id} (${r.returnKind === 'Unsold' ? 'unsold' : 'faulty'}${r.decidedAt ? `, ${dShort(r.decidedAt)}` : ''})`).join(', ')} — the same serial came home after being put right.{' '}
+      <B u onPress={() => a.go('entry', priorReturns[0]!.id)}>Open {priorReturns[0]!.id}</B>
+    </Banner>}
     {e.special && !specialWaiting(e) && e.status !== 'With distributor' ? <Banner tone={e.special === 'Approved' ? 'ok' : 'bad'} icon={e.special === 'Approved' ? 'check' : 'x'} style={{ marginBottom: 14 }}>
       <B>Special request {e.special === 'Approved' ? 'approved' : 'rejected'}{e.specialDecidedAt ? ` on ${dShort(e.specialDecidedAt)}` : ''}.</B> {e.specialReason || ''} {e.items.filter(i => i.coverCase).map(i => `${specialLine(i, e.date)}. ${e.special === 'Rejected' ? 'The new battery has no warranty.' : specialOutcome(i)}`).join(' ')}</Banner> : null}
     <ReasonDialog open={!!specialAct} title={`${specialAct === 'reject' ? 'Reject' : 'Approve'} special request ${e.id}`} confirm={specialAct === 'reject' ? 'Reject request' : 'Approve special request'} kind={specialAct === 'reject' ? 'danger' : 'blue'} suggestions={specialAct === 'reject' ? SPECIAL_REJECT : SPECIAL_APPROVE} onClose={() => setSpecialAct(null)}

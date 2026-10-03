@@ -24,5 +24,10 @@ export function buildEntryBody(e: Entry): EntryCreateInput {
     ...(entryType === 'replacement' ? { oldCode: it.oldSerial, oldModelId: it.oldModel || undefined, faultCode: it.fault ? faultCode(it.fault) : undefined } : {}),
     remarks: it.remarks || undefined,
   }));
-  return { entryType, place: e.place, customerName: e.customer || undefined, items, gps: e.gps, signature: e.signature, coverTold: !!e.coverTold };
+  return {
+    entryType, place: e.place, customerName: e.customer || undefined, items,
+    gps: e.gps, signature: e.signature, coverTold: !!e.coverTold,
+    // a sales return must say which kind it is; a replacement never carries one
+    ...(entryType === 'sales_return' && e.returnKind ? { returnKind: e.returnKind.toLowerCase() as 'unsold' | 'defective' } : {}),
+  };
 }

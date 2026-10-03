@@ -48,7 +48,9 @@ export async function dispatch(ctx: Ctx, input: ChallanCreateBody) {
     const e = byId.get(id);
     // 404 not 403 for another dealer's entry — no existence leak (I-3)
     if (!e || !shops.has(e.dealerId)) throw new AppError('entry_not_found', 404, 'Entry not found.');
-    if (e.entryType !== 'replacement') throw new AppError('nothing_to_dispatch', 422, `${e.ref} is not a replacement — there is no old battery to send back.`);
+    // One challan carries both kinds in two sections (client, 3 Oct 2026): a replacement's old
+    // battery, and a sales return's battery going back to be put right.
+    if (e.entryType === 'regular_sales') throw new AppError('nothing_to_dispatch', 422, `${e.ref} is a sale — there is no battery to send back.`);
     if (e.status === 'rejected') throw new AppError('nothing_to_dispatch', 422, `${e.ref} was refused — nothing to send back.`);
     // a dealer's request is sent back only once its distributor has approved it (client, 2 Oct 2026)
     if (e.status === 'with_distributor') throw new AppError('not_approved_yet', 422, `${e.ref} is waiting for your approval. Approve it first, then send its old battery.`);
@@ -56,14 +58,19 @@ export async function dispatch(ctx: Ctx, input: ChallanCreateBody) {
     if (e.specialStatus === 'pending') throw new AppError('special_pending', 422, `${e.ref} is a special request — its old battery is past the warranty term. It can be sent only after head office approves it.`);
   }
 
-  const items = (await entriesRepo.findItemsByEntryIds(db, ids)).filter((it) => !!it.oldBatteryCode);
-  if (!items.length) throw new AppError('nothing_to_dispatch', 422, 'None of these entries has an old battery to send back.');
+  // Which battery travels: a replacement sends its OLD one back, a sales return sends the battery
+  // itself — the same one that will come home working.
+  const kindOf = (entryId: string): 'replacement' | 'sales_return' => (byId.get(entryId)?.entryType === 'sales_return' ? 'sales_return' : 'replacement');
+  const travellingCode = (it: { entryId: string; oldBatteryCode: string | null; batteryCode: string }) =>
+    kindOf(it.entryId) === 'sales_return' ? it.batteryCode : it.oldBatteryCode;
+  const items = (await entriesRepo.findItemsByEntryIds(db, ids)).filter((it) => !!travellingCode(it));
+  if (!items.length) throw new AppError('nothing_to_dispatch', 422, 'None of these entries has a battery to send back.');
   // A dealer's old battery leaves only once it has reached the distributor and he marked it
   // arrived — a challan must never list a battery he does not have (client, 3 Oct 2026).
   const notHere = items.find((it) => byId.get(it.entryId)?.dealerId !== dealerId && !it.distributorReceivedAt);
   if (notHere) {
     const ref = byId.get(notHere.entryId)?.ref ?? notHere.entryId;
-    throw new AppError('not_arrived', 422, `Old battery ${notHere.oldBatteryCode} on ${ref} has not reached you yet. Mark it arrived when the dealer hands it over, then send it.`);
+    throw new AppError('not_arrived', 422, `Battery ${travellingCode(notHere)} on ${ref} has not reached you yet. Mark it arrived when the dealer hands it over, then send it.`);
   }
   const [dup] = await repo.findLinesByEntryItemIds(db, items.map((it) => it.id));
   if (dup) {
@@ -79,7 +86,8 @@ export async function dispatch(ctx: Ctx, input: ChallanCreateBody) {
     });
     if (!challan) throw new AppError('internal_error', 500, 'Could not create the challan.');
     const lines = await repo.insertLines(tx, items.map((it) => ({
-      challanId: challan.id, entryId: it.entryId, entryItemId: it.id, batteryCode: it.oldBatteryCode as string, modelId: it.modelId, faultCode: it.faultCode,
+      challanId: challan.id, entryId: it.entryId, entryItemId: it.id, kind: kindOf(it.entryId),
+      batteryCode: travellingCode(it) as string, modelId: it.modelId, faultCode: it.faultCode,
     })));
     await audit(tx, { ctx, action: 'challan.dispatched', entityType: 'challan', entityId: challan.id, entityRef: no, after: { lines: lines.length, entryIds: ids }, outcome: 'ok' });
     return { ...challan, lines };

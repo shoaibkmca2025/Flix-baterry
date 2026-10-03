@@ -7,7 +7,7 @@ import { errorMessage } from '@felix/shared/api/client';
 import { useSync } from '@felix/shared/api/sync';
 import { buildEntryBody } from '@felix/shared/api/entry-body';
 import { uploadEntryPhotos } from '@felix/shared/api/photos';
-import { Entry, today, validateEntry } from '@felix/shared/domain';
+import { Entry, today, validateEntry, tagOf } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, Mono, Btn, BtnRow, Card, Chip, StatusChip, Kpis, SecT, Line, Avatar, Gap, AvTone } from '@felix/shared/ui/kit';
 import { Screen, AppBar, useD, useTr, useAbove } from './shell';
@@ -58,7 +58,7 @@ export const EntryLine = ({ e, last, onPress, showType }: { e: Entry; last?: boo
   // The dealer knows a request by who it was for, so the name leads (client, 29 Sep 2026);
   // the batteries follow — the first one, and how many more on the same request.
   const battery = <>{it?.model || '—'} · <Mono>{it?.serial || it?.oldSerial?.slice(-4) || '····'}</Mono>{e.items.length > 1 ? ` + ${e.items.length - 1} more` : ''}</>;
-  const ref = <><Mono>{e.id} · {dShort(e.date)}{showType ? ` · qty ${e.items.length}` : ''}</Mono>{e.status === 'Draft' && e.items.some((x, i) => !!x.code && needsNewBatteryPhoto(e, i)) && <X s={12.5} w={6} c="#7A5406">{'  '}Photo of new battery needed</X>}</>;
+  const ref = <><Mono>{tagOf(e)} {e.id} · {dShort(e.date)}{showType ? ` · qty ${e.items.length}` : ''}</Mono>{e.status === 'Draft' && e.items.some((x, i) => !!x.code && needsNewBatteryPhoto(e, i)) && <X s={12.5} w={6} c="#7A5406">{'  '}Photo of new battery needed</X>}</>;
   return <Line last={last} onPress={onPress} label={`Open ${e.id}${name ? `, ${name}` : ''}`} av={<Avatar n="batt" tone={avatarTone(e.status) as AvTone} />}
     title={<>{name || battery}{showType && <X s={12.5} w={5} c={T.slate}>{'  '}{e.type}</X>}</>}
     sub={name ? battery : ref} sub2={name ? ref : undefined} right={<StatusChip status={e.status} />} />;

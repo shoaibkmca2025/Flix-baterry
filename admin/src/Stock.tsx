@@ -295,6 +295,12 @@ export function Returns({ id }: { id?: string }) {
       }
       return c.receivedAt ? <Chip tone="live" icon="box" label={`Arrived ${dShort(c.receivedAt)}`} /> : <Chip tone="vio" icon="truck" label="On the way" />;
     };
+    /* One challan carries both kinds in two sections (client, 3 Oct 2026). The list says how
+       many of each are on it, so a van's load reads without opening it. */
+    const sections = (c: Challan) => (['RP', 'SR'] as const).map(tag => {
+      const n = c.rows.filter(r => (r.kind ?? 'RP') === tag).length;
+      return n ? <Chip key={tag} tone={tag === 'SR' ? 'vio' : 'live'} label={`${tag} ${n}`} /> : null;
+    });
     const dealerCount = new Set(cs.map(c => c.dealerId)).size;
     const list = <Stack>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
@@ -305,7 +311,8 @@ export function Returns({ id }: { id?: string }) {
         : days.map(({ day, list: dayList }) => <Box key={day} title={`Sent ${day}`} right={<X s={12} c={T.slate}>{dayList.length} {dayList.length === 1 ? 'challan' : 'challans'}</X>}>
           <View style={{ paddingHorizontal: 14 }}>{dayList.map((c, i) => <Line key={c.no} last={i === dayList.length - 1} onPress={() => a.go('returns', `${tab}|${c.no}`)}
             av={<Avatar n={c.receivedAt ? 'box' : 'truck'} tone={c.no === selChallan ? 'amber' : c.receivedAt ? 'green' : 'vio'} />}
-            title={<Mono>{c.no}</Mono>} sub={`${dealerName(c.dealerId)} · ${shown(c)}${c.vehicle ? ` · ${c.vehicle}` : ''}`} right={chip(c)} />)}</View>
+            title={<Mono>{c.no}</Mono>} sub={`${dealerName(c.dealerId)} · ${shown(c)}${c.vehicle ? ` · ${c.vehicle}` : ''}`}
+            sub2={<View style={{ flexDirection: 'row', gap: 6, marginTop: 3 }}>{sections(c)}</View>} right={chip(c)} />)}</View>
         </Box>)}
       {loose.length > 0 && <Box title="Not on a challan" right={<X s={12} c={T.slate}>{count(loose.length)}</X>}><View style={{ paddingHorizontal: 14 }}>{loose.map((e, i, arr) => row(e, i, arr, false))}</View></Box>}
     </Stack>;

@@ -38,6 +38,7 @@ export type NewEntry = {
   coverToldAt: Date | null;
   submittedBy: string;
   status?: (typeof entryStatus.enumValues)[number]; // a dealer's request starts with_distributor
+  returnKind?: 'unsold' | 'defective' | null; // sales returns only
   specialStatus?: 'pending' | null; // a battery on it is past its term — head office decides it in Correction requests
 };
 

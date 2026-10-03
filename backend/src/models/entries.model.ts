@@ -16,6 +16,9 @@ export const entryType = pgEnum('entry_type', ['replacement', 'sales_return', 'r
 // with_distributor: a dealer's request waiting for its distributor (client, 2 Oct 2026); his
 // approval moves it to submitted (head office), his refusal to rejected.
 export const entryStatus = pgEnum('entry_status', ['submitted', 'approved', 'rejected', 'with_distributor']);
+// A sales return is stock that never sold, or one that is faulty (client, 3 Oct 2026). Null on
+// a replacement, which has its own fault on each item instead.
+export const returnKind = pgEnum('return_kind', ['unsold', 'defective']);
 // A replacement for a battery past its term — inside the grace months or past the cover — is a
 // SPECIAL request (client, 3 Oct 2026): the distributor approves it, then head office decides it in
 // Correction requests. Until head office approves, its old battery cannot be dispatched.
@@ -37,6 +40,7 @@ export const entries = pgTable(
     remarks: text('remarks'),
     totalQty: integer('total_qty').notNull().default(0), // recomputed from items on every write
     status: entryStatus('status').notNull().default('submitted'),
+    returnKind: returnKind('return_kind'), // sales returns only
     gps: text('gps'),
     signature: text('signature'),
     coverToldAt: timestamp('cover_told_at', { withTimezone: true }),

@@ -34,8 +34,12 @@ test('everything the apps send is something the server accepts', () => {
   }
   // several batteries on one request
   assert.equal(sent(entry({ items: [0, 1, 2].map(n => ({ ...base.items[0]!, id: `i${n}`, code: `2610000${n + 1}`, oldSerial: `2608000${n + 1}` })) })).success, true);
-  // a sales return has no old battery and no fault
-  assert.equal(sent(entry({ type: 'Sales Return', items: [{ ...base.items[0]!, oldSerial: '', fault: '' }] })).success, true);
+  // a sales return has no old battery and no fault, but must say which kind it is
+  assert.equal(sent(entry({ type: 'Sales Return', returnKind: 'Unsold', items: [{ ...base.items[0]!, oldSerial: '', fault: '' }] })).success, true);
+  // a dealer may still name a fault on a defective one
+  assert.equal(sent(entry({ type: 'Sales Return', returnKind: 'Defective', items: [{ ...base.items[0]!, oldSerial: '', fault: 'Leakage' }] })).success, true);
+  // ...and the server refuses one that does not say
+  assert.equal(sent(entry({ type: 'Sales Return', items: [{ ...base.items[0]!, oldSerial: '', fault: '' }] })).success, false);
 });
 
 test('the server refuses a replacement with no fault — so the apps must ask for one', () => {
@@ -56,7 +60,7 @@ test('the server refuses a replacement with no fault — so the apps must ask fo
 test('both apps offer the same two entry types, and the server knows them', () => {
   assert.deepEqual([...ENTRY_TYPES], ['Replacement', 'Sales Return']);
   for (const type of ENTRY_TYPES) {
-    const e = entry({ type, ...(type === 'Sales Return' ? { items: [{ ...entry().items[0]!, oldSerial: '', fault: '' }] } : {}) });
+    const e = entry({ type, ...(type === 'Sales Return' ? { returnKind: 'Unsold', items: [{ ...entry().items[0]!, oldSerial: '', fault: '' }] } : {}) });
     assert.equal(sent(e).success, true, `${type} was refused by the server`);
   }
 });

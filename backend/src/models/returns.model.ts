@@ -1,4 +1,5 @@
 import { boolean, index, integer, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { claimKind } from './claims.model';
 import { dealers } from './identity.model';
 import { entries, entryItems } from './entries.model';
 import { plants } from './masters.model';
@@ -46,7 +47,9 @@ export const challanLines = pgTable(
       .notNull()
       .unique() // an old battery travels back once
       .references(() => entryItems.id),
-    batteryCode: text('battery_code').notNull(), // the OLD battery's code, normalised
+    // One challan carries both kinds in two sections (client, 3 Oct 2026); the line says which.
+    kind: claimKind('kind').notNull().default('replacement'),
+    batteryCode: text('battery_code').notNull(), // the battery travelling: a replacement's OLD one, or the returned one
     modelId: text('model_id').notNull(),
     faultCode: text('fault_code'),
     stage: returnStage('stage').notNull().default('in_transit'),

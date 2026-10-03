@@ -22,6 +22,8 @@ export type EntryCreateInput = {
   gps?: string;
   signature?: string;
   coverTold?: boolean;
+  /** sales returns only: unsold stock, or a faulty battery (client, 3 Oct 2026) */
+  returnKind?: ReturnKindApi;
 };
 
 export type EntryResult = {
@@ -50,6 +52,7 @@ export type EntryResult = {
   specialReason?: string | null;
   createdAt: string;
   updatedAt: string;
+  returnKind?: ReturnKindApi | null; // sales returns only
 };
 
 export function createEntry(input: EntryCreateInput, accessToken: string) {
@@ -59,6 +62,8 @@ export function createEntry(input: EntryCreateInput, accessToken: string) {
 export function getEntry(id: string, accessToken: string) {
   return apiGet<EntryResult & { items: unknown[] }>(`/entries/${id}`, { accessToken });
 }
+
+export type ReturnKindApi = 'unsold' | 'defective';
 
 export type EntryItemResult = {
   id: string;

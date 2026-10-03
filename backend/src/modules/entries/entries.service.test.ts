@@ -83,6 +83,7 @@ import * as claimsService from '../claims/claims.service';
 import * as returnsRepo from '../returns/returns.repository';
 import { postMovementInTx } from '../stock/stock.service';
 import * as repo from './entries.repository';
+import { nextFormattedRef } from '../../utils/ids';
 import { addPhoto, approve, correctItem, create, decideSpecial, distributorDecide, getById, list, listPhotos, markArrived, reject, reviewItem, settle } from './entries.service';
 import { putObject } from '../../utils/storage';
 import type { Ctx } from '../../utils/context';
@@ -164,6 +165,31 @@ describe('create', () => {
     vi.mocked(repo.insertEntryItem).mockResolvedValue({ id: 'item-7' } as never);
     const r = create(dealerCtx, baseBody({ entryType: 'replacement', items: [{ modelId: 'M5', code: '26091234', oldCode: '2605231', faultCode: 'not_holding_charge' }] }));
     await expect(r).resolves.toBeTruthy();
+  });
+
+  // RP and SR, each with its own series, so a reference says what it is at a glance (client,
+  // 3 Oct 2026). Requests numbered before this keep their ENT- reference.
+  it('tags a replacement RP and a sales return SR, on separate counters', async () => {
+    vi.mocked(repo.insertEntry).mockResolvedValue({ id: 'entry-9', ref: 'RP-26-09-0001' } as never);
+    vi.mocked(repo.insertEntryItem).mockResolvedValue({ id: 'item-9' } as never);
+
+    await create(dealerCtx, baseBody({ entryType: 'replacement', items: [{ modelId: 'M5', code: '26090001', oldCode: '26041212', oldModelId: 'M5', faultCode: 'low_backup' }] }));
+    expect(nextFormattedRef).toHaveBeenLastCalledWith(expect.anything(), 'RP', 'entry_rp', expect.any(String));
+
+    await create(dealerCtx, baseBody({ entryType: 'sales_return', returnKind: 'unsold', items: [{ modelId: 'M5', code: '2605231' }] }));
+    expect(nextFormattedRef).toHaveBeenLastCalledWith(expect.anything(), 'SR', 'entry_sr', expect.any(String));
+  });
+
+  it('a sales return says which kind it is, and the kind is stored', async () => {
+    vi.mocked(repo.insertEntry).mockResolvedValue({ id: 'entry-10', ref: 'SR-26-09-0002' } as never);
+    vi.mocked(repo.insertEntryItem).mockResolvedValue({ id: 'item-10' } as never);
+
+    await create(dealerCtx, baseBody({ entryType: 'sales_return', returnKind: 'defective', items: [{ modelId: 'M5', code: '2605231' }] }));
+    expect(repo.insertEntry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ returnKind: 'defective' }));
+
+    // a replacement never carries one
+    await create(dealerCtx, baseBody({ entryType: 'replacement', items: [{ modelId: 'M5', code: '26090001', oldCode: '26041212', oldModelId: 'M5', faultCode: 'low_backup' }] }));
+    expect(repo.insertEntry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ returnKind: null }));
   });
 
   it('a sales return (a battery already in the field) may have 7 digits', async () => {
@@ -362,6 +388,29 @@ describe('approve — sales_return', () => {
     expect(result.items[0]).toMatchObject({ battery: { id: 'batt-1', state: 'returned' } });
     expect(batteriesRepo.updateBatteryReplacedBy).not.toHaveBeenCalled();
     expect(batteriesRepo.insertBattery).not.toHaveBeenCalled();
+  });
+
+  // A sales return runs the same course as a replacement from approval on: a claim is raised,
+  // the battery is checked, head office decides, and the same battery comes home working
+  // (client, 3 Oct 2026).
+  it('raises a claim of its own kind — no warranty chain, no new battery', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue({ id: 'entry-1', status: 'submitted', dealerId: 'dealer-1', entryType: 'sales_return', entryDate: '2026-09-17' } as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([{ id: 'item-1', seq: 0, modelId: 'M5', batteryCode: 'M526041212', batteryCodeEntered: '26041212' }] as never);
+    vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValue({ id: 'batt-1', state: 'sold', custodian: 'customer', dealerId: 'dealer-1' } as never);
+    vi.mocked(claimsRepo.insertClaim).mockResolvedValue({ id: 'claim-sr', ref: 'CLM-26-10-0009' } as never);
+    vi.mocked(repo.updateEntryStatus).mockResolvedValue({ id: 'entry-1', status: 'approved' } as never);
+
+    const result = await approve(adminCtx, 'entry-1', 'ok');
+
+    expect(claimsRepo.insertClaim).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      kind: 'sales_return', dealerId: 'dealer-1', oldBatteryId: 'batt-1',
+    }));
+    // a sales-return claim names no chain and no new battery: there is only the one battery
+    const sent = vi.mocked(claimsRepo.insertClaim).mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(sent.chainId).toBeUndefined();
+    expect(sent.newBatteryId).toBeUndefined();
+    expect(result.items[0]).toMatchObject({ claim: { id: 'claim-sr' } });
+    expect(repo.updateEntryItemLinks).toHaveBeenCalledWith(expect.anything(), 'item-1', { batteryId: 'batt-1', claimId: 'claim-sr' });
   });
 });
 

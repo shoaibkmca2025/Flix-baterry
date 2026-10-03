@@ -25,12 +25,19 @@ export const EntryCreateBody = z.object({
   gps: z.string().trim().optional(),
   signature: z.string().trim().optional(),
   coverTold: z.boolean().default(false),
+  // Which kind of sales return: stock that never sold, or one that is faulty (client, 3 Oct 2026).
+  returnKind: z.enum(['unsold', 'defective']).optional(),
 }).superRefine((v, ctx) => {
   if (v.entryType === 'replacement') {
     v.items.forEach((item, i) => {
       if (!item.oldCode) ctx.addIssue({ code: 'custom', message: 'Enter the old battery code.', path: ['items', i, 'oldCode'] });
       if (!item.faultCode) ctx.addIssue({ code: 'custom', message: 'Choose what is wrong with the old battery.', path: ['items', i, 'faultCode'] });
     });
+  }
+  // A sales return must say which kind it is; the fault stays optional, because stock coming
+  // back unsold has nothing wrong with it to name.
+  if (v.entryType === 'sales_return' && !v.returnKind) {
+    ctx.addIssue({ code: 'custom', message: 'Say whether this is unsold stock or a faulty battery.', path: ['returnKind'] });
   }
 });
 export type EntryCreateBody = z.infer<typeof EntryCreateBody>;

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, Pressable, Image, Linking } from 'react-native';
 import { useStore } from '@felix/shared/store';
 import type { Entry } from '@felix/shared/domain';
+import { tagOf } from '@felix/shared/domain';
 import { useSync } from '@felix/shared/api/sync';
 import { distributorDecide, markArrived } from '@felix/shared/api/entries';
 import { listPhotos, type EntryPhoto } from '@felix/shared/api/photos';
@@ -144,7 +145,7 @@ export function D42() {
   const decided = theirs.filter(e => e.distributorDecidedAt).sort((a, b) => (b.distributorDecidedAt || '').localeCompare(a.distributorDecidedAt || '')).slice(0, 10);
   const row = (e: Entry, i: number, arr: Entry[]) => <Line key={e.id} last={i === arr.length - 1} onPress={() => d.go('d43', e.id)} label={`Review ${e.id}`}
     av={<Avatar n={e.type === 'Replacement' ? 'swap' : 'truck'} tone={e.status === 'With distributor' ? 'amber' : e.status === 'Rejected' ? 'red' : 'green'} />}
-    title={names[e.dealerId] || 'Your dealer'} sub={`${e.type} · ${batteriesOf(e)}`} sub2={<Mono>{e.id} · {dShort(e.date)}</Mono>}
+    title={names[e.dealerId] || 'Your dealer'} sub={`${e.type} · ${batteriesOf(e)}`} sub2={<Mono>{tagOf(e)} {e.id} · {dShort(e.date)}</Mono>}
     right={<StatusChip status={e.status} label={e.status === 'Submitted' || e.status === 'Under Review' ? 'Sent to head office' : undefined} />} chev />;
   return <Screen top={<AppBar title="Requests from my dealers" back="d07" />}>
     <Banner tone="info" icon="people" style={{ marginBottom: 13 }}><B>Your dealers’ replacements and sales returns come to you first.</B> Check each one and its photos. Approving sends it to head office — and means you have the old battery from the dealer.</Banner>
@@ -291,7 +292,7 @@ export function D44({ p }: { p?: string }) {
           <Avatar n={e.type === 'Replacement' ? 'swap' : 'truck'} tone={s.tone === 'warn' ? 'amber' : s.tone === 'bad' ? 'red' : s.tone === 'live' ? 'green' : s.tone === 'vio' ? 'vio' : 'mute'} />
           <View style={{ flex: 1, minWidth: 0 }}>
             <X s={14.5} w={6} f="m">{it.oldSerial ? `${it.oldSerial} → ${it.code}` : it.code}</X>
-            <X s={12.5} c={T.slate}>{e.type} · <Mono>{e.id}</Mono> · {dShort(e.date)}</X>
+            <X s={12.5} c={T.slate}>{e.type} · <Mono>{tagOf(e)} {e.id}</Mono> · {dShort(e.date)}</X>
             <X s={12} c={T.slate}>{s.hint}</X>
             {it.coverCase ? <X s={12} w={6} c="#8A5A00">Special · {specialLine(it, e.date)}</X> : null}
           </View>

@@ -127,8 +127,34 @@ describe('dispatch — a dealer hands old batteries to the van', () => {
     expect(repo.insertChallan).not.toHaveBeenCalled();
   });
 
-  it('refuses a sales return — there is no old battery', async () => {
-    vi.mocked(entriesRepo.findEntriesByIds).mockResolvedValue([{ ...replacement, entryType: 'sales_return' }] as never);
+  // One challan, two sections (client, 3 Oct 2026): a replacement's OLD battery travels, and a
+  // sales return sends the battery itself — the same one that comes home working.
+  it('carries a sales return too, as its own kind of line, with the battery itself on it', async () => {
+    vi.mocked(entriesRepo.findEntriesByIds).mockResolvedValue([{ ...replacement, entryType: 'sales_return', ref: 'SR-26-10-0001' }] as never);
+    vi.mocked(entriesRepo.findItemsByEntryIds).mockResolvedValue([{ ...item, oldBatteryCode: null, batteryCode: 'M526100042' }] as never);
+    vi.mocked(repo.findLinesByEntryItemIds).mockResolvedValue([]);
+    vi.mocked(repo.insertChallan).mockResolvedValue({ id: 'chl-1', no: 'CHL-26-10-0001', status: 'dispatched' } as never);
+    vi.mocked(repo.insertLines).mockResolvedValue([] as never);
+
+    await dispatch(dealerCtx, { entryIds: ['entry-1'] });
+
+    expect(vi.mocked(repo.insertLines).mock.calls[0]?.[1]?.[0]).toMatchObject({ kind: 'sales_return', batteryCode: 'M526100042' });
+  });
+
+  it("a replacement's line still carries its OLD battery, marked as a replacement", async () => {
+    vi.mocked(entriesRepo.findEntriesByIds).mockResolvedValue([replacement] as never);
+    vi.mocked(entriesRepo.findItemsByEntryIds).mockResolvedValue([item] as never);
+    vi.mocked(repo.findLinesByEntryItemIds).mockResolvedValue([]);
+    vi.mocked(repo.insertChallan).mockResolvedValue({ id: 'chl-1', no: 'CHL-26-10-0001', status: 'dispatched' } as never);
+    vi.mocked(repo.insertLines).mockResolvedValue([] as never);
+
+    await dispatch(dealerCtx, { entryIds: ['entry-1'] });
+
+    expect(vi.mocked(repo.insertLines).mock.calls[0]?.[1]?.[0]).toMatchObject({ kind: 'replacement', batteryCode: item.oldBatteryCode });
+  });
+
+  it('refuses a sale — there is no battery coming back', async () => {
+    vi.mocked(entriesRepo.findEntriesByIds).mockResolvedValue([{ ...replacement, entryType: 'regular_sales' }] as never);
     await expect(dispatch(dealerCtx, { entryIds: ['entry-1'] })).rejects.toMatchObject({ code: 'nothing_to_dispatch' });
   });
 

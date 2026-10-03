@@ -2,13 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Image, StyleSheet } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useStore } from '@felix/shared/store';
-import { Entry, Item, State, DEFAULT_DIGIT_LENGTHS, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, deriveCode, digitsOf, expiryFrom, fullCode, isValidDigits, lengthsLabel, newEntry, newItem, normalize, sameBattery, splitLabel, today, validateEntry } from '@felix/shared/domain';
+import { Entry, Item, State, DEFAULT_DIGIT_LENGTHS, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, deriveCode, digitsOf, expiryFrom, fullCode, isValidDigits, lengthsLabel, newEntry, newItem, normalize, sameBattery, splitLabel, today, validateEntry, ReturnKind, RETURN_KINDS, RETURN_KIND_HELP } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, BigTile, ChipRow, CapBtn, IconBtn, Plate, PlateLab, PlateVal, Meter, Gap } from '@felix/shared/ui/kit';
 import { Screen, AppBar, Sheet, useD, useAbove } from './shell';
 import { PickList } from '@felix/shared/ui/pick';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
-import { coverChip, dLong, entryErrors, findBattery, monYear, monthLong, monthShort, needsNewBatteryPhoto, newPhotoTag, nextEntryId, roleOf, span, spanLong, spanShort, tShort } from '@felix/shared/data';
+import { coverChip, dLong, entryErrors, findBattery, monYear, monthLong, monthShort, needsNewBatteryPhoto, newPhotoTag, nextEntryId, roleOf, span, spanLong, spanShort, tShort, salesReturnsOf, dShort } from '@felix/shared/data';
 import { useAccessToken } from '@felix/shared/api/session';
 import { lookupBattery, type BatteryLookupResult } from '@felix/shared/api/batteries';
 import { createEntry } from '@felix/shared/api/entries';
@@ -307,13 +307,22 @@ const TYPES: [string, string, 'wrench' | 'truck', boolean, string][] = [
 export function D10() {
   const d = useD(); const { state, dealerId } = useStore();
   const dealer = state.dealers.find(x => x.id === dealerId)!;
-  const start = (type: string) => {
-    d.setFlow({ entry: { ...newEntry(dealerId, type), id: nextEntryId(state), place: dealer.place || dealer.city }, cur: 0, scanned: {} });
+  // A sales return says which kind it is before anything else is asked: the answer changes
+  // nothing else on the form, but head office and the distributor sort by it (client, 3 Oct 2026).
+  const [kind, setKind] = useState(false);
+  const start = (type: string, returnKind?: ReturnKind) => {
+    d.setFlow({ entry: { ...newEntry(dealerId, type), id: nextEntryId(state), place: dealer.place || dealer.city, returnKind }, cur: 0, scanned: {} });
     d.go(type === 'Replacement' ? 'd11' : 'd13');
   };
-  return <Screen top={<AppBar title="What are you recording?" back="d07" />}>
+  return <Screen top={<AppBar title="What are you recording?" back="d07" />} overlay={
+    <Sheet open={kind} title="Why is it coming back?" onClose={() => setKind(false)}>
+      <X s={14} c={T.slate} style={{ marginBottom: 13 }}>Both go back to the company and come home working, with the same serial number. This only says which it is.</X>
+      {RETURN_KINDS.map((k, i) => <BigTile key={k} icon={k === 'Unsold' ? 'box' : 'alert'} title={k} sub={k === 'Unsold' ? 'न विकलेली' : 'बिघडलेली'}
+        desc={RETURN_KIND_HELP[k]} hot={i === 0} onPress={() => { setKind(false); start('Sales Return', k); }} />)}
+    </Sheet>}>
     <Banner tone="info" icon="alert" style={{ marginBottom: 15 }}>Choose one. The next screen then asks only for what that choice needs — nothing extra.</Banner>
-    {TYPES.map(t => <BigTile key={t[0]} icon={t[2]} title={t[0]} sub={t[1]} desc={t[4]} hot={t[3]} onPress={() => start(t[0])} />)}
+    {TYPES.map(t => <BigTile key={t[0]} icon={t[2]} title={t[0]} sub={t[1]} desc={t[4]} hot={t[3]}
+      onPress={() => (t[0] === 'Sales Return' ? setKind(true) : start(t[0]))} />)}
     <Hint icon="lock" style={{ marginTop: 4 }}>These are the only two. Head office records the same two, so what you send and what they see are the same thing.</Hint>
   </Screen>;
 }
@@ -442,11 +451,17 @@ export function D11() {
     saveDraft(); d.go('d13');
   };
   const oldChosen = state.models.find(m => m.id === it.oldModel);
+  // This battery has been back to the company before and came home with the same serial. Say so,
+  // with what was found — the same battery must not go round twice unnoticed (client, 3 Oct 2026).
+  const wentBack = salesReturnsOf(state, it.oldSerial, it.oldModel);
   return <Screen top={<AppBar title="Old battery" back="d10" right={<Chip tone="mute" mono label={e.id} />} />}
     overlay={del.sheet}>
     <Steps labels={REP_STEPS} now={1} />
     <Gap h={14} />
     <Banner tone="info" icon="batt" style={{ marginBottom: 14 }}>Start with the battery the customer brought back: choose its model, then its code, then type the number on the label.</Banner>
+    {wentBack.length > 0 && <Banner tone="warn" icon="truck" style={{ marginBottom: 14 }}>
+      <B>This battery has been sent back before.</B> {wentBack[0]!.id} · {wentBack[0]!.returnKind === 'Unsold' ? 'unsold stock' : 'faulty'}{wentBack[0]!.decidedAt ? `, ${dShort(wentBack[0]!.decidedAt!)}` : ''}. It came home with this same serial. Record the replacement if that is right — {above} sees this too.
+    </Banner>}
     <PlateModelPicker value={it.oldModel || ''} error={errs.oldModel} label="Old battery"
       onChange={v => { item({ oldModel: v, ...(it.model === newItem().model || it.model === it.oldModel ? { model: v } : {}) }); setErrs(x => ({ ...x, oldModel: '' })); }} />
     <Field label={`Old battery serial number (${lengthsLabel(lengths)})`} req mr="जुनी बॅटरी" mono numeric maxLength={maxLen} value={it.oldSerial} onChange={setOld}
@@ -544,6 +559,16 @@ export function D13() {
       hint={serialHint.t} hintTone={serialHint.ok ? 'ok' : serialHint.bad ? 'err' : undefined} hintIcon={serialHint.ok ? 'check' : serialHint.bad ? 'alert' : undefined} />
     <Field label="Made in" value={it.mfg ? monthLong(it.mfg) : ''} ph="Worked out from the serial" readonly hint="Worked out from the serial. Nothing to fill in." hintIcon="lock" />
     <FullCodeLine modelId={it.model} code={it.code} lengths={lengths} />
+    {/* On a sales return the fault is offered, not demanded: unsold stock has nothing wrong with
+        it to name, and a faulty one is easier to check if the dealer says what he saw
+        (client, 3 Oct 2026). On a replacement it stays required, on the old-battery screen. */}
+    {!rep && <>
+      <Label text={`What is wrong with it?${e.returnKind === 'Unsold' ? '' : ' *'}`} mr="काय बिघडले" />
+      <ChipRow options={FAULTS} value={it.fault || ''} onChange={v => item({ fault: it.fault === v ? '' : v })} />
+      <Hint icon={e.returnKind === 'Unsold' ? 'box' : 'alert'} style={{ marginTop: -7, marginBottom: 12 }}>
+        {e.returnKind === 'Unsold' ? 'Unsold stock — leave this empty unless you saw something.' : 'Tap one if you know. Tap it again to clear it.'}
+      </Hint>
+    </>}
     <Btn kind="primary" big iconAfter="chev" label={rep ? 'Next: check the warranty' : 'Next: photos and proof'} style={{ marginTop: 14 }} onPress={() => { if (!check()) return; saveDraft(); d.go(rep ? 'd31' : 'd15'); }} />
     {/* a replacement offers another battery only after its warranty check (d31) — client, 29 Sep 2026 */}
     {/* One request, one battery (client, 3 Oct 2026). Adding several to a request meant head

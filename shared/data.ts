@@ -1,4 +1,4 @@
-import { Battery, Challan, Dealer, Entry, State, anyDigitLengths, chainFor, deriveCode, expiryFrom, normalize, sameBattery, today, warranty, validateEntry } from './domain';
+import { Battery, Challan, Dealer, Entry, State, anyDigitLengths, chainFor, deriveCode, expiryFrom, normalize, sameBattery, today, warranty, validateEntry, ENTRY_TYPES, tagOf } from './domain';
 import { escapeHtml } from './html';
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -86,8 +86,15 @@ const istMonth = (iso: string) => new Date(Date.parse(iso) + IST).toISOString().
 export const networkEntries = (state: State, dealerId: string) => state.entries.filter(e => e.dealerId === dealerId || e.status !== 'Draft')
   .sort((a, b) => (b.createdAt || b.date).localeCompare(a.createdAt || a.date));
 
+/**
+ * Claims, counted — never valued.
+ *
+ * A sales return raises a claim and runs the same course as a replacement (client, 3 Oct 2026),
+ * so both are counted here. The client does not want an amount shown anywhere: what is reported
+ * is how many, split by tag — "8 claims · 5 RP · 3 SR" (client, 28 Sep 2026, D-20).
+ */
 export function refunds(state: State, dealerId: string, withDealers = false) {
-  const reps = (withDealers ? networkEntries(state, dealerId) : dealerEntries(state, dealerId)).filter(e => e.type === 'Replacement');
+  const reps = (withDealers ? networkEntries(state, dealerId) : dealerEntries(state, dealerId)).filter(e => ENTRY_TYPES.includes(e.type as never));
   const month = istMonth(new Date().toISOString());
   const approved = reps.filter(approvedForRefund)
     .map(e => ({ entry: e, date: decisionOf(state, e.id)?.at || e.decidedAt || e.date }))
@@ -97,15 +104,38 @@ export function refunds(state: State, dealerId: string, withDealers = false) {
     refused: reps.filter(refusedClaim),
     checking: reps.filter(e => !approvedForRefund(e) && !refusedClaim(e) && ['Submitted', 'Under Review', 'Conflict', 'Approved'].includes(e.status)),
     monthCount: approved.filter(x => istMonth(x.date) === month).length,
+    /** how many of each tag, for every group — quantities only, never an amount */
+    byTag: {
+      approved: countByTag(approved.map(x => x.entry)),
+      refused: countByTag(reps.filter(refusedClaim)),
+      checking: countByTag(reps.filter(e => !approvedForRefund(e) && !refusedClaim(e) && ['Submitted', 'Under Review', 'Conflict', 'Approved'].includes(e.status))),
+    },
   };
 }
+
+/** "5 RP · 3 SR" — the only breakdown of a claim total this app ever shows. */
+export const countByTag = (entries: { id: string; type: string }[]) => ({
+  RP: entries.filter(e => tagOf(e) === 'RP').length,
+  SR: entries.filter(e => tagOf(e) === 'SR').length,
+});
+export const tagSummary = (n: { RP: number; SR: number }) =>
+  [n.RP ? `${n.RP} RP` : '', n.SR ? `${n.SR} SR` : ''].filter(Boolean).join(' · ');
 
 /** Replacement requests whose old battery is still sitting in the shop. */
 // withDealers: a distributor sends back his dealers' old batteries too, once he has approved their requests
 // ...and a dealer's request only once every one of its old batteries has reached him (client, 3 Oct 2026)
-export const toSendBack = (state: State, dealerId: string, withDealers = false) => (withDealers ? networkEntries(state, dealerId) : dealerEntries(state, dealerId)).filter(e => e.type === 'Replacement' && ['Submitted', 'Under Review', 'Conflict', 'Approved'].includes(e.status) && (!e.returnState || e.returnState === 'At dealer') && e.items.some(i => i.oldSerial)
+/**
+ * What is waiting to go back to the company, both kinds (client, 3 Oct 2026): a replacement's
+ * OLD battery, and a sales return's battery itself — the same one that comes home working. They
+ * ride on one challan, in two sections.
+ */
+/** The serial that physically travels back: a replacement's old battery, a sales return's own. */
+export const travellingSerial = (e: { type: string }, it: { code: string; oldSerial: string }) =>
+  e.type === 'Sales Return' ? it.code : it.oldSerial;
+
+export const toSendBack = (state: State, dealerId: string, withDealers = false) => (withDealers ? networkEntries(state, dealerId) : dealerEntries(state, dealerId)).filter(e => ENTRY_TYPES.includes(e.type as never) && ['Submitted', 'Under Review', 'Conflict', 'Approved'].includes(e.status) && (!e.returnState || e.returnState === 'At dealer') && e.items.some(i => travellingSerial(e, i))
   && e.special !== 'Pending' // a special request leaves only once head office approves it (client, 3 Oct 2026)
-  && (e.dealerId === dealerId || e.items.every(i => !i.oldSerial || !!i.arrivedAtDistributor)));
+  && (e.dealerId === dealerId || e.items.every(i => !travellingSerial(e, i) || !!i.arrivedAtDistributor)));
 
 /**
  * Where one battery of a dealer's request stands, as its distributor sees it (client, 3 Oct 2026):
@@ -210,7 +240,20 @@ export function challanHtml(c: Challan, d: Dealer) {
   // The last four are left empty on purpose: the plant, voltage, gravity and a remark are filled
   // in by hand at the factory as each battery is opened and tested, then typed in later. Request
   // Ref. came out to make room — the serial already identifies the battery (client, 3 Oct 2026).
-  const rows = c.rows.map((r, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(r.serial)}</td><td>${escapeHtml(r.model)}</td><td>${escapeHtml(r.fault)}</td><td class="w"></td><td class="w"></td><td class="w"></td><td class="w"></td></tr>`).join('');
+  // One challan, two sections (client, 3 Oct 2026): the replacements' old batteries, then the
+  // sales returns. Each section is numbered from 1 and totalled on its own, so the man counting
+  // batteries into the van counts twice and the two never run together. A section with nothing
+  // in it is left off the page entirely.
+  const HEAD = '<tr><th>#</th><th>Serial No.</th><th>Model</th><th>Reported fault</th><th>Plant</th><th>Voltage</th><th>Gravity</th><th>Remark</th></tr>';
+  const line = (r: Challan['rows'][number], i: number) =>
+    `<tr><td>${i + 1}</td><td>${escapeHtml(r.serial)}</td><td>${escapeHtml(r.model)}</td><td>${escapeHtml(r.fault)}</td><td class="w"></td><td class="w"></td><td class="w"></td><td class="w"></td></tr>`;
+  const section = (title: string, of: 'RP' | 'SR') => {
+    const rows = c.rows.filter((r) => (r.kind ?? 'RP') === of);
+    if (!rows.length) return '';
+    return `<h3>${title} · ${rows.length}</h3>` +
+      `<table><thead>${HEAD}</thead><tbody>${rows.map(line).join('')}</tbody></table>`;
+  };
+  const sections = section('Replacements — old batteries', 'RP') + section('Sales returns', 'SR');
   return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Challan ' + escapeHtml(c.no) + '</title>' +
     '<style>body{font-family:Arial,Helvetica,sans-serif;color:#1B2430;max-width:760px;margin:30px auto;padding:0 24px;font-size:13px;line-height:1.5}' +
     'h1{font-size:21px;text-align:center;margin:0;letter-spacing:.02em}.sub{text-align:center;color:#5B6878;font-size:12px;margin:3px 0 14px}' +
@@ -218,6 +261,7 @@ export function challanHtml(c: Challan, d: Dealer) {
     '.m{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px;margin-bottom:16px}.m i{font-style:normal;color:#5B6878;font-size:11px}' +
     'table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px}th,td{border:1px solid #C4CDD8;padding:7px 8px;text-align:left}' +
     'th{background:#EDF0F4;font-size:10.5px;letter-spacing:.05em}' +
+    'h3{font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:#5B6878;margin:14px 0 6px;padding-bottom:4px;border-bottom:1px solid #C4CDD8}' +
     'td{height:26px}.w{width:11%;background:#FCFCFD}'  /* the four written-in columns */ + '.tot{display:flex;justify-content:space-between;border-top:2px solid #141A23;padding-top:8px;font-weight:700;margin-bottom:16px}' +
     '.d{border-left:3px solid #E8A72C;padding-left:11px;color:#5B6878;font-size:11.5px;margin-bottom:34px}' +
     '.s{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;text-align:center;font-size:11px;color:#5B6878}.s div{border-top:1px solid #2B3746;padding-top:6px}' +
@@ -228,12 +272,28 @@ export function challanHtml(c: Challan, d: Dealer) {
     `<div><i>From · Distributor</i><br><b>${escapeHtml(d.name)}</b><br>${[d.place, d.city].filter(Boolean).map(escapeHtml).join(', ')} · ${escapeHtml(d.code || d.id)}</div>` +
     '<div><i>To</i><br><b>Felix Batteries Industries</b><br>Warehouse, Nashik</div>' +
     `<div><i>Vehicle</i><br><b>${escapeHtml(c.vehicle || '—')}</b></div><div><i>Collected by</i><br><b>${escapeHtml(c.driver || '—')}</b></div></div>` +
-    `<table><thead><tr><th>#</th><th>Serial No.</th><th>Model</th><th>Reported fault</th><th>Plant</th><th>Voltage</th><th>Gravity</th><th>Remark</th></tr></thead><tbody>${rows}</tbody></table>` +
+    sections +
     `<div class="tot"><span>Total batteries returned</span><span>${c.rows.length}</span></div>` +
     '<div class="d">Returned for warranty inspection only. No sale value. Each battery remains the property of Felix Batteries Industries. Claims are decided after inspection at the company.</div>' +
     '<div class="s"><div>Distributor signature</div><div>Driver signature</div><div>Received at company</div></div></body></html>';
 }
 
+
+/**
+ * The sales returns this serial has already been through (client, 3 Oct 2026).
+ *
+ * A sales-returned battery comes home with the same serial, so the same number can turn up later
+ * as the old battery on a replacement. Head office and the dealer both need to see that it went
+ * back once already, and what was found — otherwise the same battery goes round twice with
+ * nobody the wiser. Newest first.
+ */
+export function salesReturnsOf(state: State, serial: string, modelId?: string) {
+  if (!serial) return [];
+  return state.entries
+    .filter(e => e.type === 'Sales Return' && !['Draft', 'Pending sync', 'Rejected', 'Cancelled'].includes(e.status)
+      && e.items.some(i => sameBattery(i.code, i.model, serial, modelId)))
+    .sort((a, b) => (b.decidedAt || b.date).localeCompare(a.decidedAt || a.date));
+}
 
 /** Requests that still hold a battery: a serial on one of these cannot be used on another. */
 const OPEN_ELSEWHERE = ['Submitted', 'Under Review', 'Conflict', 'Pending sync'];

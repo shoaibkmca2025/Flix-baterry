@@ -101,6 +101,14 @@ export function Chip({ tone = 'mute', icon, label, mono, style }: { tone?: Tone;
   return <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 3, paddingLeft: icon ? 7 : 9, paddingRight: 9, borderRadius: 6, backgroundColor: bg, alignSelf: 'flex-start' }, style]}>
     {icon && <Ic n={icon} size={13} color={fg} />}<X s={12} w={6} f={mono ? 'm' : 'b'} c={fg} lh={1.45} numberOfLines={1}>{label}</X></View>;
 }
+/**
+ * RP or SR, in two letters (client, 3 Oct 2026). The reference carries the tag too — RP-26-10-0001
+ * — but a request is read in a list far more often than its number is, so the tag is also a chip:
+ * green for a replacement, violet for a sales return, the same two colours they wear everywhere.
+ */
+export const TagChip = ({ tag, style }: { tag: 'RP' | 'SR'; style?: StyleProp<ViewStyle> }) =>
+  <Chip tone={tag === 'SR' ? 'vio' : 'live'} label={tag} style={style} />;
+
 export const ST: Record<string, [Tone, IconName]> = {
   Approved: ['live', 'check'], Submitted: ['info', 'clock'], 'Pending sync': ['warn', 'sync'], 'Serial exception': ['bad', 'alert'], Conflict: ['bad', 'alert'],
   'With distributor': ['info', 'people'], 'Under Review': ['vio', 'eye'], Rejected: ['bad', 'x'], Draft: ['mute', 'pen'], Corrected: ['info', 'pen'], Cancelled: ['mute', 'x'],
@@ -154,11 +162,13 @@ export const SecT = ({ title, first }: { title: string; first?: boolean }) =>
     <X s={13} w={7} c={T.slate}>{title}</X><View style={{ flex: 1, height: 1, backgroundColor: T.zinc2 }} /></View>;
 export const Gap = ({ h }: { h: number }) => <View style={{ height: h }} />;
 
-export function Kpis({ items, cols = 2 }: { items: { v: string; l: string; tone?: 'flag' | 'bad'; onPress?: () => void }[]; cols?: number }) {
+export function Kpis({ items, cols = 2 }: { items: { v: string; l: string; sub?: string; tone?: 'flag' | 'bad'; onPress?: () => void }[]; cols?: number }) {
   const rows: typeof items[] = []; for (let i = 0; i < items.length; i += cols) rows.push(items.slice(i, i + cols));
   return <View style={{ gap: 9 }}>{rows.map((r, i) => <View key={i} style={{ flexDirection: 'row', gap: 9 }}>{r.map(k => {
     const flag = k.tone === 'flag', bad = k.tone === 'bad';
-    const body = <><X s={29} w={7} f="c" lh={1} c={flag ? '#8A6008' : bad ? '#992A15' : T.ink}>{k.v}</X><X s={11.5} w={6} c={T.slate} lh={1.25} style={{ marginTop: 4 }}>{k.l}</X></>;
+    // `sub` is the only breakdown a figure ever carries here, and it is a count — "5 RP · 3 SR".
+    // No amount is shown anywhere in this app (client, 28 Sep 2026, D-20).
+    const body = <><X s={29} w={7} f="c" lh={1} c={flag ? '#8A6008' : bad ? '#992A15' : T.ink}>{k.v}</X><X s={11.5} w={6} c={T.slate} lh={1.25} style={{ marginTop: 4 }}>{k.l}</X>{k.sub ? <X s={11} w={6} f="m" c={T.hint} lh={1.25} style={{ marginTop: 2 }}>{k.sub}</X> : null}</>;
     const st: ViewStyle = { flex: 1, backgroundColor: flag ? T.voltSoft : bad ? T.terminalSoft : T.white, borderWidth: 1, borderColor: flag ? '#EBD49C' : bad ? '#F0C7BC' : T.zinc2, borderRadius: 10, paddingVertical: 11, paddingHorizontal: 13 };
     return k.onPress ? <Pressable key={k.l} accessibilityRole="button" accessibilityLabel={`${k.v} ${k.l}`} onPress={k.onPress} style={(ps: PState) => [st, fx(ps)]}>{body}</Pressable> : <View key={k.l} style={st}>{body}</View>;
   })}{Array.from({ length: cols - r.length }, (_, j) => <View key={`pad${j}`} style={{ flex: 1 }} />)}</View>)}</View>;

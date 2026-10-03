@@ -108,7 +108,12 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
   const special = covers.some((c) => c && c.case !== 'normal');
 
   return withTransaction(async (tx) => {
-    const ref = await nextFormattedRef(tx, 'ENT', 'entry', monthKey(ctx.now()));
+    // Each kind carries its own tag and its own series, so a reference says what it is at a
+    // glance — on screen, on the challan and over the phone (client, 3 Oct 2026). Requests
+    // numbered before this keep their ENT- reference: a number already spoken about and printed
+    // must not be rewritten underneath people.
+    const tag = input.entryType === 'sales_return' ? 'SR' : 'RP';
+    const ref = await nextFormattedRef(tx, tag, `entry_${tag.toLowerCase()}`, monthKey(ctx.now()));
     const entry = await repo.insertEntry(tx, {
       ref,
       dealerId,
@@ -124,6 +129,7 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
       submittedBy: user.id,
       status,
       specialStatus: special ? 'pending' : null,
+      returnKind: input.entryType === 'sales_return' ? input.returnKind ?? null : null,
     });
 
     for (const [i, item] of derivedItems.entries()) {
@@ -263,7 +269,7 @@ async function approveReplacementItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
   await batteriesRepo.incrementChainReplacementCount(tx, chain.id, chain.replacementCount + 1);
 
   const claimRef = await nextFormattedRef(tx, 'CLM', 'claim', monthKey(ctx.now()));
-  const claim = await claimsRepo.insertClaim(tx, { ref: claimRef, dealerId: entry.dealerId, chainId: chain.id, oldBatteryId: old.id, newBatteryId: newBattery.id });
+  const claim = await claimsRepo.insertClaim(tx, { ref: claimRef, dealerId: entry.dealerId, kind: 'replacement', chainId: chain.id, oldBatteryId: old.id, newBatteryId: newBattery.id });
 
   await repo.updateEntryItemLinks(tx, item.id, { batteryId: newBattery.id, oldBatteryId: old.id, claimId: claim.id });
   return { newBattery, claim };
@@ -357,8 +363,13 @@ async function approveSalesReturnItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
     } as never);
     await postMovementInTx(tx, ctx, { battery: null, batteryId: battery.id, toState: 'returned', toCustodian: 'dealer', toDealerId: entry.dealerId, entryId: entry.id, reasonCode: 'entry_approved' });
   }
-  await repo.updateEntryItemLinks(tx, item.id, { batteryId: battery.id });
-  return { battery };
+  // A sales return runs the same course as a replacement from here: the battery goes back, is
+  // checked, and head office decides (client, 3 Oct 2026). It has no warranty chain and no new
+  // battery — the same one comes home, working, with its serial unchanged.
+  const claimRef = await nextFormattedRef(tx, 'CLM', 'claim', monthKey(ctx.now()));
+  const claim = await claimsRepo.insertClaim(tx, { ref: claimRef, dealerId: entry.dealerId, kind: 'sales_return', oldBatteryId: battery.id });
+  await repo.updateEntryItemLinks(tx, item.id, { batteryId: battery.id, claimId: claim.id });
+  return { battery, claim };
 }
 
 export async function approve(ctx: Ctx, entryId: string, reason: string) {
@@ -375,7 +386,7 @@ export async function approve(ctx: Ctx, entryId: string, reason: string) {
   const items = await repo.findItemsByEntryId(db, entryId);
   // Head office decides a replacement only once the old battery is physically at the factory
   // (client rule, 25 Sep 2026): they verify it offline, then approve or refuse.
-  if (entry.entryType === 'replacement') await assertOldBatteriesArrived(items);
+  if (entry.entryType !== 'regular_sales') await assertBatteriesArrived(entry.entryType, items);
   return approveItems(ctx, entry, items, reason);
 }
 
@@ -400,8 +411,19 @@ async function approveItems(ctx: Ctx, entry: NonNullable<Awaited<ReturnType<type
 const ARRIVED_STAGES = new Set(['received', 'testing', 'repaired', 'scrapped', 'closed']);
 const ARRIVED_CLAIM = new Set(['received', 'checked']);
 
-async function assertOldBatteriesArrived(items: { id: string; seq: number; oldBatteryCode: string | null; claimId?: string | null }[]) {
-  const withOld = items.filter((it) => it.oldBatteryCode);
+/**
+ * Nothing is decided before the battery is in the company's hands.
+ *
+ * A replacement's OLD battery travels; a sales return sends the battery itself (client,
+ * 3 Oct 2026). Either way it reaches the factory on a challan line, and that line's stage is
+ * what says it is here.
+ */
+async function assertBatteriesArrived(
+  entryType: 'replacement' | 'sales_return' | 'regular_sales',
+  items: { id: string; seq: number; batteryCode: string; oldBatteryCode: string | null; claimId?: string | null }[],
+) {
+  const sr = entryType === 'sales_return';
+  const withOld = items.filter((it) => (sr ? it.batteryCode : it.oldBatteryCode));
   if (!withOld.length) return;
   const lines = await returnsRepo.findLinesByEntryItemIds(db, withOld.map((it) => it.id));
   const arrived = new Set(lines.filter((l) => ARRIVED_STAGES.has(l.stage)).map((l) => l.entryItemId));
@@ -413,7 +435,7 @@ async function assertOldBatteriesArrived(items: { id: string; seq: number; oldBa
     if (!claim || !ARRIVED_CLAIM.has(claim.status)) missing.push(it);
   }
   if (missing.length) {
-    throw new AppError('old_battery_not_arrived', 409, 'The old battery has not reached the factory yet. Approve or refuse it from Old battery returns once it arrives.', {
+    throw new AppError('old_battery_not_arrived', 409, `The ${sr ? 'returned battery' : 'old battery'} has not reached the factory yet. Approve or refuse it from Old battery returns once it arrives.`, {
       details: { items: missing.map((it) => it.seq) },
     });
   }
@@ -441,7 +463,7 @@ export async function settle(ctx: Ctx, entryId: string, input: EntrySettleBody) 
   // one battery of the entry, or all of them
   const target = input.itemId ? items.filter((it) => it.id === input.itemId) : items;
   if (input.itemId && !target.length) throw new AppError('item_not_found', 404, 'That battery is not on this request.');
-  await assertOldBatteriesArrived(target);
+  await assertBatteriesArrived(entry.entryType, target);
 
   if (entry.status === 'submitted') {
     // Refusing the only battery (or all of them) refuses the request itself, as before. A
@@ -546,20 +568,24 @@ export async function markArrived(ctx: Ctx, entryId: string, itemId?: string) {
   const entry = await repo.findEntryById(db, entryId);
   const shop = entry ? await findDealerById(db, entry.dealerId) : undefined;
   if (!entry || !shop || shop.distributorId !== me.id) throw new AppError('entry_not_found', 404, 'Entry not found.'); // I-3
-  if (entry.entryType !== 'replacement') throw new AppError('nothing_to_receive', 422, `${entry.ref} is not a replacement — there is no old battery to receive.`);
-  if (entry.status === 'with_distributor') throw new AppError('not_approved_yet', 422, `Approve ${entry.ref} first — the dealer hands the old battery over after you approve it.`);
+  // A sales return's battery is handed over the same way a replacement's old one is — the
+  // dealer brings it in, the distributor marks it arrived, then it goes on the challan
+  // (client, 3 Oct 2026).
+  if (entry.entryType === 'regular_sales') throw new AppError('nothing_to_receive', 422, `${entry.ref} is a sale — there is no battery to receive.`);
+  const sr = entry.entryType === 'sales_return';
+  if (entry.status === 'with_distributor') throw new AppError('not_approved_yet', 422, `Approve ${entry.ref} first — the dealer hands the battery over after you approve it.`);
   if (entry.status === 'rejected') throw new AppError('nothing_to_receive', 422, `${entry.ref} was refused — there is nothing to receive.`);
-  const items = (await repo.findItemsByEntryId(db, entryId)).filter((it) => it.oldBatteryCode);
+  const items = (await repo.findItemsByEntryId(db, entryId)).filter((it) => (sr ? it.batteryCode : it.oldBatteryCode));
   const target = itemId ? items.filter((it) => it.id === itemId) : items.filter((it) => !it.distributorReceivedAt);
   if (itemId && !target.length) throw new AppError('item_not_found', 404, 'That battery is not on this request.');
-  if (target.some((it) => it.distributorReceivedAt)) throw new AppError('already_arrived', 409, 'This old battery is already marked as arrived.');
-  if (!target.length) throw new AppError('already_arrived', 409, 'Every old battery on this request has already arrived.');
+  if (target.some((it) => it.distributorReceivedAt)) throw new AppError('already_arrived', 409, 'This battery is already marked as arrived.');
+  if (!target.length) throw new AppError('already_arrived', 409, 'Every battery on this request has already arrived.');
   return withTransaction(async (tx) => {
     const now = ctx.now();
     const done = [];
     for (const it of target) {
       done.push(await repo.updateEntryItem(tx, it.id, { distributorReceivedAt: now, distributorReceivedBy: ctx.user!.id }));
-      await audit(tx, { ctx, action: 'entry_item.arrived_at_distributor', entityType: 'entry', entityId: entry.id, entityRef: entry.ref, after: { battery: it.oldBatteryCode, distributor: me.name, dealer: shop.name }, outcome: 'ok' });
+      await audit(tx, { ctx, action: 'entry_item.arrived_at_distributor', entityType: 'entry', entityId: entry.id, entityRef: entry.ref, after: { battery: sr ? it.batteryCode : it.oldBatteryCode, distributor: me.name, dealer: shop.name }, outcome: 'ok' });
     }
     return { entryId: entry.id, ref: entry.ref, items: done };
   });
