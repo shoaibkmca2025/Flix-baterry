@@ -72,7 +72,7 @@ export function D40() {
 export function D41() {
   const d = useD();
   const cities = useCities();
-  const [f, setF] = useState({ name: '', contact: '', mobile: '', email: '', city: '', state: 'Maharashtra', pin: '', place: '', address: '' });
+  const [f, setF] = useState({ name: '', contact: '', mobile: '', email: '', city: '', state: 'Maharashtra', place: '', address: '' });
   const [err, setErr] = useState<Record<string, string>>({}), [cityOpen, setCityOpen] = useState(false), [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (v: string) => { setF(x => ({ ...x, [k]: v })); setErr(e => ({ ...e, [k]: '' })); };
   const submit = async () => {
@@ -83,13 +83,12 @@ export function D41() {
     if (f.email && !/^\S+@\S+\.\S+$/.test(f.email)) e.email = 'This email does not look right.';
     if (!f.city) e.city = 'Choose the city.';
     if (!f.state.trim()) e.state = 'Enter the state.';
-    if (!/^\d{6}$/.test(f.pin)) e.pin = '6 digits.';
     if (!f.address.trim()) e.address = 'Enter the full shop address.';
     setErr(e); if (Object.values(e).some(Boolean)) { d.toast('Some details need a look — they are marked in red.'); return; }
     const token = await getAccessToken(); if (!token) { d.toast('Your sign-in has ended. Sign in again.'); return; }
     setBusy(true);
     try {
-      const made = await createMyDealer({ name: f.name.trim(), contactPerson: f.contact.trim(), mobile: f.mobile, email: f.email.trim() || undefined, city: f.city, state: f.state.trim(), pin: f.pin, place: f.place.trim() || undefined, address: f.address.trim() }, token);
+      const made = await createMyDealer({ name: f.name.trim(), contactPerson: f.contact.trim(), mobile: f.mobile, email: f.email.trim() || undefined, city: f.city, state: f.state.trim(), place: f.place.trim() || undefined, address: f.address.trim() }, token);
       d.toast(`${made.name} is added. They sign in with +91 ${grouped(f.mobile)} and the SMS code.`);
       d.back('d40');
     } catch (ex) {
@@ -103,10 +102,7 @@ export function D41() {
     <Field label="Mobile number" req mono phone value={grouped(f.mobile)} onChange={v => set('mobile')(digits(v, 10))} ph="98765 43210" maxLength={11} error={err.mobile} hint="They sign in with this number and the SMS code." hintIcon="phone" />
     <Field label="Email" value={f.email} onChange={set('email')} ph="name@shop.in (optional)" error={err.email} />
     <Field select label="City" req value={f.city} ph="Choose city" onPress={() => setCityOpen(true)} error={err.city} hint="Chosen from the company city list — not typed." hintIcon="pin" />
-    <View style={{ flexDirection: 'row', gap: 9 }}>
-      <Field style={{ flex: 1 }} label="State" req value={f.state} onChange={set('state')} error={err.state} />
-      <Field style={{ flex: 1 }} label="PIN code" req mono numeric maxLength={6} value={f.pin} onChange={v => set('pin')(digits(v, 6))} ph="424001" error={err.pin} />
-    </View>
+    <Field label="State" req value={f.state} onChange={set('state')} error={err.state} />
     <Field label="Place / area" value={f.place} onChange={set('place')} ph="Road or area" />
     <Field label="Full address" req value={f.address} onChange={set('address')} ph="Shop number, building, road" error={err.address} />
     <Hint icon="shield">The dealer can use the app straight away — no approval from head office needed. You can suspend them later from My dealers.</Hint>

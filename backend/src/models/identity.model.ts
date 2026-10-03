@@ -44,7 +44,8 @@ export const dealers = pgTable(
       .notNull()
       .references(() => cities.id),
     state: text('state').notNull(),
-    pin: char('pin', { length: 6 }).notNull(),
+    // not asked for anywhere any more (client, 3 Oct 2026); the PINs already collected stay
+    pin: char('pin', { length: 6 }),
     place: text('place'),
     address: text('address').notNull(),
     status: dealerStatus('status').notNull().default('pending_approval'),

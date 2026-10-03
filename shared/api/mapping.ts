@@ -191,7 +191,7 @@ export function toDealer(d: ApiDealer, cityName: (id: string) => string): Dealer
     city: cityName(d.cityId),
     place: d.place ?? '',
     address: d.address,
-    pin: d.pin,
+    pin: d.pin ?? undefined,
     state: d.state,
     status: DEALER_STATUS[d.status],
     reason: d.statusReason ?? undefined,

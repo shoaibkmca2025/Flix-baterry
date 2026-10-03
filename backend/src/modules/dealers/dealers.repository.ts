@@ -23,7 +23,7 @@ export type NewDealer = {
   email: string | null;
   cityId: string;
   state: string;
-  pin: string;
+  pin?: string | null; // no longer asked for (client, 3 Oct 2026)
   place: string | null;
   address: string;
   registeredVia: 'self' | 'admin' | 'distributor';
@@ -35,6 +35,12 @@ export type NewDealer = {
 
 export async function insertDealer(tx: Tx, input: NewDealer) {
   const [row] = await tx.insert(dealers).values({ status: 'pending_approval', ...input }).returning();
+  return row!;
+}
+
+/** Move a dealer under a different distributor (head office only). */
+export async function updateDealerDistributor(tx: Tx, id: string, distributorId: string) {
+  const [row] = await tx.update(dealers).set({ distributorId, updatedAt: new Date() }).where(eq(dealers.id, id)).returning();
   return row!;
 }
 

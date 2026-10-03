@@ -14,7 +14,9 @@ export type Entry = { id: string; dealerId: string; type: string; date: string; 
   /** set when this Entry stands for ONE battery of a multi-battery replacement (see batteryUnits) */
   itemId?: string; part?: string };
 export type Battery = { code: string; serial: string; model: string; dealerId: string; customer: string; mfg: string; oldSerial?: string; start?: string; expiry?: string; policy?: string; state: string };
-export type Dealer = { id: string; code?: string; name: string; contact: string; mobile: string; email: string; city: string; place: string; address: string; pin: string; state: string; status: string; reason?: string; documents?: string[];
+export type Dealer = { id: string; code?: string; name: string; contact: string; mobile: string; email: string; city: string; place: string; address: string;
+  /** no longer asked for anywhere (client, 3 Oct 2026); kept so PINs already on record still read */
+  pin?: string; state: string; status: string; reason?: string; documents?: string[];
   /** head office → distributor → dealer (client, 2 Oct 2026). Absent = 'Distributor' (every shop from before). */
   kind?: 'Distributor' | 'Dealer'; distributorId?: string;
   /** a dealer's distributor, as its own session knows it (who to hand old batteries to) */

@@ -141,6 +141,13 @@
       "when": 1791011453022,
       "tag": "0019_distributor_arrival",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791024062592,
+      "tag": "0020_no_pin_and_admin_dealers",
+      "breakpoints": true
     }
   ]
 }

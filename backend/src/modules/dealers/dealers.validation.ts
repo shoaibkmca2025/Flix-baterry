@@ -8,7 +8,7 @@ export const DealerRegisterBody = z.object({
   email: z.string().email().optional().or(z.literal('')),
   city: z.string().trim().min(1, 'Choose your city.'),
   state: z.string().trim().min(1, 'Enter the state.'),
-  pin: z.string().regex(/^\d{6}$/, '6 digits.'),
+  pin: z.string().regex(/^\d{6}$/, '6 digits.').optional(), // not asked for any more (client, 3 Oct 2026)
   place: z.string().trim().optional(),
   address: z.string().trim().min(1, 'Enter the full shop address.'),
   password: z.string().min(8, 'At least 8 characters.'),
@@ -24,11 +24,25 @@ export const DealerCreateBody = z.object({
   email: z.string().email().optional().or(z.literal('')),
   city: z.string().trim().min(1, 'Choose the city.'),
   state: z.string().trim().min(1, 'Enter the state.'),
-  pin: z.string().regex(/^\d{6}$/, '6 digits.'),
+  pin: z.string().regex(/^\d{6}$/, '6 digits.').optional(), // not asked for any more (client, 3 Oct 2026)
   place: z.string().trim().optional(),
   address: z.string().trim().min(1, 'Enter the full shop address.'),
 });
 export type DealerCreateBody = z.infer<typeof DealerCreateBody>;
+
+// Head office adds a dealer too, and says which distributor it belongs under (client,
+// 3 Oct 2026). Same shape as a distributor's own form, plus that one field.
+export const AdminDealerCreateBody = DealerCreateBody.extend({
+  distributorId: z.string().uuid('Choose the distributor this dealer belongs to.'),
+});
+export type AdminDealerCreateBody = z.infer<typeof AdminDealerCreateBody>;
+
+// Moving a dealer from one distributor to another — a reason, like every other decision.
+export const DealerAssignBody = z.object({
+  distributorId: z.string().uuid('Choose the distributor this dealer belongs to.'),
+  reason: z.string().trim().min(5, 'Give a short reason (at least 5 characters).'),
+});
+export type DealerAssignBody = z.infer<typeof DealerAssignBody>;
 
 // rules.md §6 — reason is mandatory for every decision endpoint, at least 5 characters.
 const reason = z.string().trim().min(5, 'Give a short reason (at least 5 characters).');

@@ -10,7 +10,7 @@ export type ApiDealer = {
   email: string | null;
   cityId: string;
   state: string;
-  pin: string;
+  pin: string | null; // not asked for any more (client, 3 Oct 2026)
   place: string | null;
   address: string;
   status: DealerStatus;
@@ -29,7 +29,6 @@ export type DealerRegisterInput = {
   email?: string;
   city: string;
   state: string;
-  pin: string;
   place?: string;
   address: string;
   password: string;
@@ -61,7 +60,7 @@ export function activateDealer(id: string, reason: string, accessToken: string) 
 }
 
 // --- a distributor's own dealers (client, 2 Oct 2026) --------------------------------------
-export type MyDealerInput = { name: string; contactPerson: string; mobile: string; email?: string; city: string; state: string; pin: string; place?: string; address: string };
+export type MyDealerInput = { name: string; contactPerson: string; mobile: string; email?: string; city: string; state: string; place?: string; address: string };
 export function listMyDealers(accessToken: string) {
   return apiGet<{ items: ApiDealer[] }>('/dealers/me/dealers', { accessToken });
 }
@@ -70,4 +69,14 @@ export function createMyDealer(input: MyDealerInput, accessToken: string) {
 }
 export function setMyDealerStatus(id: string, to: 'suspended' | 'active', reason: string, accessToken: string) {
   return apiPost<ApiDealer>(`/dealers/me/dealers/${id}/${to === 'suspended' ? 'suspend' : 'activate'}`, { reason }, { accessToken });
+}
+
+// --- head office adds and moves dealers (client, 3 Oct 2026) --------------------------------
+/** Head office adds a dealer under the distributor it names — the same form, plus that choice. */
+export function createDealerForDistributor(input: MyDealerInput & { distributorId: string }, accessToken: string) {
+  return apiPost<ApiDealer>('/dealers', input, { accessToken });
+}
+/** Move a dealer to another distributor. Its requests and history follow it. */
+export function assignDistributor(id: string, distributorId: string, reason: string, accessToken: string) {
+  return apiPost<ApiDealer>(`/dealers/${id}/distributor`, { distributorId, reason }, { accessToken });
 }
