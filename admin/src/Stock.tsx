@@ -363,7 +363,7 @@ export function Returns({ id }: { id?: string }) {
       : <Stack><Btn kind="ghost" sm label={only ? '← Back to the list' : '← All challans'} style={{ alignSelf: 'flex-start' }} onPress={() => a.back()} />{detail}</Stack>;
   };
   return <Page title="Old battery returns" sub="Every replaced battery, from the dealer’s shop to settled or rejected"
-    tabs={<Tabs value={tab} onChange={t => { setTab(t); setSelChallan(null); }} items={[['way', `On the way ${onWay.length}`], ['challans', `Pending challans ${pendingChallans.length}`], ['done', `Completed challans ${doneChallans.length}`], ['dealers', `At dealers ${atDealer.length}`], ['approved', `Approved ${approved.length}`], ['rejected', `Rejected ${rejected.length}`], ['settle', `Claim ${approved.length}`], ['claimed', `Settled ${claimed.length}`]]} />}>
+    tabs={<Tabs value={tab} onChange={t => { setTab(t); setSelChallan(null); }} items={[['way', `On the way ${onWay.length}`], ['challans', `Pending challans ${pendingChallans.length}`], ['done', `Completed challans ${doneChallans.length}`], ['approved', `Approved ${approved.length}`], ['rejected', `Rejected ${rejected.length}`], ['settle', `Claim ${approved.length}`], ['claimed', `Settled ${claimed.length}`]]} />}>
     <Kpis cols={a.wide ? 4 : 2} items={[{ v: String(atDealer.length), l: 'Still at dealers', tone: 'flag', onPress: () => setTab('dealers') }, { v: String(onWay.length), l: 'On the way', onPress: () => setTab('way') }, { v: String(receivedThisMonth), l: 'Arrived this month' }, { v: String(atDealer.filter(e => ageDays(e.date) > 30).length), l: 'At a dealer over 30 days', tone: 'bad', onPress: () => setTab('dealers') }]} />
     <View style={{ height: 14 }} />
     {tab === 'challans' && challanView(undefined, { icon: 'truck', title: 'Nothing pending', text: 'Every challan has arrived and every battery on it is approved or refused. New challans appear here when a dealer dispatches old batteries.' }, c => !challanDone(c))}
@@ -385,17 +385,8 @@ export function Returns({ id }: { id?: string }) {
         </Box>; })}
       {looseOnWay.length > 0 && <Box title="Dispatched without a challan"><View style={{ paddingHorizontal: 14 }}>{looseOnWay.map((e, i, arr) => row(e, i, arr))}</View></Box>}
     </Stack>}
-    {tab === 'dealers' && <Cols weights={[1, 1.55]}>
-      <Box title="By dealer"><Table rows={byDealer} keyOf={x => x.d.id} onRow={x => a.go('dealer', x.d.id)} empty="Every old battery has left the dealers."
-        cols={[{ h: 'Dealer', w: 1.4, cell: x => <X s={13.5} w={7}>{x.d.name}</X> }, { h: 'At shop', w: 0.6, cell: x => String(x.list.length) }, { h: 'Oldest', w: 0.7, cell: x => `${Math.max(...x.list.map(e => ageDays(e.date)))} days` }, { h: '', w: 0.7, cell: x => Math.max(...x.list.map(e => ageDays(e.date))) > 30 ? <Chip tone="bad" icon="alert" label="Chase" /> : <Chip tone="live" label="Normal" /> }]}
-        mobile={{ title: x => x.d.name, sub: x => `${x.list.length} at shop · oldest ${Math.max(...x.list.map(e => ageDays(e.date)))} days` }} /></Box>
-      <Box title="Every battery still at a dealer">{atDealer.length ? <View style={{ paddingHorizontal: 14 }}>{atDealer.map((e, i, arr) => <Line key={e.id} last={i === arr.length - 1} onPress={() => a.go('entry', e.id)} av={<Avatar n="shop" tone={ageDays(e.date) > 30 ? 'red' : 'amber'} />}
-        title={<Mono>{e.items.map(it => it.oldSerial).filter(Boolean).join(', ')}</Mono>} sub={`${dealerName(e.dealerId)} · ${e.id} · ${ageDays(e.date)} days · ${e.handover ? 'handed over' : 'handover not confirmed'}`}
-        right={canEdit ? <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: a.wide ? 360 : 150 }}>
-          {!e.handover && <Btn kind="ghost" sm label="Confirm handover" onPress={() => setHandover(e)} />}
-          <Btn kind="ghost" sm icon="truck" label="Record dispatch" onPress={() => openAct({ entries: [e], to: 'In transit', label: 'Record dispatch (challan or transport details)' })} /></View> : undefined} />)}</View>
-        : <X s={13.5} c={T.slate} style={{ padding: 14 }}>No old batteries waiting at dealers.</X>}</Box>
-    </Cols>}
+    {/* No "At dealers" tab: batteries still sitting in a dealer's shop are the distributor's
+        to chase, not head office's (client, 3 Oct 2026). */}
     <ReasonDialog open={!!act} title={act?.label || ''} confirm={act?.to === 'Scrapped' ? 'Mark scrapped' : 'Confirm'} kind={act?.to === 'Scrapped' ? 'danger' : 'blue'} onClose={() => setAct(null)}
       onConfirm={r => {
         if (!act) return false;

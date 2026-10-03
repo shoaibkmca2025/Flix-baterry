@@ -725,3 +725,30 @@ describe("a dealer's request goes to its distributor first (client, 2 Oct 2026)"
     await expect(reject(adminCtx, 'entry-9', 'Not covered')).rejects.toMatchObject({ code: 'with_distributor' });
   });
 });
+
+describe('each tier sees only the party it deals with (client, 3 Oct 2026)', () => {
+  const row = { id: 'e1', ref: 'ENT-26-10-0001', dealerId: 'dealer-1', customerName: 'Ayan', status: 'submitted' };
+  beforeEach(() => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(row as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([] as never);
+    vi.mocked(repo.listEntries).mockResolvedValue({ items: [row], nextCursor: null } as never);
+  });
+
+  it("the shop that recorded it still sees its own customer", async () => {
+    const r = await getById(dealerCtx, 'e1');
+    expect(r.customerName).toBe('Ayan');
+  });
+
+  it('head office never receives the customer name', async () => {
+    expect((await getById(adminCtx, 'e1')).customerName).toBeNull();
+    expect((await list(adminCtx, { limit: 50 } as never)).items[0]!.customerName).toBeNull();
+  });
+
+  it("a distributor reading a dealer's request sees the dealer, not the dealer's customer", async () => {
+    // dealer-1 is the distributor in these fixtures; dealer-1a is a shop beneath it
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...row, dealerId: 'dealer-1a' } as never);
+    const r = await getById(dealerCtx, 'e1');
+    expect(r.customerName).toBeNull();     // the dealer's customer is the dealer's business
+    expect(r.dealerId).toBe('dealer-1a');  // but which shop it came from stays visible
+  });
+});

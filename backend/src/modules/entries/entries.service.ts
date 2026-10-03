@@ -431,16 +431,32 @@ export async function getById(ctx: Ctx, id: string) {
     throw new AppError('entry_not_found', 404, 'Entry not found.'); // 404 not 403 — no existence leak (I-3)
   }
   const items = await repo.findItemsByEntryId(db, id);
-  return { ...entry, items };
+  return { ...forViewer(entry, user), items };
+}
+
+/**
+ * Each tier knows only the party it deals with directly (client, 3 Oct 2026).
+ *
+ *   dealer → customer      the dealer records who they sold to
+ *   distributor → dealer   the dealer's customer is the dealer's business, not the distributor's
+ *   head office → distributor
+ *
+ * So the customer's name is stripped for everyone except the shop that wrote it. Hiding it in the
+ * console would not be enough — it travels in the API response, and anyone can open a browser's
+ * network tab — so it is removed here, before it leaves the server.
+ */
+function forViewer<T extends { dealerId: string; customerName: string | null }>(row: T, user: { scope: string; dealerId?: string | null }): T {
+  const ownShop = user.scope === 'dealer' && user.dealerId === row.dealerId;
+  return ownShop ? row : { ...row, customerName: null };
 }
 
 export async function list(ctx: Ctx, query: EntryListQuery) {
   const user = requireDealer(ctx);
   // a shop reads its own requests; a distributor his dealers' too (client, 2 Oct 2026)
-  if (user.scope === 'dealer') {
-    return repo.listEntries(db, { status: query.status, dealerIds: [...(await visibleShopIds(ctx))], limit: query.limit, cursor: decodeCursor(query.cursor) });
-  }
-  return repo.listEntries(db, { status: query.status, dealerId: query.dealerId, limit: query.limit, cursor: decodeCursor(query.cursor) });
+  const page = user.scope === 'dealer'
+    ? await repo.listEntries(db, { status: query.status, dealerIds: [...(await visibleShopIds(ctx))], limit: query.limit, cursor: decodeCursor(query.cursor) })
+    : await repo.listEntries(db, { status: query.status, dealerId: query.dealerId, limit: query.limit, cursor: decodeCursor(query.cursor) });
+  return { ...page, items: page.items.map((e) => forViewer(e, user)) };
 }
 
 /**
