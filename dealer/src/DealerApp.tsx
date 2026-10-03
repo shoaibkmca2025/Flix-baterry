@@ -38,9 +38,19 @@ export function DealerApp({ signedIn, onSignedIn, onSignOut }: { signedIn: boole
 
   const toast = useCallback((m: string) => { setToastMsg(m); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToastMsg(''), 10_000); }, []); // 10s (client, 2 Oct 2026)
   const go = (id: string, p?: string) => { setHistory(h => [...h, route]); setRoute({ id, p }); setToastMsg(''); };
+  /**
+   * Back goes to the screen you came from — one step, every time.
+   *
+   * It used to jump to a screen named on each header (`back="d11"`), hunting for it in the history
+   * and truncating everything after it. Reaching the new battery from the list of batteries on a
+   * request then sent you back past the list to the old battery, and anything in between was
+   * dropped (client, 3 Oct 2026). `to` is now only the fallback for when there is nothing to go
+   * back to — opening a request straight from a notification, say. Same behaviour as the Android
+   * hardware back below, so the two can no longer disagree.
+   */
   const back = (to: string, p?: string) => {
-    const at = history.map(h => h.id).lastIndexOf(to);
-    if (at >= 0) { setRoute(history[at]); setHistory(history.slice(0, at)); } else setRoute({ id: to, p });
+    if (history.length) { setRoute(history[history.length - 1]); setHistory(history.slice(0, -1)); }
+    else setRoute({ id: to, p });
     setToastMsg('');
   };
   const tab = (id: string) => { setHistory([]); setRoute({ id }); setToastMsg(''); };

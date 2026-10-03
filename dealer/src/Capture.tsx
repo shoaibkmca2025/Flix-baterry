@@ -93,7 +93,13 @@ export function useDeleteEntry(e: Entry | undefined, then: 'd07' | 'd18') {
     d.toast(`${e.id} deleted. It was never sent to head office.`);
   };
   return {
-    button: <Btn kind="ghost" icon="x" label="Delete this entry" color={T.terminal} borderColor="#F0C7BC" style={{ marginTop: 9 }} onPress={() => setAsk(true)} />,
+    // Throwing the request away sat directly under "Next", one mis-tap apart. HIG puts roughly
+    // 12pt of padding around a bezelled control and warns that spacing matters as much as size;
+    // a destructive action next to the primary one needs more than that, so it gets a rule above
+    // it and clear air (client, 3 Oct 2026).
+    button: <View style={{ marginTop: 22, paddingTop: 16, borderTopWidth: 1, borderTopColor: T.zinc2 }}>
+      <Btn kind="ghost" icon="x" label="Delete this entry" color={T.terminal} borderColor="#F0C7BC" onPress={() => setAsk(true)} />
+    </View>,
     sheet: <Sheet open={ask} title="Delete this entry?" onClose={() => setAsk(false)}>
       <X s={14} c={T.slate} style={{ marginBottom: 14 }}><B>{e.id}</B> was never sent to head office, so nothing else changes. This cannot be undone.</X>
       <Btn kind="danger" icon="x" label="Delete entry" onPress={remove} />
@@ -431,8 +437,8 @@ export function D11() {
     <View style={{ marginBottom: 13 }}><Label text="What is the problem?" req mr="काय बिघडले" /></View>
     <ChipRow options={FAULTS} value={it.fault || ''} onChange={v => { item({ fault: v }); setErrs(x => ({ ...x, fault: '' })); }} />
     {errs.fault && <Hint tone="err" style={{ marginTop: -9, marginBottom: 13 }}>{errs.fault}</Hint>}
-    <Field label="Remarks" mr="शेरा" multiline value={it.remarks} onChange={v => item({ remarks: v })} ph="Anything head office should know" />
     <Field label="Customer name" req mr="ग्राहकाचे नाव" value={e.customer} onChange={v => { upd({ customer: v }); setErrs(x => ({ ...x, customer: '' })); }} ph="Name of the customer" error={errs.customer} />
+    <Field label="Remarks" mr="शेरा" multiline value={it.remarks} onChange={v => item({ remarks: v })} ph="Anything head office should know" />
     <Btn kind="primary" big iconAfter="chev" label="Next: the new battery" style={{ marginTop: 4 }} onPress={next} />
     {del.button}
     <Hint icon="lock" center style={{ marginTop: 10 }}>Your shop, city and code are added automatically.</Hint>
