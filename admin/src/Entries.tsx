@@ -457,10 +457,16 @@ export function EntryDetail({ id }: { id?: string }) {
               </View> : null}</View>
               {/* the dealer's photo sits in the same card as the numbers it has to be checked
                   against — looking from one to the other was a scroll apart (client, 3 Oct 2026) */}
-              {mine.length ? <View style={{ flexDirection: 'row', gap: 9, flexWrap: 'wrap', alignItems: 'flex-start' }}>{mine.slice(0, 2).map(ph => (
-                <Pressable key={ph.key} accessibilityRole="imagebutton" accessibilityLabel={`Open photo: ${ph.tag}`} onPress={() => setViewing(ph)}>
-                  <Image source={{ uri: ph.uri }} style={{ width: 128, height: 96, borderRadius: 9, backgroundColor: '#0A2512' }} resizeMode="cover" />
-                  <X s={11} w={6} c={T.deepText} style={{ marginTop: 4 }}>{ph.tag === 'New label' ? 'New battery' : ph.tag}</X>
+              {/* The photo is the thing being checked against the numbers beside it, so it earns the
+                  room: it stretches to the height of the serials block rather than sitting as a
+                  thumbnail with dead green under it. Two share the width; one takes it all. */}
+              {mine.length ? <View style={{ flexDirection: 'row', gap: 9, alignSelf: 'stretch' }}>{mine.slice(0, 2).map(ph => (
+                <Pressable key={ph.key} accessibilityRole="imagebutton" accessibilityLabel={`Open photo: ${ph.tag}`} onPress={() => setViewing(ph)}
+                  style={a.wide ? { width: mine.length > 1 ? 150 : 215, alignSelf: 'stretch' } : { flex: 1 }}>
+                  <Image source={{ uri: ph.uri }} resizeMode="cover"
+                    style={a.wide ? { flex: 1, minHeight: 150, borderRadius: 10, backgroundColor: '#0A2512' }
+                                  : { width: '100%', height: 170, borderRadius: 10, backgroundColor: '#0A2512' }} />
+                  <X s={11} w={6} c={T.deepText} style={{ marginTop: 5 }}>{ph.tag === 'New label' ? 'New battery' : ph.tag}</X>
                 </Pressable>))}</View> : null}
             </View></Plate>
             <KV cols={2} pairs={[['Reported fault', it.fault || '—'], ['Remarks', it.remarks || '—']]} />
