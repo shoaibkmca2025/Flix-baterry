@@ -445,7 +445,8 @@ export function EntryDetail({ id }: { id?: string }) {
               {it.reviewStartedAt && <Chip tone="vio" icon="eye" label="Being checked" />}
               {it.correctedAt && <Chip tone="info" icon="pen" label="Corrected" />}
               <Chip tone={ct} icon="shield" label={cl} /></View>} />
-            <Plate style={{ marginBottom: 11 }}>{it.oldSerial ? <><PlateLab>OLD BATTERY OUT</PlateLab><PlateVal>{it.oldSerial}</PlateVal><X s={19} c={T.volt} style={{ textAlign: 'center', marginVertical: 4 }}>↓</X><PlateLab>NEW BATTERY IN</PlateLab><PlateVal color="#7FD3A9">{it.code}</PlateVal></> : <><PlateLab>BATTERY</PlateLab><PlateVal>{it.code}</PlateVal></>}
+            <Plate style={{ marginBottom: 11 }}><View style={{ flexDirection: a.wide ? 'row' : 'column', gap: 14 }}>
+              <View style={{ flex: 1, minWidth: 0 }}>{it.oldSerial ? <><PlateLab>OLD BATTERY OUT</PlateLab><PlateVal>{it.oldSerial}</PlateVal><X s={19} c={T.volt} style={{ textAlign: 'center', marginVertical: 4 }}>↓</X><PlateLab>NEW BATTERY IN</PlateLab><PlateVal color="#7FD3A9">{it.code}</PlateVal></> : <><PlateLab>BATTERY</PlateLab><PlateVal>{it.code}</PlateVal></>}
               {/* the old battery's remaining cover, right where the decision is made */}
               {it.oldSerial && expiry ? <View style={{ marginTop: 9, paddingTop: 9, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.14)' }}>
                 <PlateLab>{daysLeft !== null && daysLeft < 0 ? 'WARRANTY EXPIRED' : 'WARRANTY LEFT'}</PlateLab>
@@ -453,20 +454,36 @@ export function EntryDetail({ id }: { id?: string }) {
                   {daysLeft !== null && daysLeft < 0 ? `Expired ${-daysLeft} ${daysLeft === -1 ? 'day' : 'days'} ago · ${dLong(expiry)}` : `${spanLong(span(today(), expiry))} left`}
                 </X>
                 <X s={11.5} c={T.deepText} style={{ marginTop: 2 }}>{`Cover to ${dLong(expiry)} · `}{cover ? 'from the warranty record.' : `worked out from the label — made ${monthShort(oldMfg)}, ${oldTerm} months cover. Not on record.`}</X>
-              </View> : null}</Plate>
-            <KV cols={a.wide ? 3 : 2} pairs={[['Short serial', it.serial, 'mono'], ['Made', monthShort(it.mfg)], ['Cover ends', cover ? dLong(cover.expiry) : 'Not on record'], ['Replacement month', it.rpl || '—'], ['Return month', it.rtn || '—'], ['WR reference', it.wr || '—', 'mono'], ['Reported fault', it.fault || '—'], ['Remarks', it.remarks || '—']]} />
+              </View> : null}</View>
+              {/* the dealer's photo sits in the same card as the numbers it has to be checked
+                  against — looking from one to the other was a scroll apart (client, 3 Oct 2026) */}
+              {mine.length ? <View style={{ flexDirection: 'row', gap: 9, flexWrap: 'wrap', alignItems: 'flex-start' }}>{mine.slice(0, 2).map(ph => (
+                <Pressable key={ph.key} accessibilityRole="imagebutton" accessibilityLabel={`Open photo: ${ph.tag}`} onPress={() => setViewing(ph)}>
+                  <Image source={{ uri: ph.uri }} style={{ width: 128, height: 96, borderRadius: 9, backgroundColor: '#0A2512' }} resizeMode="cover" />
+                  <X s={11} w={6} c={T.deepText} style={{ marginTop: 4 }}>{ph.tag === 'New label' ? 'New battery' : ph.tag}</X>
+                </Pressable>))}</View> : null}
+            </View></Plate>
+            <KV cols={2} pairs={[['Reported fault', it.fault || '—'], ['Remarks', it.remarks || '—']]} />
+            {/* where this battery has got to, in the four words head office uses for it. Serial,
+                manufacture month, cover dates, replacement and return months and the WR reference
+                all came out: they are either on the label above or never filled in, and they
+                buried the two things a reviewer actually reads (client, 3 Oct 2026). */}
+            <View style={{ marginTop: 13 }}>
+              {u.status === 'Rejected'
+                ? <Chip tone="bad" icon="x" label={`Rejected${u.decisionReason ? ` — ${u.decisionReason}` : ''}`} />
+                : <Steps labels={['Arrived', 'Pending', 'Approved', 'Claimed']}
+                    now={u.claimStatus === 'approved' ? 4 : u.status === 'Approved' ? 3 : arrivedAtFactory(u) ? 2 : 1} />}
+            </View>
             {/* "not on record" is the NORMAL case, not a warning: the client keeps no register of
                 batteries sold before this system, so almost every old battery is new to us. Its
                 cover is read off the label instead, and that is shown in the panel above
                 (client, 2 Oct 2026). Nothing to flag — it was only ever noise. */}
-            {/* the dealer's photos of THIS battery — what head office reviews before deciding */}
-            <X s={12} w={7} c={T.slate} style={{ marginTop: 13, marginBottom: 7, letterSpacing: 0.4 }}>PHOTOS FROM THE DEALER</X>
-            {photos === null ? <X s={13} c={T.slate}>Loading photos…</X>
-              : mine.length ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9 }}>{mine.map(p => <Pressable key={p.key} accessibilityRole="imagebutton" accessibilityLabel={`Open photo: ${p.tag}`} onPress={() => setViewing(p)} style={{ width: 150 }}>
-                  <Image source={{ uri: p.uri }} style={{ width: 150, height: 112, borderRadius: 9, backgroundColor: T.zinc2 }} resizeMode="cover" />
-                  <X s={12} w={6} c={T.slate} style={{ marginTop: 4 }}>{p.tag === 'New label' ? 'New battery' : p.tag}</X></Pressable>)}</View>
-              : photoError ? <Banner tone="bad" icon="alert">The photos could not be loaded — {photoError}. This is not the dealer’s doing; try again, and tell the developer if it keeps happening.</Banner>
-              : <X s={13} c={T.slate}>No photos for this battery{e.type === 'Replacement' ? ' — ask the dealer to send the new battery’s photo' : ''}.</X>}
+            {/* the photos live in the green card above now; what is left here is the two cases
+                where there is nothing to show, which still have to be said */}
+            {photos === null ? <X s={13} c={T.slate} style={{ marginTop: 11 }}>Loading photos…</X>
+              : photoError ? <Banner tone="bad" icon="alert" style={{ marginTop: 11 }}>The photos could not be loaded — {photoError}. This is not the dealer's doing; try again, and tell the developer if it keeps happening.</Banner>
+              : !mine.length ? <X s={13} c={T.slate} style={{ marginTop: 11 }}>No photos for this battery{e.type === 'Replacement' ? ' — ask the dealer to send the new battery’s photo' : ''}.</X>
+              : mine.length > 2 ? <X s={12.5} c={T.slate} style={{ marginTop: 9 }}>{mine.length - 2} more photo{mine.length - 2 === 1 ? '' : 's'} — open one above to page through.</X> : null}
             {perBattery && pending && <View style={{ marginTop: 13, paddingTop: 12, borderTopWidth: 1, borderTopColor: T.zinc2 }}>
               {decided ? <X s={13} c={T.slate}>{u.status !== 'Approved' ? `Rejected${u.decisionReason ? ` — ${u.decisionReason}` : '.'}`
                 : u.claimStatus === 'checked' ? 'Approved — waiting to be claimed. Claim it with the rest of its challan in Old battery returns.'
