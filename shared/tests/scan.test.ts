@@ -14,9 +14,16 @@ import { readLabel, fullCode } from '../domain';
  * model number welded onto half the date. That is why a scan filled in no serial, no model and
  * no plate.
  */
-const IDS = ['SS2500', 'KDIN60', 'M1000', 'GPM1000', 'MG2500', 'N1000', 'O1000', 'GPI700', 'SE1800', 'Q1350'];
+// the client's own catalogue, as the apps pass it: id and model number together, because a
+// digits-only barcode names the model NUMBER and nothing else
+const MODELS = [
+  { id: 'SS2500', modelNo: '2500' }, { id: 'MG2500', modelNo: '2500' }, { id: 'KDIN60', modelNo: 'DIN60' },
+  { id: 'M1000', modelNo: '1000' }, { id: 'N1000', modelNo: '1000' }, { id: 'O1000', modelNo: '1000' },
+  { id: 'GPM1000', modelNo: '1000' }, { id: 'GPI700', modelNo: '700' }, { id: 'SE1800', modelNo: '1800' },
+  { id: 'Q1350', modelNo: '1350' },
+];
 const LENGTHS = [7, 8, 9];
-const read = (label: string) => readLabel(label, IDS, LENGTHS);
+const read = (label: string) => readLabel(label, MODELS, LENGTHS);
 
 test('the three labels on the client\'s own batteries read completely', () => {
   assert.deepEqual(read('SS 2500 26090493'), { modelId: 'SS2500', code: '26090493', serial: '0493', mfg: '2026-09', valid: true });
@@ -131,4 +138,35 @@ test('a new shop starts in its distributor\'s area, and nothing else of his', ()
   // the town and street are the new shop's own — they are never carried over
   assert.deepEqual(Object.keys(inheritedArea(parent)), ['state', 'district']);
   assert.deepEqual(inheritedArea(undefined), { state: '', district: '' });
+});
+
+/**
+ * What the barcode itself carries.
+ *
+ * The printed line has spaces — "M 1000 2609 0676" — but a Code 128 barcode is half the width
+ * when it holds digits alone, so that is often what is encoded: 100026090676, the model number
+ * with the code run together. There are no letters to find a product by, so the whole run came
+ * back as one impossible code and the serial was wrong (client, 4 Oct 2026).
+ */
+test('a digits-only barcode still gives the right code, whatever else it can tell', () => {
+  // several products are "1000" — M, N, O and GP M — so the plate is left to be chosen, and
+  // the code is right either way
+  assert.deepEqual(read('100026090676'), { modelId: '', code: '26090676', serial: '0676', mfg: '2026-09', valid: true });
+  assert.deepEqual(read('250026090493'), { modelId: '', code: '26090493', serial: '0493', mfg: '2026-09', valid: true });
+  // only one product is "1350", so that one is known outright
+  assert.deepEqual(read('135026090001'), { modelId: 'Q1350', code: '26090001', serial: '0001', mfg: '2026-09', valid: true });
+});
+
+test('every way this label could be encoded reads to the same battery', () => {
+  const same = ['M 1000 2609 0676', 'M100026090676', 'M1000 26090676', 'M-1000-2609-0676', '100026090676', '26090676'];
+  for (const enc of same) {
+    const r = read(enc);
+    assert.equal(r.code, '26090676', `${enc} gave ${r.code}`);
+    assert.equal(r.serial, '0676');
+    assert.equal(r.mfg, '2026-09');
+    assert.equal(r.valid, true);
+  }
+  // and where the letters are there, the product comes with it
+  assert.equal(read('M 1000 2609 0676').modelId, 'M1000');
+  assert.equal(read('M100026090676').modelId, 'M1000');
 });

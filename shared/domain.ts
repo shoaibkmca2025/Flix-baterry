@@ -187,9 +187,40 @@ const lengthsDesc = (ls: readonly number[]) => [...new Set(ls)].sort((a, b) => b
  * splitLabel already strips the separators, tries every accepted length and matches the longest
  * known product, so the whole job is to stop interfering and hand it the raw scan.
  */
-export function readLabel(scanned: string, knownModelIds: readonly string[] = [], lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS) {
-  const { modelId, code } = splitLabel(scanned, knownModelIds, lengths);
-  const { serial, mfg } = deriveCode(code, knownModelIds, lengths);
+export function readLabel(
+  scanned: string,
+  known: readonly string[] | readonly { id: string; modelNo?: string }[] = [],
+  lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS,
+) {
+  const products = (known as readonly (string | { id: string; modelNo?: string })[])
+    .map((m) => (typeof m === 'string' ? { id: m, modelNo: '' } : { id: m.id, modelNo: m.modelNo ?? '' }));
+  const ids = products.map((m) => m.id);
+  let { modelId, code } = splitLabel(scanned, ids, lengths);
+
+  /*
+   * A barcode that carries only digits puts the model NUMBER in front of them — "100026090676"
+   * for a label printed "M 1000 2609 0676" — because numeric Code 128 is half the width of the
+   * same thing with letters in it, so that is what gets printed. splitLabel has no letters to
+   * match a product on, so the whole run comes back as one impossible code and the serial is
+   * wrong (client, 4 Oct 2026).
+   *
+   * Split it here instead: the last 7, 8 or 9 digits are the code, and what is in front is the
+   * model number. If exactly one product carries that number the product is known too; if
+   * several do — M1000, N1000, O1000 and GP M1000 all are "1000" — the plate is left to be
+   * chosen, which is the honest answer. Either way the serial is right.
+   */
+  if (!modelId && isDigits(code) && !isValidDigits(code, lengths)) {
+    for (const len of lengthsDesc(lengths)) {
+      const tail = code.slice(-len), head = code.slice(0, -len);
+      if (!head || !isValidDigits(tail, lengths)) continue;
+      const matches = products.filter((m) => m.modelNo && normalize(m.modelNo) === head);
+      code = tail;
+      if (matches.length === 1) modelId = matches[0]!.id;
+      break;
+    }
+  }
+
+  const { serial, mfg } = deriveCode(code, ids, lengths);
   // read, but not necessarily usable: a label from a product we do not stock, or a length we do
   // not issue, comes back with no month — the screen still shows what it read and says so
   return { modelId, code, serial, mfg, valid: isValidDigits(code, lengths) };

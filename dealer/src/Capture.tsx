@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Image, StyleSheet } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useStore } from '@felix/shared/store';
-import { Entry, Item, State, DEFAULT_DIGIT_LENGTHS, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, deriveCode, digitsOf, expiryFrom, fullCode, isValidDigits, lengthsLabel, newEntry, newItem, normalize, sameBattery, splitLabel, today, validateEntry, ReturnKind, RETURN_KINDS, RETURN_KIND_HELP } from '@felix/shared/domain';
+import { Entry, Item, State, DEFAULT_DIGIT_LENGTHS, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, deriveCode, digitsOf, expiryFrom, fullCode, isValidDigits, lengthsLabel, newEntry, newItem, normalize, sameBattery, splitLabel, today, validateEntry, ReturnKind, RETURN_KINDS, RETURN_KIND_HELP, readLabel } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, BigTile, ChipRow, CapBtn, IconBtn, Plate, PlateLab, PlateVal, Meter, Gap } from '@felix/shared/ui/kit';
 import { Screen, AppBar, Sheet, useD, useAbove } from './shell';
@@ -497,16 +497,25 @@ export function D13() {
   const lengths = f?.entry.type === 'Sales Return' ? anyDigitLengths(state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS) : NEW_BATTERY_DIGIT_LENGTHS;
   const maxLen = Math.max(...lengths);
   const setCode = (v: string, scanned = false) => {
-    // the lengths this field accepts, not the default: without them a 9-digit code splits wrong
-    // and "Made in" comes out blank, because deriveCode would not count 9 as a length at all
-    const { code: digits, modelId } = splitLabel(v, modelIds, lengths);
-    const code = digits.replace(/\D/g, '').slice(0, maxLen);
-    const { serial, mfg } = deriveCode(code, modelIds, lengths);
-    item({ code, serial, mfg, ...(modelId ? { model: modelId } : {}) }); // a prefixed label names the product too
+    // readLabel takes the label exactly as the scanner gives it — "M 1000 2609 0676", or the
+    // digits-only form a Code 128 barcode carries — and gives back the product and the code.
+    // The lengths are this field's own: a 9-digit code splits wrong without them, and "Made in"
+    // comes out blank (client, 4 Oct 2026).
+    const r = readLabel(v, state.models, lengths);
+    const code = r.code.replace(/\D/g, '').slice(0, maxLen);
+    item({ code, serial: r.serial, mfg: r.mfg, ...(r.modelId ? { model: r.modelId } : {}) });
     d.setFlow(x => x && { ...x, scanned: { ...x.scanned, [`new-${x.cur}`]: scanned } });
     setErrs(x => ({ ...x, code: '', serial: '', model: '' }));
+    return r;
   };
-  const sc = useScanner(c => { setCode(c, true); d.toast('Scanned. Check each line below.'); });
+  const sc = useScanner(c => {
+    const r = setCode(c, true);
+    // say what came off the label, so a scan that cannot be read is something the dealer can act
+    // on — and report — instead of a field that silently stayed empty
+    d.toast(!r.valid ? `Read “${c}”. That is not a battery number — check the label or type it below.`
+      : r.modelId ? `Scanned ${r.modelId} ${r.code}. Check each line below.`
+      : `Scanned ${r.code}. Choose the plate and model below — the barcode does not say which.`);
+  });
   if (!f) return null;
   const e = f.entry, i = f.cur, it = e.items[i], rep = e.type === 'Replacement';
   const { lookup, looking } = useLiveLookup(it.code, token, it.model, lengths);

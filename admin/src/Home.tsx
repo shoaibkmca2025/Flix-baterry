@@ -85,6 +85,6 @@ export function Home() {
       </Box>
       </Stack>
     </Cols>
-    <ScanDialog open={scan} onClose={() => setScan(false)} onCode={label => a.go('search', readLabel(label, state.models.map(m => m.id), anyDigitLengths(state.serialDigitLengths)).code || label)} />
+    <ScanDialog open={scan} onClose={() => setScan(false)} onCode={label => a.go('search', readLabel(label, state.models, anyDigitLengths(state.serialDigitLengths)).code || label)} />
   </Page>;
 }

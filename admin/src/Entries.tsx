@@ -958,7 +958,7 @@ export function NewEntry({ id }: { id?: string }) {
         it, so one scan fills the product and the serial together (client, 4 Oct 2026) */}
     <ScanDialog open={scan !== null} onClose={() => setScan(null)} onCode={label => {
       if (scan === null) return;
-      const read = readLabel(label, state.models.map(m => m.id), newLengths);
+      const read = readLabel(label, state.models, newLengths);
       const known = findBattery(state, read.code);
       item(scan, { code: read.code, serial: read.serial, mfg: read.mfg, ...(read.modelId || known ? { model: read.modelId || known!.model } : {}) });
       if (!read.valid) a.toast(`Read “${label}”. Check the number below — it is not a length we issue.`);
