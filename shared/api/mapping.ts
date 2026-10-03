@@ -91,6 +91,7 @@ function toItem(it: EntryWithItems['items'][number], e: EntryWithItems, batterie
   return {
     id: it.id,
     model: it.modelId,
+    oldModel: it.oldModelId ?? undefined,
     code: it.batteryCode,
     serial: it.batteryCode.slice(-4),
     oldSerial: it.oldBatteryCode ?? '',

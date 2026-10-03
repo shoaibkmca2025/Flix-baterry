@@ -157,6 +157,26 @@ export const digitsOf = (batteryCode: string, modelId = '') => {
   return m ? m[1] : v;
 };
 /**
+ * The two halves of a battery on a request, as a correction edits them.
+ *
+ * What is stored is the whole label — plate + model, then digits. A correction changes only the
+ * digits; the plate and model are what the digits hang off and are shown beside the box, not in
+ * it. Opening the box with the whole label in it let the first keystroke strip the letters and
+ * the length cap cut the rest, saving a different battery without a word (client, 3 Oct 2026).
+ *
+ * `oldModel` is absent on a like-for-like replacement and means "same product as the new one".
+ */
+export const correctionOf = (it: { code: string; oldSerial: string; model: string; oldModel?: string }) => {
+  const oldModel = it.oldModel || it.model;
+  return {
+    model: it.model,
+    oldModel,
+    code: digitsOf(it.code, it.model),
+    oldSerial: it.oldSerial ? digitsOf(it.oldSerial, oldModel) : '',
+  };
+};
+
+/**
  * Whether two codes name the same battery: code + model + YY + MM + serial must ALL match
  * (client, 29 Sep 2026). A code is either typed digits with its model chosen apart (a phone
  * draft) or the whole label (the server's copy); both are brought to the whole label first.
