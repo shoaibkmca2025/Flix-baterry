@@ -424,6 +424,9 @@ export function EntryDetail({ id }: { id?: string }) {
       <Stack>
         {order.map(i => {
           const it = e.items[i]!, u = units[perBattery ? i : 0]!;
+          // when THIS battery reached the factory: its own challan line, else the challan's arrival
+          const line = state.challans.flatMap(c => c.rows.map(r => ({ ...r, receivedAt: c.receivedAt }))).find(r => r.itemId === it.id);
+          const arrivedAt = line?.stagedAt || line?.receivedAt;
           const old = it.oldSerial ? findBattery(state, it.oldSerial) : undefined, cover = coverOf(old || findBattery(state, it.code), state);
           // Most old batteries were sold before this system, so there is no cover on record — but
           // the server still works one out from the label when it approves, which is where
@@ -478,7 +481,17 @@ export function EntryDetail({ id }: { id?: string }) {
               {u.status === 'Rejected'
                 ? <Chip tone="bad" icon="x" label={`Rejected${u.decisionReason ? ` — ${u.decisionReason}` : ''}`} />
                 : <Steps labels={['Arrived', 'Pending', 'Approved', 'Claimed']}
-                    now={u.claimStatus === 'approved' ? 4 : u.status === 'Approved' ? 3 : arrivedAtFactory(u) ? 2 : 1} />}
+                    now={u.claimStatus === 'approved' ? 4 : u.status === 'Approved' ? 3 : arrivedAtFactory(u) ? 2 : 1}
+                    /* Only the steps that are actually events carry a date. "Pending" is the wait
+                       between arriving and being decided — it has no moment of its own, so it is
+                       left blank rather than repeating the arrival date (client, 3 Oct 2026). */
+                    dates={[
+                      arrivedAt ? dShort(arrivedAt) : undefined,
+                      undefined,
+                      u.claimStatus === 'checked' ? (it.claimUpdatedAt ? dShort(it.claimUpdatedAt) : undefined)
+                        : u.status === 'Approved' && u.decidedAt ? dShort(u.decidedAt) : undefined,
+                      u.claimStatus === 'approved' && u.decidedAt ? dShort(u.decidedAt) : undefined,
+                    ]} />}
             </View>
             {/* "not on record" is the NORMAL case, not a warning: the client keeps no register of
                 batteries sold before this system, so almost every old battery is new to us. Its

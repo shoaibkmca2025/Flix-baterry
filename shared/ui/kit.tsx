@@ -232,12 +232,14 @@ export function Banner({ tone, icon, children, style }: { tone: keyof typeof BAN
   return <View style={[{ borderRadius: 10, paddingVertical: 12, paddingHorizontal: 13, flexDirection: 'row', gap: 10, backgroundColor: bg, borderWidth: 1, borderColor: bd }, style]}>
     <Ic n={icon} size={19} color={fg} style={{ marginTop: 1 }} /><X s={13.5} lh={1.4} c={fg} style={{ flex: 1 }}>{children}</X></View>;
 }
-export function Steps({ labels, now }: { labels: string[]; now: number }) {
+export function Steps({ labels, now, dates }: { labels: string[]; now: number; dates?: (string | undefined)[] }) {
   return <View style={{ flexDirection: 'row', gap: 6, paddingVertical: 11, paddingHorizontal: 15, backgroundColor: T.white, borderBottomWidth: 1, borderBottomColor: T.zinc2 }}>
     {labels.map((l, i) => { const done = i < now - 1, cur = i === now - 1;
       return <View key={l} style={{ flex: 1, gap: 5 }} accessible accessibilityLabel={`${l}, ${done ? 'done' : cur ? 'current step' : 'to do'}`}>
       <View style={{ height: 5, borderRadius: 3, backgroundColor: done ? T.live : cur ? T.volt : T.zinc2 }} />
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>{done && <Ic n="check" size={12} color={T.live} sw={2.4} />}<X s={11.5} w={6} c={cur ? T.ink : T.slate} style={{ flexShrink: 1 }}>{l}</X></View></View>; })}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>{done && <Ic n="check" size={12} color={T.live} sw={2.4} />}<X s={11.5} w={6} c={cur ? T.ink : T.slate} style={{ flexShrink: 1 }}>{l}</X></View>
+      {/* a step only carries a date when something actually happened then — a blank is honest */}
+      {dates?.[i] ? <X s={10.5} w={5} c={T.slate} lh={1.2} numberOfLines={1}>{dates[i]}</X> : null}</View>; })}
   </View>;
 }
 export function KV({ pairs, cols = 2 }: { pairs: [string, React.ReactNode, ('mono' | '')?][]; cols?: number }) {

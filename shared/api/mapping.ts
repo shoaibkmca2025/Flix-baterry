@@ -103,6 +103,8 @@ function toItem(it: EntryWithItems['items'][number], e: EntryWithItems, batterie
     ...(rep ? {
       claimId: claim?.id,
       claimStatus: claim?.status,
+      // when the claim last moved — for one sitting at 'checked' that is when it was approved
+      claimUpdatedAt: claim?.updatedAt,
       status: entryStatusOf(e, claim),
       returnState: e.status === 'approved' ? returnStageOf(claim) : undefined,
       returnNote: findingOf(claim),
