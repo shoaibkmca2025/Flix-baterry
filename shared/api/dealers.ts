@@ -18,6 +18,8 @@ export type ApiDealer = {
   createdAt: string;
   kind?: 'distributor' | 'dealer'; // absent on a server from before 2 Oct 2026 = distributor
   distributorId?: string | null;
+  // who put this shop on the system: 'self' registered, 'admin' head office, 'distributor' his own
+  registeredVia?: 'self' | 'admin' | 'distributor';
 };
 export type Page<T> = { items: T[]; nextCursor: string | null };
 

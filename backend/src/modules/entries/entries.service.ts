@@ -757,7 +757,11 @@ export async function correctItem(ctx: Ctx, entryId: string, itemId: string, inp
     throw new AppError('format_mismatch', 422, `Use ${lengthsSentence(lengths)} that starts with the YYMM it was made.`, { field: 'oldCode' });
   }
 
-  const modelId = newDerived.modelId ?? input.modelId ?? item.modelId;
+  // An explicit choice wins over one read out of a code: head office now picks the plate and
+  // model from a list and sends the digits on their own, and if the stored "as entered" value
+  // happens to carry a model prefix, deriving from it would quietly undo that choice. The old
+  // battery's model has always been read this way round; the new one's now matches.
+  const modelId = input.modelId ?? newDerived.modelId ?? item.modelId;
   const oldModelId = enteredOld ? (input.oldModelId ?? oldDerived?.modelId ?? item.oldModelId ?? modelId) : null;
   for (const [field, id] of [['modelId', modelId], ['oldModelId', oldModelId]] as const) {
     if (!id) continue;

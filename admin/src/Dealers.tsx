@@ -88,17 +88,24 @@ export function Registrations() {
 
 /* ---------- dealer directory ---------- */
 export function Dealers() {
-  const a = useA(); const { state } = useStore();
+  const a = useA(); const { state, canEdit } = useStore();
   const [q, setQ] = useState(''), [status, setStatus] = useState('all'), [city, setCity] = useState('All'), [kind, setKind] = useState('All');
   const statusMap: Record<string, string> = { active: 'Active', pending: 'Pending Approval', suspended: 'Suspended', rejected: 'Rejected' };
   // head office → distributor → dealer (client, 2 Oct 2026); a shop with no kind is a distributor
   const isDealer = (d: { kind?: string }) => d.kind === 'Dealer';
   const nameOf = (id?: string) => state.dealers.find(x => x.id === id)?.name || '—';
-  const rows = state.dealers.filter(d => (status === 'all' || d.status === statusMap[status]) && (city === 'All' || d.city === city) && (kind === 'All' || (kind === 'Dealers') === isDealer(d))
+  // A dealer a distributor added is the distributor's own business, and head office reads the
+  // chain one step at a time: it sees distributors, and the dealers it added itself (client,
+  // 3 Oct 2026). The rest are still one tap away, on their distributor's Dealers tab.
+  const ours = state.dealers.filter(d => d.addedBy !== 'distributor');
+  const hidden = state.dealers.length - ours.length;
+  const rows = ours.filter(d => (status === 'all' || d.status === statusMap[status]) && (city === 'All' || d.city === city) && (kind === 'All' || (kind === 'Dealers') === isDealer(d))
     && [d.name, d.city, d.id, d.contact, d.mobile, isDealer(d) ? nameOf(d.distributorId) : ''].some(v => v.toLowerCase().includes(q.toLowerCase())));
-  const count = (s: string) => state.dealers.filter(d => d.status === s).length;
-  const distributors = state.dealers.filter(d => !isDealer(d)).length;
-  return <Page title="Distributors & dealers" sub={`${distributors} distributors · ${state.dealers.length - distributors} dealers · ${count('Active')} active`}>
+  const count = (s: string) => ours.filter(d => d.status === s).length;
+  const distributors = ours.filter(d => !isDealer(d)).length;
+  return <Page title="Distributors & dealers" sub={`${distributors} distributors · ${ours.length - distributors} dealers added here · ${count('Active')} active`}
+    actions={canEdit ? <Btn kind="primary" sm icon="plus" label="Add a dealer" onPress={() => a.go('newdealer')} /> : undefined}>
+    {hidden > 0 && <Hint icon="people" style={{ marginBottom: 12 }}>{hidden} more {hidden === 1 ? 'dealer was' : 'dealers were'} added by their own distributor. Open a distributor to see its dealers.</Hint>}
     <Box filters={<><SearchBox value={q} onChange={setQ} ph="Name, city, code, mobile or distributor" /><Pills value={status} onChange={setStatus} items={[['all', 'All'], ['active', `Active ${count('Active')}`], ['pending', `Waiting ${count('Pending Approval')}`], ['suspended', `Suspended ${count('Suspended')}`], ['rejected', `Refused ${count('Rejected')}`]]} /><FilterPick label="Type" value={kind} options={['Distributors', 'Dealers']} onChange={setKind} /><FilterPick label="City" value={city} options={state.cities} onChange={setCity} /></>}>
       <Table rows={rows} keyOf={d => d.id} onRow={d => a.go('dealer', d.id)} empty="No dealers match."
         cols={[
@@ -164,6 +171,10 @@ export function NewDealer() {
   };
 
   if (!canEdit) return <Page back title="Add a dealer"><Empty icon="lock" title="Read-only access" text="You can look at the dealer list, but not add to it." /></Page>;
+  // Every dealer sits under a distributor, so with none active there is nothing to add it to.
+  if (!distributors.length) return <Page back title="Add a dealer">
+    <Empty icon="people" title="No active distributor yet" text="A dealer always sits under a distributor. Approve or re-activate one first, then come back." />
+  </Page>;
   return <Page back title="Add a dealer" sub="Head office → distributor → dealer">
     <Cols weights={[1.4, 1]}>
       <Card><CardH title="Shop details" right={<Chip tone="info" label="Active at once" />} />
@@ -172,9 +183,11 @@ export function NewDealer() {
         <Field label="Mobile number" req mono numeric maxLength={10} value={f.mobile} onChange={v => set('mobile')(digits(v).slice(0, 10))} ph="9876543210" error={err.mobile}
           hint="They sign in with this number and the SMS code." hintIcon="phone" />
         <Field label="Email" value={f.email} onChange={set('email')} ph="name@shop.in (optional)" error={err.email} />
-        <Select label="Distributor" req value={f.distributor} options={distributors.map(d => ({ v: d.name, sub: `${d.city} · ${state.dealers.filter(x => x.distributorId === d.id).length} dealers` }))}
-          onChange={set('distributor')} error={err.distributor} hint="This dealer's requests go to this distributor first." />
-        <Select label="City" req value={f.city} options={state.cities} onChange={set('city')} error={err.city} hint="Chosen from the company city list — not typed." />
+        <Select label="Distributor" req value={f.distributor} ph={distributors.length ? `Choose from ${distributors.length} distributor${distributors.length === 1 ? '' : 's'}` : 'No distributor to choose'}
+          options={distributors.map(d => ({ v: d.name, sub: `${d.city} · ${state.dealers.filter(x => x.distributorId === d.id).length} dealers` }))}
+          onChange={set('distributor')} error={err.distributor} hintIcon="people"
+          hint="This dealer's requests go to this distributor first, and its old batteries go to him." />
+        <Select label="City" req value={f.city} ph={`Choose from ${state.cities.length} cities`} options={state.cities} onChange={set('city')} error={err.city} hintIcon="pin" hint="Chosen from the company city list — not typed." />
         <Field label="State" req value={f.state} onChange={set('state')} error={err.state} />
         <Field label="Place / area" value={f.place} onChange={set('place')} ph="Road or area" />
         <Field label="Full address" req value={f.address} onChange={set('address')} ph="Shop number, building, road" error={err.address} />
@@ -220,7 +233,12 @@ export function DealerProfile({ id }: { id?: string }) {
       <Card><CardH title="Business details" right={<StatusChip status={d.status} />} />
         <KV cols={a.wide ? 3 : 2} pairs={[['Contact person', d.contact], ['Mobile', `+91 ${d.mobile}`, 'mono'], ['Email', d.email || '—'], ['City · place', `${d.city} · ${d.place || '—'}`], ['Dealer code', d.id, 'mono'], ['Address', d.address], ['State', d.state], ['Documents', d.documents?.join(', ') || 'None uploaded']]} />
         {d.reason && <Banner tone={d.status === 'Active' ? 'info' : 'warn'} icon="alert" style={{ marginTop: 12 }}><B>Last decision:</B> {d.reason}</Banner>}
-        {canEdit && <View style={{ flexDirection: 'row', gap: 9, marginTop: 13, flexWrap: 'wrap' }}>{actions.map(x => <Btn key={x} sm kind={x === 'Approve' || x === 'Activate' ? 'blue' : 'ghost'} color={x === 'Suspend' || x === 'Reject' ? T.terminal : undefined} borderColor={x === 'Suspend' || x === 'Reject' ? '#F0C7BC' : undefined} label={`${x === 'Reject' ? 'Refuse' : x} ${isDealer ? 'dealer' : 'distributor'}`} onPress={() => setAct(x)} />)}</View>}
+        {canEdit && <View style={{ flexDirection: 'row', gap: 9, marginTop: 13, flexWrap: 'wrap' }}>
+          {actions.map(x => <Btn key={x} sm kind={x === 'Approve' || x === 'Activate' ? 'blue' : 'ghost'} color={x === 'Suspend' || x === 'Reject' ? T.terminal : undefined} borderColor={x === 'Suspend' || x === 'Reject' ? '#F0C7BC' : undefined} label={`${x === 'Reject' ? 'Refuse' : x} ${isDealer ? 'dealer' : 'distributor'}`} onPress={() => setAct(x)} />)}
+          {/* which distributor a dealer sits under is head office's to set, so it is an action
+              here and not only a line in the banner above (client, 3 Oct 2026) */}
+          {isDealer && <Btn sm kind="ghost" icon="people" label={parent ? 'Move to another distributor' : 'Assign a distributor'} onPress={() => { setMoveTo(''); setMoving(true); }} />}
+        </View>}
         <Hint icon="shield" style={{ marginTop: 10 }}>Suspending stops new entries at once. It never removes anything the dealer already recorded.</Hint>
       </Card>
       <Stack>

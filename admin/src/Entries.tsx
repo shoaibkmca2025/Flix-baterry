@@ -139,7 +139,7 @@ export function useDecisions() {
       catch (err) { return failed(errorMessage(err)); }
       finally { sync(true); }
     },
-    correctOne: async (e: Entry, itemId: string, change: { code?: string; oldCode?: string }, reason: string) => {
+    correctOne: async (e: Entry, itemId: string, change: { code?: string; oldCode?: string; modelId?: string; oldModelId?: string }, reason: string) => {
       if (!guard()) return false;
       if (!live(e)) return notInV1();
       const token = await getAccessToken(); if (!token) return notInV1();
@@ -459,6 +459,9 @@ export function EntryDetail({ id }: { id?: string }) {
   // 3 Oct 2026). workOn keeps the two halves apart, and each field shows its own prefix.
   const [workOn, setWorkOn] = useState<{ itemId: string; n: number; kind: 'review' | 'correct'; code: string; oldSerial: string; model: string; oldModel: string } | null>(null);
   const [fixCode, setFixCode] = useState(''), [fixOld, setFixOld] = useState('');
+  // The plate and model can be wrong on a request too, not only the digits — a dealer picks the
+  // model from a list and can pick the one above (client, 3 Oct 2026). Both halves are editable.
+  const [fixModel, setFixModel] = useState(''), [fixOldModel, setFixOldModel] = useState('');
   // a corrected serial is held to the same lengths as the original (7, 8 or 9 for a new battery)
   const newMaxLen = Math.max(...NEW_BATTERY_DIGIT_LENGTHS), oldMaxLen = Math.max(...anyDigitLengths(state.serialDigitLengths));
   useEffect(() => {
@@ -626,6 +629,7 @@ export function EntryDetail({ id }: { id?: string }) {
                 onPress={() => {
                   const c = correctionOf(it);
                   setFixCode(c.code); setFixOld(c.oldSerial);
+                  setFixModel(c.model); setFixOldModel(c.oldModel);
                   setWorkOn({ itemId: it.id, n: i + 1, kind: 'correct', ...c });
                 }} />
             </View>}
@@ -690,30 +694,47 @@ export function EntryDetail({ id }: { id?: string }) {
       suggestions={['Waiting for the old battery to arrive', 'Checking the label photo', 'Opening it on the bench', 'Calling the dealer']}
       onClose={() => setWorkOn(null)} onConfirm={r => { if (!workOn) return false; void dec.reviewOne(e, workOn.itemId, r); }}
       intro={`Only battery ${workOn?.n ?? ''} is marked. The request stays where it is and the other batteries are untouched.`} />
-    <ReasonDialog open={workOn?.kind === 'correct'} title={`Correct battery ${workOn?.n ?? ''}`} confirm="Save the correction"
-      disabled={fixCode.trim() === (workOn?.code ?? '') && fixOld.trim() === (workOn?.oldSerial ?? '')}
+    {/* Everything a correction can change sits side by side here, so the whole battery is in view
+        at once and nothing has to be scrolled past to reach the reason (client, 3 Oct 2026). */}
+    <ReasonDialog open={workOn?.kind === 'correct'} title={`Correct battery ${workOn?.n ?? ''}`} confirm="Save the correction" width={880}
+      disabled={fixCode.trim() === (workOn?.code ?? '') && fixOld.trim() === (workOn?.oldSerial ?? '')
+        && fixModel === (workOn?.model ?? '') && fixOldModel === (workOn?.oldModel ?? '')}
       onClose={() => setWorkOn(null)}
       onConfirm={r => {
         if (!workOn) return false;
-        // send only what actually changed, so a correction to one serial leaves the other alone
-        const change: { code?: string; oldCode?: string } = {};
+        if (!fixModel) { a.toast('Choose the new battery’s plate and model.'); return false; }
+        if (workOn.oldSerial && !fixOldModel) { a.toast('Choose the old battery’s plate and model.'); return false; }
+        // send only what actually changed, so a correction to one half leaves the other alone
+        const change: { code?: string; oldCode?: string; modelId?: string; oldModelId?: string } = {};
         if (fixCode.trim() && fixCode.trim() !== workOn.code) change.code = fixCode.trim();
         if (fixOld.trim() && fixOld.trim() !== workOn.oldSerial) change.oldCode = fixOld.trim();
+        if (fixModel && fixModel !== workOn.model) change.modelId = fixModel;
+        if (fixOldModel && fixOldModel !== workOn.oldModel) change.oldModelId = fixOldModel;
         void dec.correctOne(e, workOn.itemId, change, r);
       }}
-      intro="Only this battery's numbers change. The server checks them exactly as it checked the dealer's — length, month, model, and no clash with another battery on this request.">
-      {/* the plate + model sits outside the box: it is not what a correction changes, and seeing
-          it is the only way to read the whole number the way it is printed on the label */}
-      <Field label="New battery serial" mono numeric maxLength={newMaxLen} value={fixCode} onChange={v => setFixCode(v.replace(/\D/g, '').slice(0, newMaxLen))}
-        pre={<X s={16} f="m" w={6} c={T.slate}>{workOn?.model}</X>}
-        hint={fixCode.trim() !== (workOn?.code ?? '')
-          ? `was ${fullCode(workOn?.model ?? '', workOn?.code ?? '')}`
-          : `Saves as ${fullCode(workOn?.model ?? '', fixCode.trim())}`} hintIcon="pen" />
-      {!!workOn?.oldSerial && <Field label="Old battery serial" mono numeric maxLength={oldMaxLen} value={fixOld} onChange={v => setFixOld(v.replace(/\D/g, '').slice(0, oldMaxLen))}
-        pre={<X s={16} f="m" w={6} c={T.slate}>{workOn?.oldModel}</X>}
-        hint={fixOld.trim() !== (workOn?.oldSerial ?? '')
-          ? `was ${fullCode(workOn?.oldModel ?? '', workOn?.oldSerial ?? '')}`
-          : `Saves as ${fullCode(workOn?.oldModel ?? '', fixOld.trim())}`} hintIcon="pen" />}
+      intro="The server checks this exactly as it checked the dealer's — length, month, model, and no clash with another battery on this request.">
+      <Cols weights={workOn?.oldSerial ? [1, 1] : [1]}>
+        <Card>
+          <CardH title="New battery" right={<Chip tone="info" label="Went to the customer" />} />
+          <PlateModelSelect label="New battery" req value={fixModel} onChange={setFixModel} />
+          {/* the plate + model sits outside the box: the digits are what is typed, and the line
+              underneath shows the whole number the way it is printed on the label */}
+          <Field label="Serial number" mono numeric maxLength={newMaxLen} value={fixCode} onChange={v => setFixCode(v.replace(/\D/g, '').slice(0, newMaxLen))}
+            pre={<X s={16} f="m" w={6} c={T.slate}>{fixModel || '—'}</X>}
+            hint={fixCode.trim() !== (workOn?.code ?? '') || fixModel !== (workOn?.model ?? '')
+              ? `was ${fullCode(workOn?.model ?? '', workOn?.code ?? '')}`
+              : `Saves as ${fullCode(fixModel, fixCode.trim())}`} hintIcon="pen" />
+        </Card>
+        {!!workOn?.oldSerial && <Card>
+          <CardH title="Old battery" right={<Chip tone="vio" label="Came back" />} />
+          <PlateModelSelect label="Old battery" req value={fixOldModel} onChange={setFixOldModel} />
+          <Field label="Serial number" mono numeric maxLength={oldMaxLen} value={fixOld} onChange={v => setFixOld(v.replace(/\D/g, '').slice(0, oldMaxLen))}
+            pre={<X s={16} f="m" w={6} c={T.slate}>{fixOldModel || '—'}</X>}
+            hint={fixOld.trim() !== (workOn?.oldSerial ?? '') || fixOldModel !== (workOn?.oldModel ?? '')
+              ? `was ${fullCode(workOn?.oldModel ?? '', workOn?.oldSerial ?? '')}`
+              : `Saves as ${fullCode(fixOldModel, fixOld.trim())}`} hintIcon="pen" />
+        </Card>}
+      </Cols>
     </ReasonDialog>
     {/* entry-wide review only exists for local demo data — the server has no such thing */}
     {!e.apiId && <ReasonDialog open={act === 'review'} title="Start a review" confirm="Mark under review" suggestions={['Waiting for the old battery to arrive', 'Checking the label photo', 'Calling the dealer']} onClose={() => setAct('')} onConfirm={r => dec.review(e, r)} />}

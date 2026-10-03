@@ -643,6 +643,32 @@ describe('one battery at a time — review and correct', () => {
     expect(r.correctionReason).toBe('Dealer read the label wrong');
   });
 
+  // The plate and model can be wrong too, not only the digits: a dealer picks the model from a
+  // list and can pick the one above it (client, 3 Oct 2026).
+  it('corrects the plate and model, keeping the digits the dealer sent', async () => {
+    const r = await correctItem(adminCtx, 'entry-1', 'item-1', { modelId: 'M2200', reason: 'Dealer chose the wrong model' });
+    expect(r.batteryCode).toBe('M220026090001');  // same digits, under the right product
+    expect(r.modelId).toBe('M2200');
+    expect(r.oldBatteryCode).toBe('M526040001');  // the old battery is left alone
+  });
+
+  it("corrects the OLD battery's plate and model on its own", async () => {
+    const r = await correctItem(adminCtx, 'entry-1', 'item-1', { oldModelId: 'M2200', reason: 'Old battery is another product' });
+    expect(r.oldBatteryCode).toBe('M220026040001');
+    expect(r.oldModelId).toBe('M2200');
+    expect(r.batteryCode).toBe('M526090001');
+  });
+
+  // The console sends the digits on their own and the model as its own field. If the stored
+  // "as entered" value happens to carry a model prefix, deriving the model from it would quietly
+  // undo the model head office just picked.
+  it('an explicit model wins over one read out of the stored code', async () => {
+    vi.mocked(repo.findItemById).mockResolvedValue({ ...item, batteryCodeEntered: 'M5-26090001' } as never);
+    const r = await correctItem(adminCtx, 'entry-1', 'item-1', { modelId: 'M2200', reason: 'Dealer chose the wrong model' });
+    expect(r.modelId).toBe('M2200');
+    expect(r.batteryCode).toBe('M220026090001');
+  });
+
   it('corrects only the OLD battery when that is what was wrong', async () => {
     const r = await correctItem(adminCtx, 'entry-1', 'item-1', { oldCode: '26040077', reason: 'Old serial mistyped' });
     expect(r.oldBatteryCode).toBe('M526040077');

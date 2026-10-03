@@ -205,6 +205,7 @@ export function toDealer(d: ApiDealer, cityName: (id: string) => string): Dealer
     reason: d.statusReason ?? undefined,
     kind: d.kind === 'dealer' ? 'Dealer' : 'Distributor',
     distributorId: d.distributorId ?? undefined,
+    addedBy: d.registeredVia,
   };
 }
 

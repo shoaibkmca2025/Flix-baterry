@@ -149,10 +149,10 @@ export function Dialog({ open, title, sub, onClose, children, width = 560 }: { o
   </Modal>;
 }
 /** Every decision asks for a reason — suggestions keep it one tap for common cases. */
-export function ReasonDialog({ open, title, intro, confirm = 'Confirm', kind = 'blue', suggestions = [], onClose, onConfirm, children, disabled }: { open: boolean; title: string; intro?: React.ReactNode; confirm?: string; kind?: 'blue' | 'danger' | 'primary'; suggestions?: string[]; onClose: () => void; onConfirm: (reason: string) => boolean | void; children?: React.ReactNode; disabled?: boolean }) {
+export function ReasonDialog({ open, title, intro, confirm = 'Confirm', kind = 'blue', suggestions = [], onClose, onConfirm, children, disabled, width }: { open: boolean; title: string; intro?: React.ReactNode; confirm?: string; kind?: 'blue' | 'danger' | 'primary'; suggestions?: string[]; onClose: () => void; onConfirm: (reason: string) => boolean | void; children?: React.ReactNode; disabled?: boolean; width?: number }) {
   const [reason, setReason] = useState(''), [err, setErr] = useState('');
   useEffect(() => { if (open) { setReason(''); setErr(''); } }, [open]);
-  return <Dialog open={open} title={title} onClose={onClose}>
+  return <Dialog open={open} title={title} onClose={onClose} width={width}>
     {intro ? <X s={14} c={T.slate} style={{ marginBottom: 14 }}>{intro}</X> : null}
     {children}
     {suggestions.length > 0 && <View style={{ marginBottom: 4 }}><X s={13} w={6} c={T.ink3} style={{ marginBottom: 10 }}>Common reasons</X><ChipRow options={suggestions} value={reason} onChange={v => { setReason(v); setErr(''); }} /></View>}
@@ -161,10 +161,10 @@ export function ReasonDialog({ open, title, intro, confirm = 'Confirm', kind = '
     <Btn kind={kind} icon="check" label={confirm} disabled={disabled} onPress={() => { if (reason.trim().length < 5) { setErr('Write at least a few words (5 characters).'); return; } if (onConfirm(reason.trim()) !== false) onClose(); }} />
   </Dialog>;
 }
-export function Select({ label, value, options, onChange, req, hint, error, ph = 'Choose', style }: { label?: string; value: string; options: (string | { v: string; sub?: string })[]; onChange: (v: string) => void; req?: boolean; hint?: string; error?: string; ph?: string; style?: StyleProp<ViewStyle> }) {
+export function Select({ label, value, options, onChange, req, hint, hintIcon, error, ph = 'Choose', style }: { label?: string; value: string; options: (string | { v: string; sub?: string })[]; onChange: (v: string) => void; req?: boolean; hint?: string; hintIcon?: IconName; error?: string; ph?: string; style?: StyleProp<ViewStyle> }) {
   const [open, setOpen] = useState(false);
   const list = options.map(o => typeof o === 'string' ? { v: o } : o);
-  return <View style={style}><Field select label={label} req={req} value={value} ph={ph} onPress={() => setOpen(true)} hint={hint} error={error} />
+  return <View style={style}><Field select label={label} req={req} value={value} ph={ph} onPress={() => setOpen(true)} hint={hint} hintIcon={hintIcon} error={error} />
     <Dialog open={open} title={label || 'Choose'} onClose={() => setOpen(false)} width={460}><PickList options={list} value={value} onPick={v => { onChange(v); setOpen(false); }} /></Dialog></View>;
 }
 export function ToggleRow({ label, sub, value, onChange, disabled, last }: { label: string; sub?: string; value: boolean; onChange: (v: boolean) => void; disabled?: boolean; last?: boolean }) {

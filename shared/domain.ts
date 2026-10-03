@@ -25,6 +25,8 @@ export type Dealer = { id: string; code?: string; name: string; contact: string;
   pin?: string; state: string; status: string; reason?: string; documents?: string[];
   /** head office → distributor → dealer (client, 2 Oct 2026). Absent = 'Distributor' (every shop from before). */
   kind?: 'Distributor' | 'Dealer'; distributorId?: string;
+  /** who put this shop on the system — head office's list leaves out a distributor's own dealers */
+  addedBy?: 'self' | 'admin' | 'distributor';
   /** a dealer's distributor, as its own session knows it (who to hand old batteries to) */
   distributor?: { id: string; name: string; mobile: string; contact: string } };
 /**
