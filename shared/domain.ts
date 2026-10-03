@@ -305,7 +305,9 @@ export function approveEntry(state:State,entry:Entry):State {
     const old=batteries.find(b=>b.code===i.oldSerial);
     const prior=batteries.find(b=>b.code===i.code);
     const isReplacement=entry.type==='Replacement'; const isSale=entry.type==='Regular Sales';
-    const dest=isReplacement?'Replacement':isSale?'Sold':entry.type.includes('Repair')?'Repair':['Goods Return','Sales Return'].includes(entry.type)?'Returned':entry.type==='For Charging'?(prior?.state||'Available'):'Allocated';
+    // Two types reach here (ENTRY_TYPES): a replacement, or a sales return. The branches for
+    // Repair, Goods Return, For Charging and the rest went with the list that offered them.
+    const dest=isReplacement?'Replacement':isSale?'Sold':'Returned';
     const battery:Battery={...prior,code:i.code,serial:i.serial,model:i.model,dealerId:entry.dealerId,customer:entry.customer,mfg:i.mfg,state:dest,...(isReplacement?{oldSerial:i.oldSerial,start:old?.start,expiry:old?.expiry,policy:old?.policy}:isSale?{start:entry.date,expiry:expiryFrom(entry.date,policy.months),policy:policy.id}:{})};
     batteries=batteries.filter(b=>b.code!==i.code).concat(battery);
     movements.push({id:uid('MOV'),code:i.code,model:i.model,dealerId:entry.dealerId,from:prior?.state||'Company',to:dest,reason:entry.id,date:entry.date});

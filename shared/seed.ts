@@ -44,10 +44,10 @@ const batteries:Battery[]=[
 const entries:Entry[]=[
  ['0413','Replacement','Approved','S5','21040367','0367','21010188','Om Sai Motors','2026-09-13'],
  ['0412','Replacement','Submitted','B5','26080501','0501','21040385','Patil Farm','2026-09-13'],
- ['0411','Goods Return','Pending sync','I700','26080512','0512','','Suresh Transport','2026-09-12'],
+ ['0411','Sales Return','Pending sync','I700','26080512','0512','','Suresh Transport','2026-09-12'],
  ['0409','Replacement','Conflict','M7','26080319','0319','21040097','Deshmukh Auto','2026-09-12'],
  ['0404','Regular Sales','Approved','B5','21040385','0385','','Patil Farm','2026-09-11'],
- ['0398','Given for Demo','Approved','I700','26080512','0512','','Suresh Transport','2026-09-10'],
+ ['0398','Sales Return','Approved','I700','26080512','0512','','Suresh Transport','2026-09-10'],
  ['0394','Replacement','Approved','M5','26050195','0195','21030047','Suresh Transport','2026-09-09'],
 ].map(([n,type,status,model,code,serial,oldSerial,customer,d])=>({id:`ENT-26-09-${n}`,dealerId:'FPP-014',type,date:d,customer,place:'Sakri Road',order:`REF-${n}`,remarks:'',items:[{id:`ITEM-${n}`,model,code,serial,oldSerial,mfg:`20${code.slice(0,2)}-${code.slice(2,4)}`,rpl:d.slice(0,7),rtn:'',wr:oldSerial,remarks:''}],status:status as Entry['status'],evidence:[],createdAt:d+'T09:30:00',retries:0,...(type==='Replacement'&&status==='Approved'?{returnState:'At dealer'}:{})}));
 export const initialState:State={
