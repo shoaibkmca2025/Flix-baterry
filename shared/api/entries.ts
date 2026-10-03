@@ -73,6 +73,7 @@ export type EntryItemResult = {
   reviewNote: string | null;
   correctedAt: string | null;
   correctionReason: string | null;
+  distributorReceivedAt?: string | null; // the distributor marked the dealer's old battery arrived
 };
 export type EntryWithItems = EntryResult & { items: EntryItemResult[] };
 
@@ -116,4 +117,9 @@ export function settleEntry(id: string, decision: 'approved' | 'passed' | 'refus
 /** A distributor approves a dealer's request on to head office, or refuses it (client, 2 Oct 2026). */
 export function distributorDecide(id: string, decision: 'approve' | 'refuse', reason: string, accessToken: string) {
   return apiPost<EntryResult>(`/entries/${id}/distributor/${decision}`, { reason }, { accessToken });
+}
+
+/** The dealer handed the old battery over: the distributor marks it arrived — one battery, or all still to come. */
+export function markArrived(id: string, accessToken: string, itemId?: string) {
+  return apiPost<{ entryId: string; ref: string; items: EntryItemResult[] }>(`/entries/${id}/arrived`, itemId ? { itemId } : {}, { accessToken });
 }

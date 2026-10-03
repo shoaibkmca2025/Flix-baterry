@@ -3,12 +3,12 @@ import { View, Pressable, Image, Linking } from 'react-native';
 import { useStore } from '@felix/shared/store';
 import type { Entry } from '@felix/shared/domain';
 import { useSync } from '@felix/shared/api/sync';
-import { distributorDecide } from '@felix/shared/api/entries';
+import { distributorDecide, markArrived } from '@felix/shared/api/entries';
 import { listPhotos, type EntryPhoto } from '@felix/shared/api/photos';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Btn, Card, Chip, StatusChip, Field, Hint, Banner, Line, Avatar, Gap, KV, SecT, Plate, PlateLab, PlateVal } from '@felix/shared/ui/kit';
 import { PickList } from '@felix/shared/ui/pick';
-import { dLong, dShort, monthShort, tShort } from '@felix/shared/data';
+import { dLong, dShort, monthShort, tShort, distributorStage, type DistributorStage } from '@felix/shared/data';
 import { getAccessToken, dealerStatusLabel } from '@felix/shared/api/session';
 import { createMyDealer, listMyDealers, setMyDealerStatus, type ApiDealer } from '@felix/shared/api/dealers';
 import { ApiError, errorMessage } from '@felix/shared/api/client';
@@ -126,7 +126,7 @@ export function DistributorCard({ name, mobile, contact }: { name: string; mobil
 /* ---------- a distributor reviews his dealers' requests (client, 2 Oct 2026) ---------- */
 
 /** The dealers under this distributor, by id — their names for the request lists. */
-function useMyDealerNames() {
+export function useMyDealerNames() {
   const [names, setNames] = useState<Record<string, string>>({});
   useEffect(() => {
     let alive = true;
@@ -148,7 +148,7 @@ export function D42() {
   const decided = theirs.filter(e => e.distributorDecidedAt).sort((a, b) => (b.distributorDecidedAt || '').localeCompare(a.distributorDecidedAt || '')).slice(0, 10);
   const row = (e: Entry, i: number, arr: Entry[]) => <Line key={e.id} last={i === arr.length - 1} onPress={() => d.go('d43', e.id)} label={`Review ${e.id}`}
     av={<Avatar n={e.type === 'Replacement' ? 'swap' : 'truck'} tone={e.status === 'With distributor' ? 'amber' : e.status === 'Rejected' ? 'red' : 'green'} />}
-    title={names[e.dealerId] || 'Your dealer'} sub={`${e.customer || 'No customer name'} · ${e.type} · ${batteriesOf(e)}`} sub2={<Mono>{e.id} · {dShort(e.date)}</Mono>}
+    title={names[e.dealerId] || 'Your dealer'} sub={`${e.type} · ${batteriesOf(e)}`} sub2={<Mono>{e.id} · {dShort(e.date)}</Mono>}
     right={<StatusChip status={e.status} label={e.status === 'Submitted' || e.status === 'Under Review' ? 'Sent to head office' : undefined} />} chev />;
   return <Screen top={<AppBar title="Requests from my dealers" back="d07" />}>
     <Banner tone="info" icon="people" style={{ marginBottom: 13 }}><B>Your dealers’ replacements and sales returns come to you first.</B> Check each one and its photos. Approving sends it to head office — and means you have the old battery from the dealer.</Banner>
@@ -198,7 +198,7 @@ export function D43({ p }: { p?: string }) {
       <Btn kind={ask === 'approve' ? 'primary' : 'danger'} label={busy ? 'Saving…' : ask === 'approve' ? 'Approve and send' : 'Refuse request'} onPress={decide} disabled={busy} />
     </Sheet>}>
     {!waiting && <Banner tone={e.status === 'Rejected' ? 'bad' : 'ok'} icon={e.status === 'Rejected' ? 'x' : 'check'} style={{ marginBottom: 12 }}><B>{e.status === 'Rejected' ? 'Refused.' : 'Sent to head office.'}</B> {e.distributorReason || e.decisionReason || ''}</Banner>}
-    <Card><KV pairs={[['Dealer', names[e.dealerId] || 'Your dealer'], ['Customer', e.customer || '—'], ['Type', e.type], ['Date', dLong(e.date)], ['Sent', `${dShort(e.createdAt)}, ${tShort(e.createdAt)}`], ['Batteries', String(e.items.length)]]} /></Card>
+    <Card><KV pairs={[['Dealer', names[e.dealerId] || 'Your dealer'], ['Type', e.type], ['Date', dLong(e.date)], ['Sent', `${dShort(e.createdAt)}, ${tShort(e.createdAt)}`], ['Batteries', String(e.items.length)]]} /></Card>
     {e.items.map((it, i) => {
       const mine = photos?.filter(ph => (ph.itemSeq ?? 0) === i) ?? [];
       return <Card key={it.id} style={{ marginTop: 11 }}>
@@ -207,7 +207,11 @@ export function D43({ p }: { p?: string }) {
           <PlateLab>OLD BATTERY OUT</PlateLab><PlateVal>{it.oldSerial || '—'}</PlateVal>
           <X s={19} c={T.volt} style={{ textAlign: 'center', marginVertical: 4 }}>↓</X>
           <PlateLab>NEW BATTERY IN</PlateLab><PlateVal color="#7FD3A9">{it.code || '—'}</PlateVal></> : <><PlateLab>RETURNED BATTERY</PlateLab><PlateVal>{it.code || '—'}</PlateVal></>}</Plate>
-        <KV pairs={[['Made', monthShort(it.mfg)], [rep ? 'Problem' : 'Remarks', (rep ? it.fault : it.remarks) || '—']]} />
+        <KV pairs={[['Made', monthShort(it.mfg)], [rep ? 'Problem' : 'Remarks', (rep ? it.fault : it.remarks) || '—'], ['Where it is', `${distributorStage(e, it).label} — ${distributorStage(e, it).hint}`]]} />
+        {distributorStage(e, it).key === 'awaiting' && e.apiId && <Btn kind="blue" sm icon="box" label="Mark arrived" style={{ marginTop: 9, alignSelf: 'flex-start' }} onPress={async () => {
+          const token = await getAccessToken(); if (!token) { d.toast('Your sign-in has ended. Sign in again.'); return; }
+          try { await markArrived(e.apiId!, token, it.id); d.toast('Marked arrived. It is now ready to send from Send back.'); await sync(true); } catch (ex) { d.toast(errorMessage(ex)); }
+        }} />}
         <X s={12} w={7} c={T.slate} style={{ marginTop: 11, marginBottom: 7 }}>PHOTOS</X>
         {photos === null ? <X s={13} c={T.slate}>Loading photos…</X>
           : mine.length ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9 }}>{mine.map(ph => <Pressable key={ph.id} accessibilityRole="imagebutton" accessibilityLabel={`Open photo: ${ph.tag}`} onPress={() => open(ph.url)} style={{ width: 130 }}>
@@ -216,5 +220,84 @@ export function D43({ p }: { p?: string }) {
           : <X s={13} c={T.slate}>No photos for this battery.</X>}
       </Card>;
     })}
+  </Screen>;
+}
+
+/* ---------- a distributor's requests, grouped by dealer (client, 3 Oct 2026) ---------- */
+
+/** Counts for one dealer's batteries — what the distributor has to do next. */
+function tally(rows: { e: Entry; it: Entry['items'][number] }[]) {
+  const c = { requested: 0, awaiting: 0, arrived: 0, total: rows.length };
+  rows.forEach(({ e, it }) => { const k = distributorStage(e, it).key; if (k === 'requested') c.requested++; else if (k === 'awaiting') c.awaiting++; else if (k === 'arrived') c.arrived++; });
+  return c;
+}
+/** Every battery on the dealers' requests in this distributor's store, as (request, battery) pairs. */
+const batteriesFrom = (entries: Entry[]) => entries.flatMap(e => e.items.map(it => ({ e, it })));
+
+/** "From my dealers" inside My requests: one row per dealer, with what is waiting on the distributor. */
+export function DealerGroups() {
+  const d = useD(); const { state, dealerId } = useStore();
+  const [dealers, setDealers] = useState<ApiDealer[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    getAccessToken().then(t => (t ? listMyDealers(t) : null)).then(r => { if (alive) setDealers(r?.items ?? []); }).catch(() => { if (alive) setDealers([]); });
+    return () => { alive = false; };
+  }, []);
+  const theirs = state.entries.filter(e => e.dealerId !== dealerId && e.status !== 'Draft');
+  if (dealers === null) return <Card><X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>Loading your dealers…</X></Card>;
+  if (!dealers.length) return <Card><X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>No dealers yet. Add them from Profile → My dealers.</X></Card>;
+  const rows = dealers.map(dl => ({ dl, c: tally(batteriesFrom(theirs.filter(e => e.dealerId === dl.id))) }))
+    .sort((a, b) => (b.c.requested + b.c.awaiting + b.c.arrived) - (a.c.requested + a.c.awaiting + a.c.arrived) || a.dl.name.localeCompare(b.dl.name));
+  return <Card>{rows.map(({ dl, c }, i) => {
+    const todo = [c.requested && `${c.requested} to approve`, c.awaiting && `${c.awaiting} to receive`, c.arrived && `${c.arrived} ready to send`].filter(Boolean).join(' · ');
+    return <Line key={dl.id} last={i === rows.length - 1} onPress={() => d.go('d44', dl.id)} label={`Open ${dl.name}`}
+      av={<Avatar n="shop" tone={c.requested || c.awaiting ? 'amber' : c.arrived ? 'green' : 'mute'} />}
+      title={dl.name} sub={todo || (c.total ? `${c.total} ${c.total === 1 ? 'battery' : 'batteries'} · nothing waiting on you` : 'No requests yet')}
+      right={dl.status !== 'active' ? <StatusChip status={dealerStatusLabel(dl.status)} /> : c.requested + c.awaiting + c.arrived ? <Chip tone="warn" label={String(c.requested + c.awaiting + c.arrived)} /> : undefined} chev />;
+  })}</Card>;
+}
+
+/* d44 · one dealer's requests, battery by battery */
+export function D44({ p }: { p?: string }) {
+  const d = useD(); const { state } = useStore(); const { sync } = useSync();
+  const names = useMyDealerNames();
+  const [busy, setBusy] = useState('');
+  useEffect(() => { sync(true); }, []);
+  const rows = batteriesFrom(state.entries.filter(e => e.dealerId === p && e.status !== 'Draft'))
+    .sort((a, b) => (b.e.createdAt || b.e.date).localeCompare(a.e.createdAt || a.e.date));
+  const c = tally(rows);
+  const arrive = async (e: Entry, itemId: string) => {
+    if (!e.apiId) return;
+    const token = await getAccessToken(); if (!token) { d.toast('Your sign-in has ended. Sign in again.'); return; }
+    setBusy(itemId);
+    try { await markArrived(e.apiId, token, itemId); d.toast('Marked arrived. It is now ready to send from Send back.'); await sync(true); }
+    catch (ex) { d.toast(errorMessage(ex)); } finally { setBusy(''); }
+  };
+  const FILTERS: [string, string, (k: DistributorStage['key']) => boolean][] = [
+    ['all', `All ${rows.length}`, () => true], ['requested', `To approve ${c.requested}`, k => k === 'requested'], ['awaiting', `To receive ${c.awaiting}`, k => k === 'awaiting'],
+    ['arrived', `Ready to send ${c.arrived}`, k => k === 'arrived'], ['done', 'Sent on', k => ['dispatched', 'factory', 'headoffice', 'approved', 'refused'].includes(k)],
+  ];
+  const [f, setF] = useState('all');
+  const shown = rows.filter(({ e, it }) => FILTERS.find(x => x[0] === f)![2](distributorStage(e, it).key));
+  return <Screen top={<AppBar title={names[p || ''] || 'Dealer'} back="d18" />}>
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 12 }}>{FILTERS.map(([k, l]) =>
+      <Pressable key={k} accessibilityRole="button" accessibilityState={{ selected: f === k }} onPress={() => setF(k)}><Chip tone={f === k ? 'info' : 'mute'} label={l} /></Pressable>)}</View>
+    <Card>{shown.length ? shown.map(({ e, it }, i) => {
+      const s = distributorStage(e, it);
+      return <View key={`${e.id}#${it.id}`} style={{ paddingVertical: 11, borderBottomWidth: i === shown.length - 1 ? 0 : 1, borderBottomColor: T.zinc2 }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Open ${e.id}`} onPress={() => d.go('d43', e.id)} style={{ flexDirection: 'row', gap: 11, alignItems: 'center' }}>
+          <Avatar n={e.type === 'Replacement' ? 'swap' : 'truck'} tone={s.tone === 'warn' ? 'amber' : s.tone === 'bad' ? 'red' : s.tone === 'live' ? 'green' : s.tone === 'vio' ? 'vio' : 'mute'} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <X s={14.5} w={6} f="m">{it.oldSerial ? `${it.oldSerial} → ${it.code}` : it.code}</X>
+            <X s={12.5} c={T.slate}>{e.type} · <Mono>{e.id}</Mono> · {dShort(e.date)}</X>
+            <X s={12} c={T.slate}>{s.hint}</X>
+          </View>
+          <Chip tone={s.tone} label={s.label} />
+        </Pressable>
+        {s.key === 'awaiting' && e.apiId && <Btn kind="blue" sm icon="box" label={busy === it.id ? 'Saving…' : 'Mark arrived'} style={{ marginTop: 9, alignSelf: 'flex-start' }} onPress={() => arrive(e, it.id)} disabled={!!busy} />}
+      </View>;
+    }) : <X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>Nothing here.</X>}</Card>
+    {c.arrived > 0 && <Btn kind="primary" icon="truck" label={`Send ${c.arrived} arrived ${c.arrived === 1 ? 'battery' : 'batteries'} to head office`} style={{ marginTop: 12 }} onPress={() => d.tab('d33')} />}
+    <Hint icon="shield" style={{ marginTop: 10 }}>Approve on the photos and serial first. Mark a battery arrived only when the dealer hands it to you — only arrived batteries can go on a challan.</Hint>
   </Screen>;
 }

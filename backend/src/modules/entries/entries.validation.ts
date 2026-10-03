@@ -84,6 +84,10 @@ export type EntryListQuery = z.infer<typeof EntryListQuery>;
 // accepted; `itemSeq` is the battery on the request it shows (0 = the first), absent for the
 // request as a whole. ~8 MB of base64 is ~6 MB of JPEG — far above what the app's 40% quality
 // camera produces.
+// the distributor marks a dealer's old battery arrived — one battery, or all still to come
+export const EntryArrivedBody = z.object({ itemId: z.string().uuid().optional() });
+export type EntryArrivedBody = z.infer<typeof EntryArrivedBody>;
+
 export const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 export const EntryPhotoBody = z.object({
   tag: z.string().trim().min(1).max(60),

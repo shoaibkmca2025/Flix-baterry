@@ -100,6 +100,7 @@ function toItem(it: EntryWithItems['items'][number], e: EntryWithItems, batterie
     wr: it.oldBatteryCode ?? '',
     remarks: it.remarks ?? '',
     fault: faultLabel(it.faultCode),
+    arrivedAtDistributor: it.distributorReceivedAt ?? undefined,
     ...(rep ? {
       claimId: claim?.id,
       claimStatus: claim?.status,

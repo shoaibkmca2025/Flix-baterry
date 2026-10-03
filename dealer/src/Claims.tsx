@@ -8,6 +8,7 @@ import { printHtml, escapeHtml, saveHtmlDocument } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, BigOk, CheckBox, Kpis, Plate, PlateLab, PlateVal, AvTone, Tone, IconName } from '@felix/shared/ui/kit';
 import { Screen, AppBar, useD } from './shell';
+import { useMyDealerNames } from './Network';
 import { getAccessToken } from '@felix/shared/api/session';
 import { createChallan } from '@felix/shared/api/returns';
 import { toChallan } from '@felix/shared/api/mapping';
@@ -62,6 +63,7 @@ function D33Dispatch() {
   const d = useD(); const { state, setState, dealerId, audit } = useStore(); const { sync } = useSync();
   // his own old batteries and those his dealers handed him, once he approved their requests
   const rows = toSendBack(state, dealerId, true);
+  const names = useMyDealerNames(); // a dealer's customer is not sent to the distributor — show which dealer it came from
   const [off, setOff] = useState<string[]>([]), [vehicle, setVehicle] = useState(''), [driver, setDriver] = useState(''), [busy, setBusy] = useState(false);
   const picked = rows.filter(e => !off.includes(e.id));
   const count = picked.reduce((t, e) => t + e.items.filter(i => i.oldSerial).length, 0);
@@ -106,7 +108,7 @@ function D33Dispatch() {
         return <Pressable key={e.id} accessibilityRole="checkbox" accessibilityState={{ checked: on }} onPress={() => setOff(o => on ? [...o, e.id] : o.filter(x => x !== e.id))}
           style={{ flexDirection: 'row', gap: 12, alignItems: 'center', paddingVertical: 13, borderBottomWidth: i < rows.length - 1 ? 1 : 0, borderBottomColor: T.zinc2 }}>
           <CheckBox on={on} />
-          <View style={{ flex: 1, minWidth: 0 }}><X s={14.5} w={6} f="m">{oldList(e)}</X><X s={12.5} c={T.slate} style={{ marginTop: 2 }}>{findBattery(state, it.oldSerial)?.model || it.model} · {e.id}</X><X s={12.5} c={T.slate} style={{ marginTop: 2 }}>{e.customer || 'Customer not named'}</X></View>
+          <View style={{ flex: 1, minWidth: 0 }}><X s={14.5} w={6} f="m">{oldList(e)}</X><X s={12.5} c={T.slate} style={{ marginTop: 2 }}>{findBattery(state, it.oldSerial)?.model || it.model} · {e.id}</X><X s={12.5} c={T.slate} style={{ marginTop: 2 }}>{e.dealerId === dealerId ? (e.customer || 'Customer not named') : `From ${names[e.dealerId] || 'your dealer'}`}</X></View>
           <Chip tone={age > 30 ? 'bad' : 'warn'} icon="clock" label={age === 0 ? 'Today' : `${age} ${age === 1 ? 'day' : 'days'}`} />
         </Pressable>;
       }) : <X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>Nothing to send back. Old batteries from new replacements appear here.</X>}

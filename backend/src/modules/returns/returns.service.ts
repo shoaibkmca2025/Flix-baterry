@@ -56,6 +56,13 @@ export async function dispatch(ctx: Ctx, input: ChallanCreateBody) {
 
   const items = (await entriesRepo.findItemsByEntryIds(db, ids)).filter((it) => !!it.oldBatteryCode);
   if (!items.length) throw new AppError('nothing_to_dispatch', 422, 'None of these entries has an old battery to send back.');
+  // A dealer's old battery leaves only once it has reached the distributor and he marked it
+  // arrived — a challan must never list a battery he does not have (client, 3 Oct 2026).
+  const notHere = items.find((it) => byId.get(it.entryId)?.dealerId !== dealerId && !it.distributorReceivedAt);
+  if (notHere) {
+    const ref = byId.get(notHere.entryId)?.ref ?? notHere.entryId;
+    throw new AppError('not_arrived', 422, `Old battery ${notHere.oldBatteryCode} on ${ref} has not reached you yet. Mark it arrived when the dealer hands it over, then send it.`);
+  }
   const [dup] = await repo.findLinesByEntryItemIds(db, items.map((it) => it.id));
   if (dup) {
     const ref = byId.get(dup.entryId)?.ref ?? dup.entryId;

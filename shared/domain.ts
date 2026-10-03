@@ -3,6 +3,8 @@ export type Role = 'Dealer' | 'Main Admin' | 'Co-Admin' | 'Read-only';
 export type Status = 'Draft' | 'Pending sync' | 'With distributor' | 'Submitted' | 'Under Review' | 'Approved' | 'Rejected' | 'Corrected' | 'Cancelled' | 'Conflict';
 export type Item = { id: string; model: string; oldModel?: string; code: string; serial: string; oldSerial: string; mfg: string; rpl: string; rtn: string; wr: string; remarks: string; exception?: string; fault?: string;
   /** a replacement's old battery travels and is decided on its own (client, 2 Oct 2026): its claim, where it is, and head office's decision */
+  /** a dealer's old battery handed over and marked arrived by the distributor (client, 3 Oct 2026) */
+  arrivedAtDistributor?: string;
   claimId?: string; claimStatus?: string; claimUpdatedAt?: string; status?: Status; returnState?: string; returnNote?: string; decidedAt?: string; decisionReason?: string;
   /** head office looked at THIS battery, and/or rewrote its serials (client, 2 Oct 2026) */
   reviewStartedAt?: string; reviewNote?: string; correctedAt?: string; correctionReason?: string };

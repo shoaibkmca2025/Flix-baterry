@@ -460,6 +460,35 @@ export async function list(ctx: Ctx, query: EntryListQuery) {
 }
 
 /**
+ * The dealer has handed the old battery over: the distributor marks it arrived (client, 3 Oct
+ * 2026). Only for HIS dealers' replacements, only once he has approved the request, and once per
+ * battery. Without `itemId` every battery still to arrive on the request is marked.
+ */
+export async function markArrived(ctx: Ctx, entryId: string, itemId?: string) {
+  const me = await requireDistributor(ctx);
+  const entry = await repo.findEntryById(db, entryId);
+  const shop = entry ? await findDealerById(db, entry.dealerId) : undefined;
+  if (!entry || !shop || shop.distributorId !== me.id) throw new AppError('entry_not_found', 404, 'Entry not found.'); // I-3
+  if (entry.entryType !== 'replacement') throw new AppError('nothing_to_receive', 422, `${entry.ref} is not a replacement — there is no old battery to receive.`);
+  if (entry.status === 'with_distributor') throw new AppError('not_approved_yet', 422, `Approve ${entry.ref} first — the dealer hands the old battery over after you approve it.`);
+  if (entry.status === 'rejected') throw new AppError('nothing_to_receive', 422, `${entry.ref} was refused — there is nothing to receive.`);
+  const items = (await repo.findItemsByEntryId(db, entryId)).filter((it) => it.oldBatteryCode);
+  const target = itemId ? items.filter((it) => it.id === itemId) : items.filter((it) => !it.distributorReceivedAt);
+  if (itemId && !target.length) throw new AppError('item_not_found', 404, 'That battery is not on this request.');
+  if (target.some((it) => it.distributorReceivedAt)) throw new AppError('already_arrived', 409, 'This old battery is already marked as arrived.');
+  if (!target.length) throw new AppError('already_arrived', 409, 'Every old battery on this request has already arrived.');
+  return withTransaction(async (tx) => {
+    const now = ctx.now();
+    const done = [];
+    for (const it of target) {
+      done.push(await repo.updateEntryItem(tx, it.id, { distributorReceivedAt: now, distributorReceivedBy: ctx.user!.id }));
+      await audit(tx, { ctx, action: 'entry_item.arrived_at_distributor', entityType: 'entry', entityId: entry.id, entityRef: entry.ref, after: { battery: it.oldBatteryCode, distributor: me.name, dealer: shop.name }, outcome: 'ok' });
+    }
+    return { entryId: entry.id, ref: entry.ref, items: done };
+  });
+}
+
+/**
  * The distributor's decision on a dealer's request (client, 2 Oct 2026). Approving forwards it
  * to head office, which still decides it at the factory; refusing ends it with the reason the
  * dealer sees. Approving also says the distributor has the old battery in hand — the dealer

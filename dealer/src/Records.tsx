@@ -14,6 +14,7 @@ import { entryTrail } from '@felix/shared/api/audit';
 // backend audit actions → the words this screen already uses (see `label` below)
 const TRAIL_LABEL: Record<string, string> = { 'entry.submitted': 'Entry submitted', 'entry.approved': 'Entry approved', 'entry.rejected': 'Reject entry' };
 import { ScanSheet, NOT_SENT, useDeleteEntry } from './Capture';
+import { DealerGroups } from './Network';
 import { avatarTone, coverChip, coverOf, dLong, dShort, dealerEntries, findBattery, firstProblem, monthLong, spanLong, tShort } from '@felix/shared/data';
 
 const FILTERS = ['all', 'rep', 'month', 'fix', 'notsent'] as const;
@@ -23,6 +24,9 @@ export function D18({ p }: { p?: string }) {
   const d = useD(); const { state, dealerId } = useStore();
   const [f, setF] = useState<string>(p && (FILTERS as readonly string[]).includes(p) ? p : 'all'), [code, setCode] = useState(p?.startsWith('code:') ? p.slice(5) : ''), [sheet, setSheet] = useState(false);
   const all = dealerEntries(state, dealerId), month = today().slice(0, 7);
+  // a distributor also sees his dealers' requests, grouped by dealer (client, 3 Oct 2026)
+  const isDistributor = state.dealers.find(x => x.id === dealerId)?.kind !== 'Dealer';
+  const [view, setView] = useState<'mine' | 'dealers'>(p === 'dealers' ? 'dealers' : 'mine');
   const fix = all.filter(e => ['Conflict', 'Rejected'].includes(e.status)), notSent = all.filter(e => ['Draft', 'Pending sync'].includes(e.status));
   const test: Record<string, (e: typeof all[number]) => boolean> = { all: () => true, rep: e => e.type === 'Replacement', month: e => e.date.startsWith(month), fix: e => fix.includes(e), notsent: e => notSent.includes(e) };
   const rows = all.filter(test[f]).filter(e => !code || e.items.some(i => normalize(i.code) === code || normalize(i.oldSerial) === code));
@@ -32,13 +36,17 @@ export function D18({ p }: { p?: string }) {
       <X s={12.5} c={on ? T.steel : T.ink} numberOfLines={1}>{label}</X>{x && <Ic n="x" size={13} color={T.slate} />}</Pressable>;
   return <Screen tab="list" top={<AppBar title="My entries" back="d07" right={<IconBtn n="filter" label="Filter entries" onPress={() => setSheet(true)} />} />}
     overlay={<Sheet open={sheet} title="Show entries" onClose={() => setSheet(false)}><PickList options={pills.map(([k, l]) => ({ v: l, sub: k === 'fix' ? 'Serial exceptions and refused requests' : k === 'notsent' ? 'Unfinished or saved on this phone' : undefined }))} value={pills.find(x => x[0] === f)![1]} onPick={v => { setF(pills.find(x => x[1] === v)![0]); setSheet(false); }} /></Sheet>}>
+    {isDistributor && <View style={{ flexDirection: 'row', gap: 7, marginBottom: 12 }}>
+      <Pill on={view === 'mine'} label="My own requests" onPress={() => setView('mine')} />
+      <Pill on={view === 'dealers'} label="From my dealers" onPress={() => setView('dealers')} /></View>}
+    {view === 'dealers' ? <DealerGroups /> : <>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12, flexGrow: 0 }} contentContainerStyle={{ gap: 7, paddingBottom: 3 }}>
       {code ? <Pill on x label={`Serial ${code}`} onPress={() => setCode('')} /> : null}
       {pills.map(([k, l]) => <Pill key={k} on={f === k} label={l} onPress={() => setF(k)} />)}
     </ScrollView>
     <Card>{rows.length ? rows.map((e, i) => <EntryLine key={e.id} e={e} showType last={i === rows.length - 1} onPress={() => openEntry(d, d.setFlow, e)} />)
       : <X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>No entries match this view.</X>}</Card>
-    <Hint icon="doc" center style={{ marginTop: 14 }}>Showing {rows.length} of {all.length}</Hint>
+    <Hint icon="doc" center style={{ marginTop: 14 }}>Showing {rows.length} of {all.length}</Hint></>}
   </Screen>;
 }
 

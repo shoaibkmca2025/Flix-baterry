@@ -85,6 +85,11 @@ export const entryItems = pgTable(
     correctedAt: timestamp('corrected_at', { withTimezone: true }),
     correctedBy: uuid('corrected_by'),
     correctionReason: text('correction_reason'),
+    // A dealer's old battery reaches his distributor by hand after the distributor approved the
+    // request; the distributor marks it arrived, and only then can he send it to head office —
+    // so a challan never lists a battery he does not have (client, 3 Oct 2026).
+    distributorReceivedAt: timestamp('distributor_received_at', { withTimezone: true }),
+    distributorReceivedBy: uuid('distributor_received_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('entry_items_entry_idx').on(t.entryId)],

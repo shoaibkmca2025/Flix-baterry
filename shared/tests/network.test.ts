@@ -16,7 +16,10 @@ const state = { entries: [
 
 test("a distributor sends back his own old batteries and those of his dealers' requests he approved", () => {
   assert.deepEqual(toSendBack(state, 'dealer-1').map(e => e.id), ['E1']);
-  assert.deepEqual(toSendBack(state, 'dealer-1', true).map(e => e.id).sort(), ['E1', 'E3']); // E2 waits for his approval
+  // E2 waits for his approval; E3 is approved but its old battery has not reached him yet (client, 3 Oct 2026)
+  assert.deepEqual(toSendBack(state, 'dealer-1', true).map(e => e.id).sort(), ['E1']);
+  const arrived = { ...state, entries: state.entries.map(e => e.id === 'E3' ? { ...e, items: e.items.map(it => ({ ...it, arrivedAtDistributor: '2026-10-03T10:00:00Z' })) } : e) } as State;
+  assert.deepEqual(toSendBack(arrived, 'dealer-1', true).map(e => e.id).sort(), ['E1', 'E3']); // once marked arrived, it can go
   assert.deepEqual(networkEntries(state, 'dealer-1').map(e => e.id).sort(), ['E1', 'E2', 'E3', 'E4']);
   assert.deepEqual(refunds(state, 'dealer-1', true).checking.map(e => e.id).sort(), ['E1', 'E3']);
 });

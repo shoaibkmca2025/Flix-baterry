@@ -82,7 +82,7 @@ import * as claimsService from '../claims/claims.service';
 import * as returnsRepo from '../returns/returns.repository';
 import { postMovementInTx } from '../stock/stock.service';
 import * as repo from './entries.repository';
-import { addPhoto, approve, correctItem, create, distributorDecide, getById, list, listPhotos, reject, reviewItem, settle } from './entries.service';
+import { addPhoto, approve, correctItem, create, distributorDecide, getById, list, listPhotos, markArrived, reject, reviewItem, settle } from './entries.service';
 import { putObject } from '../../utils/storage';
 import type { Ctx } from '../../utils/context';
 import type { EntryCreateBody } from './entries.validation';
@@ -750,5 +750,42 @@ describe('each tier sees only the party it deals with (client, 3 Oct 2026)', () 
     const r = await getById(dealerCtx, 'e1');
     expect(r.customerName).toBeNull();     // the dealer's customer is the dealer's business
     expect(r.dealerId).toBe('dealer-1a');  // but which shop it came from stays visible
+  });
+});
+
+describe("the distributor marks a dealer's old battery arrived (client, 3 Oct 2026)", () => {
+  const childCtx: Ctx = { ...dealerCtx, user: { ...dealerCtx.user!, id: 'user-1a', dealerId: 'dealer-1a' } };
+  const approvedByHim = { id: 'entry-7', ref: 'ENT-26-10-0007', status: 'submitted', dealerId: 'dealer-1a', entryType: 'replacement' };
+  const items = [{ id: 'item-1', seq: 0, oldBatteryCode: 'M526040001', distributorReceivedAt: null }, { id: 'item-2', seq: 1, oldBatteryCode: 'M526040002', distributorReceivedAt: null }];
+
+  it('marks every battery still to come, after he approved the request, with an audit row each', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(approvedByHim as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue(items as never);
+    vi.mocked(repo.updateEntryItem).mockImplementation(async (_tx, id, set) => ({ id, ...set }) as never);
+    const r = await markArrived(dealerCtx, 'entry-7');
+    expect(repo.updateEntryItem).toHaveBeenCalledTimes(2);
+    expect(repo.updateEntryItem).toHaveBeenCalledWith(expect.anything(), 'item-1', expect.objectContaining({ distributorReceivedBy: 'user-1', distributorReceivedAt: expect.any(Date) }));
+    expect(r.items).toHaveLength(2);
+  });
+
+  it('or one battery of several', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(approvedByHim as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue(items as never);
+    vi.mocked(repo.updateEntryItem).mockImplementation(async (_tx, id, set) => ({ id, ...set }) as never);
+    await markArrived(dealerCtx, 'entry-7', 'item-2');
+    expect(repo.updateEntryItem).toHaveBeenCalledTimes(1);
+    expect(repo.updateEntryItem).toHaveBeenCalledWith(expect.anything(), 'item-2', expect.anything());
+  });
+
+  it('not before he approved it, not twice, not by a dealer, not for another distributor\'s dealer', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...approvedByHim, status: 'with_distributor' } as never);
+    await expect(markArrived(dealerCtx, 'entry-7')).rejects.toMatchObject({ code: 'not_approved_yet' });
+    vi.mocked(repo.findEntryById).mockResolvedValue(approvedByHim as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue(items.map((it) => ({ ...it, distributorReceivedAt: new Date() })) as never);
+    await expect(markArrived(dealerCtx, 'entry-7', 'item-1')).rejects.toMatchObject({ code: 'already_arrived', status: 409 });
+    await expect(markArrived(childCtx, 'entry-7')).rejects.toMatchObject({ code: 'distributor_only' });
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...approvedByHim, dealerId: 'dealer-2a' } as never);
+    await expect(markArrived(dealerCtx, 'entry-7')).rejects.toMatchObject({ code: 'entry_not_found', status: 404 });
+    expect(repo.updateEntryItem).not.toHaveBeenCalled();
   });
 });

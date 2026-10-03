@@ -102,7 +102,27 @@ export function refunds(state: State, dealerId: string, withDealers = false) {
 
 /** Replacement requests whose old battery is still sitting in the shop. */
 // withDealers: a distributor sends back his dealers' old batteries too, once he has approved their requests
-export const toSendBack = (state: State, dealerId: string, withDealers = false) => (withDealers ? networkEntries(state, dealerId) : dealerEntries(state, dealerId)).filter(e => e.type === 'Replacement' && ['Submitted', 'Under Review', 'Conflict', 'Approved'].includes(e.status) && (!e.returnState || e.returnState === 'At dealer') && e.items.some(i => i.oldSerial));
+// ...and a dealer's request only once every one of its old batteries has reached him (client, 3 Oct 2026)
+export const toSendBack = (state: State, dealerId: string, withDealers = false) => (withDealers ? networkEntries(state, dealerId) : dealerEntries(state, dealerId)).filter(e => e.type === 'Replacement' && ['Submitted', 'Under Review', 'Conflict', 'Approved'].includes(e.status) && (!e.returnState || e.returnState === 'At dealer') && e.items.some(i => i.oldSerial)
+  && (e.dealerId === dealerId || e.items.every(i => !i.oldSerial || !!i.arrivedAtDistributor)));
+
+/**
+ * Where one battery of a dealer's request stands, as its distributor sees it (client, 3 Oct 2026):
+ * requested → approved by him, waiting for the old battery → arrived at him → dispatched →
+ * at the factory → head office's decision. A sales return has no old battery to hand over.
+ */
+export type DistributorStage = { key: 'requested' | 'awaiting' | 'arrived' | 'dispatched' | 'factory' | 'headoffice' | 'approved' | 'refused'; label: string; tone: 'warn' | 'info' | 'live' | 'vio' | 'bad' | 'mute'; hint: string };
+export function distributorStage(e: Entry, it: Entry['items'][number]): DistributorStage {
+  const st = it.status ?? e.status;
+  if (e.status === 'With distributor') return { key: 'requested', label: 'Requested', tone: 'warn', hint: 'Check the photos and serial, then approve or refuse' };
+  if (st === 'Rejected' || e.status === 'Rejected') return { key: 'refused', label: 'Refused', tone: 'bad', hint: e.decisionReason || '' };
+  if (st === 'Approved') return { key: 'approved', label: 'Approved', tone: 'live', hint: 'Head office approved it for refund' };
+  if (e.type !== 'Replacement' || !it.oldSerial) return { key: 'headoffice', label: 'With head office', tone: 'info', hint: 'You approved it — head office decides' };
+  if (it.returnState && !['At dealer', 'In transit'].includes(it.returnState)) return { key: 'factory', label: 'At factory', tone: 'live', hint: 'Head office is checking it' };
+  if (it.returnState === 'In transit') return { key: 'dispatched', label: 'Dispatched', tone: 'vio', hint: 'On your challan to head office' };
+  if (it.arrivedAtDistributor) return { key: 'arrived', label: 'Arrived at you', tone: 'live', hint: 'Ready to send — use Send back' };
+  return { key: 'awaiting', label: 'Waiting for the battery', tone: 'info', hint: 'You approved it — mark it arrived when the dealer hands it over' };
+}
 export const ageDays = (iso: string) => Math.max(0, Math.round((Date.parse(today()) - Date.parse(iso.slice(0, 10))) / 86400000));
 
 export function challanStatus(c: Challan, state: State): { label: string; status: string; sub: string } {

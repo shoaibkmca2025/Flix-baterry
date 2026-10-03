@@ -82,7 +82,8 @@ export function D07() {
   const queued = all.filter(e => e.status === 'Pending sync'), drafts = all.filter(e => e.status === 'Draft');
   // a distributor sends back (and is refunded for) his dealers' batteries too (client, 2 Oct 2026)
   const net = !isDealerShop(dealer);
-  const back = net ? toSendBack(state, dealerId, true) : all.filter(e => e.type === 'Replacement' && e.status === 'With distributor'), rf = refunds(state, dealerId, net);
+  // a dealer hands over the old battery once his distributor approved the request, until it is marked arrived
+  const back = net ? toSendBack(state, dealerId, true) : all.filter(e => e.type === 'Replacement' && !['With distributor', 'Rejected', 'Draft'].includes(e.status) && e.items.some(it => it.oldSerial && !it.arrivedAtDistributor && (!it.returnState || it.returnState === 'At dealer'))), rf = refunds(state, dealerId, net);
   const alerts: { av: [any, AvTone]; title: string; sub: string; go: () => void }[] = [];
   if (problems.length) alerts.push({ av: ['alert', 'red'], title: `${problems.length} ${problems.length === 1 ? 'request needs' : 'requests need'} your attention`, sub: problems.length === 1 ? `${problems[0].id} · ${problems[0].status === 'Conflict' ? 'head office has asked about the serial' : 'head office refused it — see why'}` : 'Tap to see what to fix', go: () => problems.length === 1 ? d.go('d19', problems[0].id) : d.go('d18', 'fix') });
   if (queued.length) alerts.push({ av: ['sync', 'amber'], title: `${queued.length} ${queued.length === 1 ? 'entry' : 'entries'} waiting to send`, sub: state.offline ? 'Saved on this phone · sends when signal returns' : 'Saved on this phone · tap to send now', go: sync });
@@ -90,6 +91,9 @@ export function D07() {
   const underDistributor = isDealerShop(dealer);
   // a distributor's queue: his dealers' requests waiting for his approval (client, 2 Oct 2026)
   const fromDealers = underDistributor ? [] : state.entries.filter(e => e.dealerId !== dealerId && e.status === 'With distributor');
+  const toReceive = underDistributor ? 0 : state.entries.filter(e => e.dealerId !== dealerId && e.type === 'Replacement' && e.status !== 'With distributor' && e.status !== 'Rejected')
+    .reduce((n, e) => n + e.items.filter(it => it.oldSerial && !it.arrivedAtDistributor && (!it.returnState || it.returnState === 'At dealer')).length, 0);
+  if (toReceive) alerts.unshift({ av: ['box', 'amber'], title: `${toReceive} old ${toReceive === 1 ? 'battery' : 'batteries'} to receive from your dealers`, sub: 'Mark each one arrived when the dealer hands it over', go: () => d.tab('d18') });
   if (fromDealers.length) alerts.unshift({ av: ['people', 'amber'], title: `${fromDealers.length} ${fromDealers.length === 1 ? 'request' : 'requests'} from your dealers to approve`, sub: 'Check each one and its photos, then approve or refuse', go: () => d.go('d42') });
   // a dealer hands its old batteries to the distributor by hand; only a distributor sends them back
   if (back.length && underDistributor) alerts.push({ av: ['truck', 'amber'], title: `${back.length} old ${back.length === 1 ? 'battery' : 'batteries'} to hand to your distributor`, sub: dealer.distributor ? `${dealer.distributor.name} · +91 ${dealer.distributor.mobile}` : 'Give them to your distributor', go: () => d.go('d18', 'rep') });

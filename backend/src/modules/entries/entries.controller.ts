@@ -53,6 +53,11 @@ export async function correctItem(request: FastifyRequest<{ Params: { id: string
   reply.status(200).send(result);
 }
 
+// the dealer handed the old battery over (client, 3 Oct 2026)
+export async function markArrived(request: FastifyRequest<{ Params: { id: string }; Body: { itemId?: string } }>, reply: FastifyReply) {
+  reply.status(200).send(await service.markArrived(buildCtx(request), request.params.id, request.body?.itemId));
+}
+
 // the distributor's decision on a dealer's request (client, 2 Oct 2026)
 export async function distributorApprove(request: FastifyRequest<{ Params: { id: string }; Body: EntryDecisionBody }>, reply: FastifyReply) {
   reply.status(200).send(await service.distributorDecide(buildCtx(request), request.params.id, 'approve', request.body.reason));
