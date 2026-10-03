@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View } from 'react-native';
 import { useStore } from '@felix/shared/store';
-import { today, warranty } from '@felix/shared/domain';
+import { today, warranty, readLabel, anyDigitLengths } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, Btn, Chip, Kpis, Mono, KV, Tone, IconName } from '@felix/shared/ui/kit';
 import { ageDays, dShort, firstProblem, monYear, specialWaiting } from '@felix/shared/data';
@@ -85,6 +85,6 @@ export function Home() {
       </Box>
       </Stack>
     </Cols>
-    <ScanDialog open={scan} onClose={() => setScan(false)} onCode={code => a.go('search', code)} />
+    <ScanDialog open={scan} onClose={() => setScan(false)} onCode={label => a.go('search', readLabel(label, state.models.map(m => m.id), anyDigitLengths(state.serialDigitLengths)).code || label)} />
   </Page>;
 }

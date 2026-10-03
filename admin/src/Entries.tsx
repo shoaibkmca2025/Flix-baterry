@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Image, Pressable, Linking } from 'react-native';
 import { useStore } from '@felix/shared/store';
-import { Entry, Item, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approveEntry, correctionOf, deriveCode, fullCode, expiryFrom, today, isValidDigits, lengthsLabel, filterEntries, newEntry, newItem, normalize, uid, validateEntry, warranty, ENTRY_TYPES, RETURN_KINDS, RETURN_KIND_HELP, ReturnKind } from '@felix/shared/domain';
+import { Entry, Item, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approveEntry, correctionOf, deriveCode, fullCode, expiryFrom, today, isValidDigits, lengthsLabel, filterEntries, newEntry, newItem, normalize, uid, validateEntry, warranty, ENTRY_TYPES, RETURN_KINDS, RETURN_KIND_HELP, ReturnKind, readLabel } from '@felix/shared/domain';
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, ChipRow, Label, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
@@ -951,6 +951,14 @@ export function NewEntry({ id }: { id?: string }) {
       </Stack>}
       {footer}
     </View>
-    <ScanDialog open={scan !== null} onClose={() => setScan(null)} onCode={code => { if (scan === null) return; const b = findBattery(state, code); item(scan, { code, ...deriveCode(code), ...(b ? { model: b.model } : {}) }); }} />
+    {/* the scanner hands over the whole label; readLabel takes the plate, model and digits off
+        it, so one scan fills the product and the serial together (client, 4 Oct 2026) */}
+    <ScanDialog open={scan !== null} onClose={() => setScan(null)} onCode={label => {
+      if (scan === null) return;
+      const read = readLabel(label, state.models.map(m => m.id), newLengths);
+      const known = findBattery(state, read.code);
+      item(scan, { code: read.code, serial: read.serial, mfg: read.mfg, ...(read.modelId || known ? { model: read.modelId || known!.model } : {}) });
+      if (!read.valid) a.toast(`Read “${label}”. Check the number below — it is not a length we issue.`);
+    }} />
   </Page>;
 }

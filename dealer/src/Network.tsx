@@ -14,6 +14,7 @@ import { getAccessToken, dealerStatusLabel } from '@felix/shared/api/session';
 import { createMyDealer, listMyDealers, setMyDealerStatus, type ApiDealer } from '@felix/shared/api/dealers';
 import { ApiError, errorMessage } from '@felix/shared/api/client';
 import { Screen, AppBar, Sheet, useD } from './shell';
+import { AddressBlock, addressErrors } from '@felix/shared/ui/address';
 import { useCities } from './Access';
 
 // Head office → distributor → dealer (client, 2 Oct 2026). A distributor adds the dealers
@@ -60,7 +61,7 @@ export function D40() {
     <Gap h={13} />
     <Card>{rows === null ? <X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>Loading your dealers…</X>
       : rows.length ? rows.map((r, i) => <Line key={r.id} last={i === rows.length - 1} av={<Avatar n="shop" tone={r.status === 'active' ? 'green' : 'mute'} />}
-          title={r.name} sub={`${r.contactPerson} · +91 ${grouped(r.mobile)}${cityOf(r.cityId) ? ` · ${cityOf(r.cityId)}` : ''} · added ${dShort(r.createdAt)}`}
+          title={r.name} sub={`${r.contactPerson} · +91 ${grouped(r.mobile)}${townOf(r) ? ` · ${townOf(r)}` : ''} · added ${dShort(r.createdAt)}`}
           right={<View style={{ alignItems: 'flex-end', gap: 6 }}><StatusChip status={dealerStatusLabel(r.status)} />
             {(r.status === 'active' || r.status === 'suspended') && <Pressable accessibilityRole="button" accessibilityLabel={`${r.status === 'active' ? 'Suspend' : 'Re-activate'} ${r.name}`} onPress={() => { setWhy(''); setAsk(r); }}>
               <X s={12.5} w={6} c={r.status === 'active' ? T.terminal : T.steel}>{r.status === 'active' ? 'Suspend' : 'Re-activate'}</X></Pressable>}</View>} />)
@@ -73,23 +74,21 @@ export function D40() {
 export function D41() {
   const d = useD();
   const cities = useCities();
-  const [f, setF] = useState({ name: '', contact: '', mobile: '', email: '', city: '', state: 'Maharashtra', place: '', address: '' });
-  const [err, setErr] = useState<Record<string, string>>({}), [cityOpen, setCityOpen] = useState(false), [busy, setBusy] = useState(false);
+  const [f, setF] = useState({ name: '', contact: '', mobile: '', email: '', city: '', district: '', state: '', place: '', address: '' });
+  const [err, setErr] = useState<Record<string, string>>({}), [pick, setPick] = useState<{ title: string; options: string[]; value: string; onPick: (v: string) => void } | null>(null), [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (v: string) => { setF(x => ({ ...x, [k]: v })); setErr(e => ({ ...e, [k]: '' })); };
   const submit = async () => {
     const e: Record<string, string> = {};
+    Object.assign(e, addressErrors(f)); // state, district, town and full address
     if (!f.name.trim()) e.name = 'Enter the shop name.';
     if (!f.contact.trim()) e.contact = 'Enter the owner or contact person.';
     if (f.mobile.length !== 10) e.mobile = 'Enter the 10-digit mobile number.';
     if (f.email && !/^\S+@\S+\.\S+$/.test(f.email)) e.email = 'This email does not look right.';
-    if (!f.city) e.city = 'Choose the city.';
-    if (!f.state.trim()) e.state = 'Enter the state.';
-    if (!f.address.trim()) e.address = 'Enter the full shop address.';
     setErr(e); if (Object.values(e).some(Boolean)) { d.toast('Some details need a look — they are marked in red.'); return; }
     const token = await getAccessToken(); if (!token) { d.toast('Your sign-in has ended. Sign in again.'); return; }
     setBusy(true);
     try {
-      const made = await createMyDealer({ name: f.name.trim(), contactPerson: f.contact.trim(), mobile: f.mobile, email: f.email.trim() || undefined, city: f.city, state: f.state.trim(), place: f.place.trim() || undefined, address: f.address.trim() }, token);
+      const made = await createMyDealer({ name: f.name.trim(), contactPerson: f.contact.trim(), mobile: f.mobile, email: f.email.trim() || undefined, city: f.city.trim(), district: f.district, state: f.state, place: f.place.trim() || undefined, address: f.address.trim() }, token);
       d.toast(`${made.name} is added. They sign in with +91 ${grouped(f.mobile)} and the SMS code.`);
       d.back('d40');
     } catch (ex) {
@@ -97,15 +96,16 @@ export function D41() {
       d.toast(errorMessage(ex));
     } finally { setBusy(false); }
   };
-  return <Screen top={<AppBar title="Add a dealer" back="d40" />} overlay={<Sheet open={cityOpen} title="Choose city" onClose={() => setCityOpen(false)}><PickList options={cities.map(c => ({ v: c.name }))} value={f.city} onPick={v => { set('city')(v); setCityOpen(false); }} /></Sheet>}>
+  return <Screen top={<AppBar title="Add a dealer" back="d40" />} overlay={<Sheet open={!!pick} title={pick?.title || ''} onClose={() => setPick(null)}>
+      <PickList options={(pick?.options ?? []).map(v => ({ v }))} value={pick?.value || ''} search={`Search ${(pick?.title || '').toLowerCase()}`}
+        onPick={v => { pick?.onPick(v); setPick(null); }} /></Sheet>}>
     <Field label="Dealer shop name" req mr="दुकानाचे नाव" value={f.name} onChange={set('name')} ph="Shop name on the board" error={err.name} />
     <Field label="Contact person" req value={f.contact} onChange={set('contact')} ph="Owner or manager" error={err.contact} />
     <Field label="Mobile number" req mono phone value={grouped(f.mobile)} onChange={v => set('mobile')(digits(v, 10))} ph="98765 43210" maxLength={11} error={err.mobile} hint="They sign in with this number and the SMS code." hintIcon="phone" />
     <Field label="Email" value={f.email} onChange={set('email')} ph="name@shop.in (optional)" error={err.email} />
-    <Field select label="City" req value={f.city} ph="Choose city" onPress={() => setCityOpen(true)} error={err.city} hint="Chosen from the company city list — not typed." hintIcon="pin" />
-    <Field label="State" req value={f.state} onChange={set('state')} error={err.state} />
-    <Field label="Place / area" value={f.place} onChange={set('place')} ph="Road or area" />
-    <Field label="Full address" req value={f.address} onChange={set('address')} ph="Shop number, building, road" error={err.address} />
+    <AddressBlock open={setPick} errors={err}
+      value={{ state: f.state, district: f.district, city: f.city, place: f.place, address: f.address }}
+      onChange={a => { setF(x => ({ ...x, ...a })); setErr(e => ({ ...e, state: '', district: '', city: '', address: '' })); }} />
     <Hint icon="shield">The dealer can use the app straight away — no approval from head office needed. You can suspend them later from My dealers.</Hint>
     <Btn kind="primary" icon="check" label={busy ? 'Adding…' : 'Add dealer'} style={{ marginTop: 12 }} onPress={submit} disabled={busy} />
   </Screen>;
@@ -132,6 +132,9 @@ export function useMyDealerNames() {
   }, []);
   return names;
 }
+
+/** Where a shop is, in one line: the town as typed, else the company's own listed city. */
+const townOf = (r: { cityName?: string | null; cityId: string | null }) => r.cityName || '';
 
 const batteriesOf = (e: Entry) => { const it = e.items[0]; return `${it?.model || '—'} · ${it?.serial || it?.code?.slice(-4) || '····'}${e.items.length > 1 ? ` + ${e.items.length - 1} more` : ''}`; };
 

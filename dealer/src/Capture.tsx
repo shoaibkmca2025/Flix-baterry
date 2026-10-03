@@ -32,7 +32,6 @@ function withPhoto(e: Entry, tag: string, uri: string): Partial<Entry> {
   if (k >= 0) evidence[k] = uri; else { tags.push(tag); evidence.push(uri); }
   return { evidence, evidenceTags: tags };
 }
-const codeFrom = (data: string) => (data.match(/[A-Za-z]\d{3,4}-?\d{6,9}/)?.[0]) || (data.match(/\d{6,9}/)?.[0]) || data.replace(/\D/g, '').slice(0, 9);
 
 /**
  * The shared checks (shared/data.ts entryErrors — head office's "Record an entry" runs the same
@@ -283,7 +282,9 @@ function useScanner(onCode: (code: string) => void) {
     try { const ok = perm?.granted || (await request()).granted; if (!ok) { d.toast('Camera access declined. Type the serial instead — that is always allowed.'); return; } setActive(true); }
     catch { d.toast('The camera is not available here. Type the serial instead.'); }
   };
-  const handle = (data: string) => { setActive(false); onCode(codeFrom(data)); };
+  // the label is handed over exactly as printed — "M 1000 2609 0676" — and read by readLabel,
+  // which knows every plate prefix and every length. Nothing is trimmed on the way (client, 4 Oct 2026).
+  const handle = (data: string) => { setActive(false); onCode(data); };
   return { active, start, handle, stop: () => setActive(false) };
 }
 export function ScanSheet({ open, title, onClose, onCode }: { open: boolean; title: string; onClose: () => void; onCode: (c: string) => void }) {
@@ -294,8 +295,8 @@ export function ScanSheet({ open, title, onClose, onCode }: { open: boolean; tit
     <ScanBox active={sc.active} onCode={sc.handle} />
     <Btn kind="blue" sm icon="scan" label={sc.active ? 'Stop camera' : 'Start camera'} style={{ alignSelf: 'stretch', marginTop: 12 }} onPress={sc.start} />
     <Gap h={14} />
-    <Field label="Or type the number on the label" mono numeric maxLength={9} value={manual} onChange={v => setManual(v.replace(/\D/g, ''))} ph="The digits on the label" />
-    <Btn kind="primary" icon="check" label="Use this number" disabled={manual.length !== 8} onPress={() => { onCode(manual); onClose(); }} />
+    <Field label="Or type what is on the label" mono value={manual} onChange={setManual} ph="M 1000 2609 0676, or just the digits" caps />
+    <Btn kind="primary" icon="check" label="Use this number" disabled={!manual.trim()} onPress={() => { onCode(manual.trim()); onClose(); }} />
   </Sheet>;
 }
 

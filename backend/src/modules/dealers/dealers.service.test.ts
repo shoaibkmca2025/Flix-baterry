@@ -87,12 +87,32 @@ describe('register', () => {
     await expect(register(ctx, validInput)).rejects.toMatchObject({ code: 'mobile_taken' });
   });
 
-  it('rejects a city not in the master list', async () => {
+  // A shop may be anywhere in India, and no list of Indian towns is small enough to keep in the
+  // masters — the town is typed and stored as typed (client, 4 Oct 2026, option c).
+  it('takes a town that is not on the company list, and keeps the name as typed', async () => {
     vi.mocked(verifyVerifiedToken).mockResolvedValue({ purpose: 'register', target: validInput.mobile });
     vi.mocked(repo.findDealerByMobile).mockResolvedValue(undefined);
     vi.mocked(findCityByName).mockResolvedValue(undefined);
+    vi.mocked(repo.insertDealer).mockResolvedValue({ id: 'dealer-9', name: validInput.name } as never);
 
-    await expect(register(ctx, validInput)).rejects.toMatchObject({ code: 'city_invalid' });
+    await register(ctx, { ...validInput, city: 'Sinnar', district: 'Nashik' });
+
+    expect(repo.insertDealer).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      cityId: null, cityName: 'Sinnar', district: 'Nashik',
+    }));
+  });
+
+  it("links to the company's own listed city when the typed town is one of them", async () => {
+    vi.mocked(verifyVerifiedToken).mockResolvedValue({ purpose: 'register', target: validInput.mobile });
+    vi.mocked(repo.findDealerByMobile).mockResolvedValue(undefined);
+    vi.mocked(findCityByName).mockResolvedValue({ id: 'city-nsk' } as never);
+    vi.mocked(repo.insertDealer).mockResolvedValue({ id: 'dealer-9', name: validInput.name } as never);
+
+    await register(ctx, { ...validInput, city: 'Nashik', district: 'Nashik' });
+
+    expect(repo.insertDealer).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      cityId: 'city-nsk', cityName: 'Nashik', district: 'Nashik',
+    }));
   });
 
   it('creates the dealer as pending_approval on a valid submission', async () => {

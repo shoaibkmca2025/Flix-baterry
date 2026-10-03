@@ -40,9 +40,12 @@ export const dealers = pgTable(
     contactPerson: text('contact_person').notNull(),
     mobile: text('mobile').notNull().unique(), // 10 digits
     email: citext('email').unique(),
-    cityId: uuid('city_id')
-      .notNull()
-      .references(() => cities.id),
+    // The town is stored as typed: a shop may be anywhere in India, and no list of Indian towns
+    // is small enough to keep here (client, 4 Oct 2026). `cityId` stays for the shops that were
+    // recorded against the company's own short list, and is not set for new ones.
+    cityId: uuid('city_id').references(() => cities.id),
+    cityName: text('city_name'),
+    district: text('district'),
     state: text('state').notNull(),
     // not asked for anywhere any more (client, 3 Oct 2026); the PINs already collected stay
     pin: char('pin', { length: 6 }),

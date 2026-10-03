@@ -7,7 +7,7 @@ import { useStore } from '@felix/shared/store';
 import { useLive } from '@felix/shared/api/sync';
 
 const NOT_IN_V1 = 'Not available in this version — warranty overrides, policies and the catalogue are managed on the server later.';
-import { Battery, Model, chainFor, deriveCode, expiryFrom, normalize, today, uid, warranty } from '@felix/shared/domain';
+import { Battery, Model, chainFor, deriveCode, expiryFrom, normalize, today, uid, warranty, readLabel, anyDigitLengths } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar, Plate, PlateLab, PlateVal, Meter } from '@felix/shared/ui/kit';
 import { coverChip, coverOf, dLong, dShort, monthLong, spanLong, spanShort } from '@felix/shared/data';
@@ -38,7 +38,7 @@ export function Search({ id }: { id?: string }) {
       {entries.length > 0 && <Box title={`${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}`}><EntryTable entries={entries} onOpen={e => a.go(e.status === 'Draft' ? 'new' : 'entry', e.id)} /></Box>}
       {dealers.length > 0 && <Box title="Dealers"><View style={{ paddingHorizontal: 14 }}>{dealers.map((d, i) => <Line key={d.id} last={i === dealers.length - 1} onPress={() => a.go('dealer', d.id)} av={<Avatar n="shop" />} title={d.name} sub={`${d.id} · ${d.city}`} right={<StatusChip status={d.status} />} />)}</View></Box>}
     </Stack> : <Box title="Recently moved batteries">{batteryTable(recent)}</Box>}
-    <ScanDialog open={scan} onClose={() => setScan(false)} onCode={setQ} />
+    <ScanDialog open={scan} onClose={() => setScan(false)} onCode={label => setQ(readLabel(label, state.models.map(m => m.id), anyDigitLengths(state.serialDigitLengths)).code || label)} />
   </Page>;
 }
 

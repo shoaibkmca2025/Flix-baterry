@@ -226,15 +226,17 @@ export function ScanDialog({ open, onClose, onCode }: { open: boolean; onClose: 
   const use = (code: string) => { setActive(false); onCode(code); onClose(); };
   return <Dialog open={open} title="Scan a battery" onClose={onClose} width={460}>
     <View style={{ backgroundColor: T.ink, borderRadius: 12, height: 212, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-      {active && <CameraView style={StyleSheet.absoluteFill} facing="back" barcodeScannerSettings={{ barcodeTypes: ['qr', 'code128', 'code39', 'ean13', 'ean8', 'upc_a', 'datamatrix'] }} onBarcodeScanned={({ data }) => { if (fired.current) return; fired.current = true; use(data.match(/\d{8}/)?.[0] || data.replace(/\D/g, '').slice(0, 8)); }} />}
+      {active && <CameraView style={StyleSheet.absoluteFill} facing="back" barcodeScannerSettings={{ barcodeTypes: ['qr', 'code128', 'code39', 'ean13', 'ean8', 'upc_a', 'datamatrix'] }} onBarcodeScanned={({ data }) => { if (fired.current) return; fired.current = true; use(data); }} />}
       <View style={{ width: 196, height: 118, borderWidth: 3, borderColor: T.volt, borderRadius: 8 }}><View style={{ position: 'absolute', left: 8, right: 8, top: '50%', height: 2, backgroundColor: T.terminal }} /></View>
       <X s={12.5} c="#A8B6C7" style={{ position: 'absolute', bottom: 12 }}>Hold the label inside the box</X>
     </View>
     {msg ? <Hint tone="err">{msg}</Hint> : null}
     <Btn kind="blue" sm icon="scan" label={active ? 'Stop camera' : 'Start camera'} style={{ alignSelf: 'stretch', marginTop: 12 }} onPress={() => active ? setActive(false) : start()} />
     <View style={{ height: 14 }} />
-    <Field label="Or type the number on the label" mono numeric maxLength={9} value={manual} onChange={v => setManual(v.replace(/\D/g, ''))} ph="The digits on the label" />
-    <Btn kind="primary" icon="check" label="Use this number" disabled={!manual} onPress={() => use(manual)} />
+    {/* the label is handed over exactly as printed — "M 1000 2609 0676" — and read by the caller.
+        Trimming it here to 8 digits threw the plate and model away (client, 4 Oct 2026). */}
+    <Field label="Or type what is on the label" mono value={manual} onChange={setManual} ph="M 1000 2609 0676, or just the digits" caps />
+    <Btn kind="primary" icon="check" label="Use this number" disabled={!manual.trim()} onPress={() => use(manual.trim())} />
   </Dialog>;
 }
 export { Chip };

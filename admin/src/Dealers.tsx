@@ -5,8 +5,10 @@ import { Dealer, uid } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar } from '@felix/shared/ui/kit';
 import { refunds, dLong, dShort, personOf, toSendBack } from '@felix/shared/data';
-import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, Tabs, ReasonDialog, Select, EntryTable, Empty, fmtAt, useA } from './ui';
+import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, Tabs, Dialog, ReasonDialog, Select, EntryTable, Empty, fmtAt, useA } from './ui';
 import { StaffManager } from './Governance';
+import { AddressBlock, addressErrors } from '@felix/shared/ui/address';
+import { PickList } from '@felix/shared/ui/pick';
 import { getAccessToken } from '@felix/shared/api/session';
 import { activateDealer, approveDealer, createDealerForDistributor, updateDealer, type DealerEdit, rejectDealer, suspendDealer } from '@felix/shared/api/dealers';
 import { errorMessage } from '@felix/shared/api/client';
@@ -67,7 +69,7 @@ export function Registrations() {
       <Cols weights={[1.55, 1]}>
         <Card>
           <CardH title={d.name} right={<StatusChip status={d.status} />} />
-          <KV cols={a.wide ? 3 : 2} pairs={[['Contact', d.contact], ['Mobile', `+91 ${d.mobile}`, 'mono'], ['Email', d.email || '—'], ['City', d.city], ['Place', d.place || '—'], ['Address', d.address], ['Applied', applied ? dLong(applied) : '—'], ['State', d.state]]} />
+          <KV cols={a.wide ? 3 : 2} pairs={[['Contact', d.contact], ['Mobile', `+91 ${d.mobile}`, 'mono'], ['Email', d.email || '—'], ['Town', d.city], ['District', d.district || '—'], ['Place', d.place || '—'], ['Address', d.address], ['Applied', applied ? dLong(applied) : '—'], ['State', d.state]]} />
           {dupes.length > 0 && <Banner tone="warn" icon="alert" style={{ marginTop: 13 }}><B>Same mobile or email as an existing account.</B> {dupes.map(x => `${x.name} (${x.status.toLowerCase()})`).join(', ')}. Confirm this is a different business before approving.</Banner>}
           <X s={13} w={7} c={T.slate} style={{ marginTop: 16, marginBottom: 8 }}>Documents</X>
           {d.documents?.length ? d.documents.map(doc => <Line key={doc} av={<Avatar n="doc" />} title={doc.split(' · ')[0]} sub={doc.split(' · ')[1] || 'Uploaded'} />) : <X s={13.5} c={T.slate}>No documents uploaded. You can still approve.</X>}
@@ -142,8 +144,10 @@ export function Dealers() {
  * exactly as when a distributor adds one himself.
  */
 export function NewDealer() {
+  // the address block asks for a list; the console shows it in a dialog
+  const [pick, setPick] = useState<{ title: string; options: string[]; value: string; onPick: (v: string) => void } | null>(null);
   const a = useA(); const { state, canEdit } = useStore(); const { sync } = useSync();
-  const [f, setF] = useState({ name: '', contact: '', mobile: '', email: '', distributor: '', city: '', state: 'Maharashtra', place: '', address: '' });
+  const [f, setF] = useState({ name: '', contact: '', mobile: '', email: '', distributor: '', city: '', district: '', state: '', place: '', address: '' });
   const [err, setErr] = useState<Record<string, string>>({}), [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (v: string) => { setF(x => ({ ...x, [k]: v })); setErr(e => ({ ...e, [k]: '' })); };
   // only an active distributor can take a dealer — the server checks this too
@@ -151,14 +155,12 @@ export function NewDealer() {
 
   const submit = async () => {
     const e: Record<string, string> = {};
+    Object.assign(e, addressErrors(f)); // state, district, town and full address
     if (!f.name.trim()) e.name = 'Enter the shop name.';
     if (!f.contact.trim()) e.contact = 'Enter the owner or manager.';
     if (!/^\d{10}$/.test(f.mobile)) e.mobile = 'Enter the 10-digit mobile number.';
     if (f.email.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.email.trim())) e.email = 'Check the email address.';
     if (!f.distributor) e.distributor = 'Choose the distributor this dealer belongs to.';
-    if (!f.city) e.city = 'Choose the city.';
-    if (!f.state.trim()) e.state = 'Enter the state.';
-    if (!f.address.trim()) e.address = 'Enter the full shop address.';
     setErr(e); if (Object.values(e).some(Boolean)) { a.toast('Some details need a look — they are marked in red.'); return; }
 
     const parent = distributors.find(d => d.name === f.distributor);
@@ -169,7 +171,7 @@ export function NewDealer() {
     try {
       const made = await createDealerForDistributor({
         name: f.name.trim(), contactPerson: f.contact.trim(), mobile: f.mobile, email: f.email.trim() || undefined,
-        city: f.city, state: f.state.trim(), place: f.place.trim() || undefined, address: f.address.trim(),
+        city: f.city.trim(), district: f.district, state: f.state, place: f.place.trim() || undefined, address: f.address.trim(),
         distributorId: parent.id,
       }, token);
       a.toast(`${made.name} is added under ${parent.name}. They sign in with +91 ${f.mobile} and the SMS code.`);
@@ -198,11 +200,13 @@ export function NewDealer() {
           options={distributors.map(d => ({ v: d.name, sub: `${d.city} · ${state.dealers.filter(x => x.distributorId === d.id).length} dealers` }))}
           onChange={set('distributor')} error={err.distributor} hintIcon="people"
           hint="This dealer's requests go to this distributor first, and its old batteries go to him." />
-        <Select label="City" req value={f.city} ph={`Choose from ${state.cities.length} cities`} options={state.cities} onChange={set('city')} error={err.city} hintIcon="pin" hint="Chosen from the company city list — not typed." />
-        <Field label="State" req value={f.state} onChange={set('state')} error={err.state} />
-        <Field label="Place / area" value={f.place} onChange={set('place')} ph="Road or area" />
-        <Field label="Full address" req value={f.address} onChange={set('address')} ph="Shop number, building, road" error={err.address} />
+        <AddressBlock open={setPick} errors={err} Row={({ children }) => <Cols>{children}</Cols>}
+          value={{ state: f.state, district: f.district, city: f.city, place: f.place, address: f.address }}
+          onChange={a => { setF(x => ({ ...x, ...a })); setErr(e => ({ ...e, state: '', district: '', city: '', address: '' })); }} />
         <Btn kind="primary" icon="check" label={busy ? 'Adding…' : 'Add dealer'} disabled={busy} onPress={submit} style={{ marginTop: 4 }} />
+        <Dialog open={!!pick} title={pick?.title || ''} onClose={() => setPick(null)} width={460}>
+          <PickList options={(pick?.options ?? []).map(v => ({ v }))} value={pick?.value || ''} search={`Search ${(pick?.title || '').toLowerCase()}`}
+            onPick={v => { pick?.onPick(v); setPick(null); }} /></Dialog>
       </Card>
       <Stack>
         <Card><CardH title="What happens next" />
@@ -223,8 +227,9 @@ export function DealerProfile({ id }: { id?: string }) {
   // Head office corrects a shop's record: any of its details, and which distributor a dealer
   // sits under (client, 4 Oct 2026). Nothing it has already recorded moves or is rewritten.
   const [editing, setEditing] = useState(false);
-  const blank = { name: '', contact: '', mobile: '', email: '', city: '', state: '', place: '', address: '', distributor: '' };
+  const blank = { name: '', contact: '', mobile: '', email: '', city: '', district: '', state: '', place: '', address: '', distributor: '' };
   const [form, setForm] = useState(blank), [fieldErr, setFieldErr] = useState<Record<string, string>>({});
+  const [editPick, setEditPick] = useState<{ title: string; options: string[]; value: string; onPick: (v: string) => void } | null>(null);
   const d = state.dealers.find(x => x.id === id);
   if (!d) return <Page back title="Dealer"><Empty icon="alert" title="Dealer not found" /></Page>;
   const entries = state.entries.filter(e => e.dealerId === d.id);
@@ -244,7 +249,7 @@ export function DealerProfile({ id }: { id?: string }) {
         : <X s={13.5} c={T.slate} style={{ padding: 14 }}>No dealers yet. The distributor adds them from the app (Profile → My dealers).</X>}</Box>}
     {tab === 'profile' && <Cols weights={[1.55, 1]}>
       <Card><CardH title="Business details" right={<StatusChip status={d.status} />} />
-        <KV cols={a.wide ? 3 : 2} pairs={[['Contact person', d.contact], ['Mobile', `+91 ${d.mobile}`, 'mono'], ['Email', d.email || '—'], ['City · place', `${d.city} · ${d.place || '—'}`], ['Dealer code', d.id, 'mono'], ['Address', d.address], ['State', d.state], ['Documents', d.documents?.join(', ') || 'None uploaded']]} />
+        <KV cols={a.wide ? 3 : 2} pairs={[['Contact person', d.contact], ['Mobile', `+91 ${d.mobile}`, 'mono'], ['Email', d.email || '—'], ['Town · district', `${d.city || '—'} · ${d.district || '—'}`], ['Place / area', d.place || '—'], ['Dealer code', d.id, 'mono'], ['Address', d.address], ['State', d.state], ['Documents', d.documents?.join(', ') || 'None uploaded']]} />
         {d.reason && <Banner tone={d.status === 'Active' ? 'info' : 'warn'} icon="alert" style={{ marginTop: 12 }}><B>Last decision:</B> {d.reason}</Banner>}
         {canEdit && <View style={{ flexDirection: 'row', gap: 9, marginTop: 13, flexWrap: 'wrap' }}>
           {actions.map(x => <Btn key={x} sm kind={x === 'Approve' || x === 'Activate' ? 'blue' : 'ghost'} color={x === 'Suspend' || x === 'Reject' ? T.terminal : undefined} borderColor={x === 'Suspend' || x === 'Reject' ? '#F0C7BC' : undefined} label={`${x === 'Reject' ? 'Refuse' : x} ${isDealer ? 'dealer' : 'distributor'}`} onPress={() => setAct(x)} />)}
@@ -253,7 +258,7 @@ export function DealerProfile({ id }: { id?: string }) {
           <Btn sm kind="ghost" icon="pen" label={isDealer ? 'Modify dealer' : 'Modify distributor'} onPress={() => {
             setFieldErr({});
             setForm({ name: d.name, contact: d.contact, mobile: d.mobile, email: d.email || '', city: d.city,
-              state: d.state, place: d.place || '', address: d.address, distributor: parent?.name || '' });
+              district: d.district || '', state: d.state, place: d.place || '', address: d.address, distributor: parent?.name || '' });
             setEditing(true);
           }} />
         </View>}
@@ -271,13 +276,11 @@ export function DealerProfile({ id }: { id?: string }) {
       intro="Change what is wrong on this record. Everything the shop has already recorded — its requests, batteries and history — stays exactly where it is. Your name, the time and the reason are written into the audit log."
       onConfirm={r => {
         const e: Record<string, string> = {};
+        Object.assign(e, addressErrors(form)); // state, district, town and full address
         if (!form.name.trim()) e.name = 'Enter the shop name.';
         if (!form.contact.trim()) e.contact = 'Enter the owner or manager.';
         if (!/^\d{10}$/.test(form.mobile)) e.mobile = 'Enter the 10-digit mobile number.';
         if (form.email.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) e.email = 'Check the email address.';
-        if (!form.city) e.city = 'Choose the city.';
-        if (!form.state.trim()) e.state = 'Enter the state.';
-        if (!form.address.trim()) e.address = 'Enter the full shop address.';
         if (isDealer && !form.distributor) e.distributor = 'Choose the distributor this dealer belongs to.';
         setFieldErr(e);
         if (Object.values(e).some(Boolean)) { a.toast('Some details need a look — they are marked in red.'); return false; }
@@ -289,8 +292,9 @@ export function DealerProfile({ id }: { id?: string }) {
         if (form.contact.trim() !== d.contact) change.contactPerson = form.contact.trim();
         if (form.mobile !== d.mobile) change.mobile = form.mobile;
         if (form.email.trim() !== (d.email || '')) change.email = form.email.trim();
-        if (form.city !== d.city) change.city = form.city;
-        if (form.state.trim() !== d.state) change.state = form.state.trim();
+        if (form.city.trim() !== d.city) change.city = form.city.trim();
+        if (form.district !== (d.district || '')) change.district = form.district;
+        if (form.state !== d.state) change.state = form.state;
         if (form.place.trim() !== (d.place || '')) change.place = form.place.trim();
         if (form.address.trim() !== d.address) change.address = form.address.trim();
         if (isDealer && to && to.id !== d.distributorId) change.distributorId = to.id;
@@ -319,14 +323,12 @@ export function DealerProfile({ id }: { id?: string }) {
       {isDealer && <Select label="Distributor" req value={form.distributor} onChange={v => setForm(f => ({ ...f, distributor: v }))} error={fieldErr.distributor} hintIcon="people"
         hint="This dealer's requests go to this distributor first, and its old batteries go to him."
         options={state.dealers.filter(x => x.kind !== 'Dealer' && x.status === 'Active').map(x => ({ v: x.name, sub: `${x.city} · ${state.dealers.filter(y => y.distributorId === x.id).length} dealers` }))} />}
-      <Cols>
-        <Select label="City" req value={form.city} onChange={v => setForm(f => ({ ...f, city: v }))} options={state.cities} error={fieldErr.city} hintIcon="pin" hint="From the company city list." />
-        <Field label="State" req value={form.state} onChange={v => setForm(f => ({ ...f, state: v }))} error={fieldErr.state} />
-      </Cols>
-      <Cols>
-        <Field label="Place / area" value={form.place} onChange={v => setForm(f => ({ ...f, place: v }))} ph="Road or area" />
-        <Field label="Full address" req value={form.address} onChange={v => setForm(f => ({ ...f, address: v }))} error={fieldErr.address} />
-      </Cols>
+      <AddressBlock open={setEditPick} errors={fieldErr} Row={({ children }) => <Cols>{children}</Cols>}
+        value={{ state: form.state, district: form.district, city: form.city, place: form.place, address: form.address }}
+        onChange={a => { setForm(f => ({ ...f, ...a })); setFieldErr(e => ({ ...e, state: '', district: '', city: '', address: '' })); }} />
+      <Dialog open={!!editPick} title={editPick?.title || ''} onClose={() => setEditPick(null)} width={460}>
+        <PickList options={(editPick?.options ?? []).map(v => ({ v }))} value={editPick?.value || ''} search={`Search ${(editPick?.title || '').toLowerCase()}`}
+          onPick={v => { editPick?.onPick(v); setEditPick(null); }} /></Dialog>
     </ReasonDialog>}
     {act && <ReasonDialog open title={`${act === 'Reject' ? 'Refuse' : act} ${d.name}`} confirm={`${act === 'Reject' ? 'Refuse' : act} ${isDealer ? 'dealer' : 'distributor'}`} kind={act === 'Approve' || act === 'Activate' ? 'blue' : 'danger'} onClose={() => setAct('')} onConfirm={r => decide(d, act, r)}
       intro={act === 'Suspend' ? 'New entries stop straight away. Their records, stock and history stay exactly as they are.' : act === 'Activate' ? 'The dealer can sign in and record entries again.' : undefined} />}

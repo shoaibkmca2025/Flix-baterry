@@ -7,6 +7,7 @@ export const DealerRegisterBody = z.object({
   mobile: z.string().regex(/^\d{10}$/, 'Enter the 10-digit mobile number.'),
   email: z.string().email().optional().or(z.literal('')),
   city: z.string().trim().min(1, 'Choose your city.'),
+  district: z.string().trim().min(1, 'Choose the district.').optional(),
   state: z.string().trim().min(1, 'Enter the state.'),
   pin: z.string().regex(/^\d{6}$/, '6 digits.').optional(), // not asked for any more (client, 3 Oct 2026)
   place: z.string().trim().optional(),
@@ -23,6 +24,7 @@ export const DealerCreateBody = z.object({
   mobile: z.string().regex(/^\d{10}$/, 'Enter the 10-digit mobile number.'),
   email: z.string().email().optional().or(z.literal('')),
   city: z.string().trim().min(1, 'Choose the city.'),
+  district: z.string().trim().min(1, 'Choose the district.').optional(),
   state: z.string().trim().min(1, 'Enter the state.'),
   pin: z.string().regex(/^\d{6}$/, '6 digits.').optional(), // not asked for any more (client, 3 Oct 2026)
   place: z.string().trim().optional(),
@@ -77,6 +79,7 @@ export const DealerAdminUpdateBody = z.object({
   mobile: z.string().regex(/^\d{10}$/, 'Enter the 10-digit mobile number.').optional(),
   email: z.string().email('Check the email address.').optional().or(z.literal('')),
   city: z.string().trim().min(1, 'Choose the city.').optional(),
+  district: z.string().trim().min(1, 'Choose the district.').optional(),
   state: z.string().trim().min(1, 'Enter the state.').optional(),
   place: z.string().trim().optional(),
   address: z.string().trim().min(1, 'Enter the full shop address.').optional(),

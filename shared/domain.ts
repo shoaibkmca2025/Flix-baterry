@@ -24,7 +24,9 @@ export type Entry = { id: string; dealerId: string; type: string; date: string; 
 export type Battery = { code: string; serial: string; model: string; dealerId: string; customer: string; mfg: string; oldSerial?: string; start?: string; expiry?: string; policy?: string; state: string;
   /** given against a battery whose cover was over: no warranty at all, and it can never be replaced (client, 3 Oct 2026) */
   noWarranty?: boolean; noWarrantyReason?: string };
-export type Dealer = { id: string; code?: string; name: string; contact: string; mobile: string; email: string; city: string; place: string; address: string;
+export type Dealer = { id: string; code?: string; name: string; contact: string; mobile: string; email: string; city: string;
+  /** the district the town sits in — asked for since 4 Oct 2026; blank on shops recorded before */
+  district?: string; place: string; address: string;
   /** no longer asked for anywhere (client, 3 Oct 2026); kept so PINs already on record still read */
   pin?: string; state: string; status: string; reason?: string; documents?: string[];
   /** head office → distributor → dealer (client, 2 Oct 2026). Absent = 'Distributor' (every shop from before). */
@@ -172,6 +174,27 @@ const lengthsDesc = (ls: readonly number[]) => [...new Set(ls)].sort((a, b) => b
  * cut into K + 60L by shape alone, so this matches against the ids the catalogue holds —
  * longest first — and a length only wins if what is left is a model we know.
  */
+/**
+ * What a scanned label says: the product, the digits, and what they mean.
+ *
+ * Felix labels print the whole thing with spaces — "M 1000 2609 0676", "K DIN 60 2609 0023",
+ * "SS 2500 26090493" — and the scanner hands that string back exactly as printed. It used to be
+ * squeezed through a regex that wanted the letters jammed against the digits, so with the spaces
+ * there it found nothing, fell back to "strip everything that is not a digit, take the first
+ * nine", and produced 100026090: the model number welded onto half the date. That is why
+ * scanning filled in no serial, no model and no plate (client, 4 Oct 2026).
+ *
+ * splitLabel already strips the separators, tries every accepted length and matches the longest
+ * known product, so the whole job is to stop interfering and hand it the raw scan.
+ */
+export function readLabel(scanned: string, knownModelIds: readonly string[] = [], lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS) {
+  const { modelId, code } = splitLabel(scanned, knownModelIds, lengths);
+  const { serial, mfg } = deriveCode(code, knownModelIds, lengths);
+  // read, but not necessarily usable: a label from a product we do not stock, or a length we do
+  // not issue, comes back with no month — the screen still shows what it read and says so
+  return { modelId, code, serial, mfg, valid: isValidDigits(code, lengths) };
+}
+
 export function splitLabel(input: string, knownModelIds: readonly string[] = [], lengths: readonly number[] = DEFAULT_DIGIT_LENGTHS) {
   const whole = (input||'').trim().toUpperCase().replace(/[\s\-._/]+/g,'');
   const tryLengths = lengthsDesc(lengths);

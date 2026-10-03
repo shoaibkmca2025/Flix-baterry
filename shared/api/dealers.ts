@@ -8,7 +8,9 @@ export type ApiDealer = {
   contactPerson: string;
   mobile: string;
   email: string | null;
-  cityId: string;
+  cityId: string | null;
+  cityName?: string | null; // the town as typed — a shop may be anywhere in India
+  district?: string | null;
   state: string;
   pin: string | null; // not asked for any more (client, 3 Oct 2026)
   place: string | null;
@@ -30,6 +32,7 @@ export type DealerRegisterInput = {
   mobile: string;
   email?: string;
   city: string;
+  district?: string;
   state: string;
   place?: string;
   address: string;
@@ -62,7 +65,7 @@ export function activateDealer(id: string, reason: string, accessToken: string) 
 }
 
 // --- a distributor's own dealers (client, 2 Oct 2026) --------------------------------------
-export type MyDealerInput = { name: string; contactPerson: string; mobile: string; email?: string; city: string; state: string; place?: string; address: string };
+export type MyDealerInput = { name: string; contactPerson: string; mobile: string; email?: string; city: string; district?: string; state: string; place?: string; address: string };
 export function listMyDealers(accessToken: string) {
   return apiGet<{ items: ApiDealer[] }>('/dealers/me/dealers', { accessToken });
 }

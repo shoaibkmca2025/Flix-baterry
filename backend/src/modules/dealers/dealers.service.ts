@@ -21,6 +21,18 @@ function decodeCursor(cursor?: string) {
   }
 }
 
+/**
+ * Where a shop is, as the forms now ask for it: State, District, then the town typed by hand
+ * (client, 4 Oct 2026). The town is stored exactly as typed — a shop may be anywhere in India,
+ * and no list of Indian towns is small enough to keep here. If the typed name happens to be one
+ * of the company's own listed cities it is linked to it as well, so the older screens that read
+ * `city_id` keep working.
+ */
+async function placeOf(input: { city: string; district?: string }) {
+  const city = await findCityByName(db, input.city);
+  return { cityId: city?.id ?? null, cityName: input.city.trim(), district: input.district?.trim() || null };
+}
+
 export async function register(ctx: Ctx, input: DealerRegisterBody) {
   const claims = await verifyVerifiedToken(input.verifiedToken, 'register').catch(() => {
     throw new AppError('verified_token_invalid', 401, 'Please verify your mobile number again.');
@@ -34,10 +46,7 @@ export async function register(ctx: Ctx, input: DealerRegisterBody) {
     throw new AppError('mobile_taken', 409, 'A shop with this mobile number is already registered.', { field: 'mobile' });
   }
 
-  const city = await findCityByName(db, input.city);
-  if (!city) {
-    throw new AppError('city_invalid', 422, 'Choose a city from the list.', { field: 'city' });
-  }
+  const place = await placeOf(input);
 
   const passwordHash = await hashPassword(input.password);
 
@@ -47,7 +56,7 @@ export async function register(ctx: Ctx, input: DealerRegisterBody) {
       contactPerson: input.contactPerson,
       mobile: input.mobile,
       email: input.email || null,
-      cityId: city.id,
+      cityId: place.cityId, cityName: place.cityName, district: place.district,
       state: input.state,
       pin: input.pin ?? null,
       place: input.place || null,
@@ -228,13 +237,11 @@ export async function createMyDealer(ctx: Ctx, input: DealerCreateBody) {
   if (await repo.findDealerByMobile(db, input.mobile) || await findUserByMobile(db, input.mobile)) {
     throw new AppError('mobile_taken', 409, 'This mobile number already has an account.', { field: 'mobile' });
   }
-  const city = await findCityByName(db, input.city);
-  if (!city) throw new AppError('city_invalid', 422, 'Choose a city from the list.', { field: 'city' });
-
+  const place = await placeOf(input);
   return withTransaction(async (tx) => {
     const d = await repo.insertDealer(tx, {
       name: input.name, contactPerson: input.contactPerson, mobile: input.mobile, email: input.email || null,
-      cityId: city.id, state: input.state, pin: input.pin ?? null, place: input.place || null, address: input.address,
+      cityId: place.cityId, cityName: place.cityName, district: place.district, state: input.state, pin: input.pin ?? null, place: input.place || null, address: input.address,
       registeredVia: 'distributor', kind: 'dealer', distributorId: me.id, status: 'active',
     });
     await repo.insertDealerUser(tx, { dealerId: d.id, name: input.contactPerson, mobile: input.mobile, email: input.email || null, passwordHash: null });
@@ -283,13 +290,11 @@ export async function createDealerForDistributor(ctx: Ctx, input: AdminDealerCre
   if (await repo.findDealerByMobile(db, input.mobile) || await findUserByMobile(db, input.mobile)) {
     throw new AppError('mobile_taken', 409, 'This mobile number already has an account.', { field: 'mobile' });
   }
-  const city = await findCityByName(db, input.city);
-  if (!city) throw new AppError('city_invalid', 422, 'Choose a city from the list.', { field: 'city' });
-
+  const place = await placeOf(input);
   return withTransaction(async (tx) => {
     const d = await repo.insertDealer(tx, {
       name: input.name, contactPerson: input.contactPerson, mobile: input.mobile, email: input.email || null,
-      cityId: city.id, state: input.state, pin: null, place: input.place || null, address: input.address,
+      cityId: place.cityId, cityName: place.cityName, district: place.district, state: input.state, pin: null, place: input.place || null, address: input.address,
       registeredVia: 'admin', kind: 'dealer', distributorId: distributor.id, status: 'active',
     });
     await repo.insertDealerUser(tx, { dealerId: d.id, name: input.contactPerson, mobile: input.mobile, email: input.email || null, passwordHash: null });
@@ -337,9 +342,12 @@ export async function updateDealer(ctx: Ctx, dealerId: string, input: DealerAdmi
   }
 
   if (input.city !== undefined) {
-    const city = await findCityByName(db, input.city);
-    if (!city) throw new AppError('city_invalid', 422, 'Choose a city from the list.', { field: 'city' });
-    change('cityId', dealer.cityId, city.id);
+    const place = await placeOf({ city: input.city, district: input.district });
+    change('cityId', dealer.cityId, place.cityId);
+    change('cityName', dealer.cityName, place.cityName);
+  }
+  if (input.district !== undefined) {
+    change('district', dealer.district, input.district.trim() || null);
   }
 
   // moving a dealer under another distributor: only a dealer sits under one, and only an active

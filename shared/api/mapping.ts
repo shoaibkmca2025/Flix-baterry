@@ -198,7 +198,9 @@ export function toDealer(d: ApiDealer, cityName: (id: string) => string): Dealer
     contact: d.contactPerson,
     mobile: d.mobile,
     email: d.email ?? '',
-    city: cityName(d.cityId),
+    // the town as typed; shops recorded against the company's own short list fall back to it
+    city: d.cityName || (d.cityId ? cityName(d.cityId) : ''),
+    district: d.district ?? undefined,
     place: d.place ?? '',
     address: d.address,
     pin: d.pin ?? undefined,

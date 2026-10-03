@@ -5,6 +5,7 @@ import { Dealer } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, OtpBoxes, Gap, TestCode, tap } from '@felix/shared/ui/kit';
 import { Screen, AppBar, Sheet, useD } from './shell';
+import { AddressBlock, addressErrors } from '@felix/shared/ui/address';
 import { PickList } from '@felix/shared/ui/pick';
 import { Photo, pickDocument, takePhoto } from '@felix/shared/ui/media';
 import { dLong, tShort, roleOf } from '@felix/shared/data';
@@ -188,8 +189,8 @@ export function D03() {
 export function D04({ p }: { p?: string } = {}) {
   const d = useD(); const { setState } = useStore();
   const cities = useCities();
-  const [f, setF] = useState({ name: '', contact: '', mobile: /^\d{10}$/.test(p ?? '') ? p! : '', email: '', city: '', state: 'Maharashtra', place: '', address: '', password: '' });
-  const [gst, setGst] = useState(''), [shopPhoto, setShopPhoto] = useState(''), [verified, setVerified] = useState(false), [otpOpen, setOtpOpen] = useState(false), [otp, setOtp] = useState(''), [cityOpen, setCityOpen] = useState(false), [err, setErr] = useState<Record<string, string>>({});
+  const [f, setF] = useState({ name: '', contact: '', mobile: /^\d{10}$/.test(p ?? '') ? p! : '', email: '', city: '', district: '', state: '', place: '', address: '', password: '' });
+  const [gst, setGst] = useState(''), [shopPhoto, setShopPhoto] = useState(''), [verified, setVerified] = useState(false), [otpOpen, setOtpOpen] = useState(false), [otp, setOtp] = useState(''), [pick, setPick] = useState<{ title: string; options: string[]; value: string; onPick: (v: string) => void } | null>(null), [err, setErr] = useState<Record<string, string>>({});
   const [regCode, setRegCode] = useState(''); // TEMPORARY: OTP shown on screen until SMS is connected
   const [challengeId, setChallengeId] = useState(''), [verifiedToken, setVerifiedToken] = useState(''), [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (v: string) => { setF(x => ({ ...x, [k]: v })); setErr(e => ({ ...e, [k]: '' })); };
@@ -213,21 +214,19 @@ export function D04({ p }: { p?: string } = {}) {
   };
   const submit = async () => {
     const e: Record<string, string> = {};
+    Object.assign(e, addressErrors(f)); // state, district, town and full address
     if (!f.name.trim()) e.name = 'Enter the shop name.';
     if (!f.contact.trim()) e.contact = 'Enter the owner or contact person.';
     if (f.mobile.length !== 10) e.mobile = 'Enter the 10-digit mobile number.';
     else if (!verified) e.mobile = 'Verify this number with the SMS code.';
     if (f.email && !/^\S+@\S+\.\S+$/.test(f.email)) e.email = 'This email does not look right.';
-    if (!f.city) e.city = 'Choose your city.';
-    if (!f.state.trim()) e.state = 'Enter the state.';
-    if (!f.address.trim()) e.address = 'Enter the full shop address.';
     if (f.password.length < 8) e.password = 'At least 8 characters.';
     setErr(e); if (Object.values(e).some(Boolean)) { d.toast('Some details need a look — they are marked in red.'); return; }
     setBusy(true);
     try {
       const result = await registerDealer({
         verifiedToken, name: f.name.trim(), contactPerson: f.contact.trim(), mobile: f.mobile,
-        email: f.email.trim() || undefined, city: f.city, state: f.state.trim(),
+        email: f.email.trim() || undefined, city: f.city.trim(), district: f.district, state: f.state,
         place: f.place.trim() || undefined, address: f.address.trim(), password: f.password,
       });
       const dealer: Dealer = { id: result.id, name: result.name, contact: f.contact.trim(), mobile: f.mobile, email: f.email.trim(), city: f.city, place: f.place.trim(), address: f.address.trim(), pin: '', state: f.state.trim(), status: dealerStatusLabel(result.status), documents: [gst && `GST certificate · ${gst}`, shopPhoto && 'Shop photo'].filter(Boolean) as string[] };
@@ -239,7 +238,10 @@ export function D04({ p }: { p?: string } = {}) {
     } finally { setBusy(false); }
   };
   return <Screen top={<AppBar title="Register your shop" back="d02" />} overlay={<>
-    <Sheet open={cityOpen} title="Choose city" onClose={() => setCityOpen(false)}><PickList options={cities.map(c => ({ v: c.name }))} value={f.city} onPick={v => { set('city')(v); setCityOpen(false); }} /></Sheet>
+    {/* one sheet for whatever the address block asks for — state, then district (client, 4 Oct 2026) */}
+    <Sheet open={!!pick} title={pick?.title || ''} onClose={() => setPick(null)}>
+      <PickList options={(pick?.options ?? []).map(v => ({ v }))} value={pick?.value || ''} search={`Search ${(pick?.title || '').toLowerCase()}`}
+        onPick={v => { pick?.onPick(v); setPick(null); }} /></Sheet>
     <Sheet open={otpOpen} title="Verify mobile number" onClose={() => setOtpOpen(false)}>
       <X s={14} c={T.slate} style={{ marginBottom: 12 }}>Enter the 6-digit code sent to +91 {grouped(f.mobile)}.</X>
       {!!regCode && <TestCode code={regCode} onUse={() => setOtp(regCode)} style={{ marginBottom: 12 }} />}
@@ -254,10 +256,9 @@ export function D04({ p }: { p?: string } = {}) {
     <Field label="Mobile number" req mono phone value={grouped(f.mobile)} onChange={v => { set('mobile')(digits(v, 10)); setVerified(false); }} ph="98765 43210" maxLength={11} error={err.mobile}
       tail={verified ? <Chip tone="live" icon="check" label="OTP verified" /> : f.mobile.length === 10 ? <Pressable accessibilityRole="button" onPress={openVerify} style={tap}><Chip tone="info" icon="phone" label="Verify" /></Pressable> : undefined} />
     <Field label="Email" mr="for alerts and recovery" value={f.email} onChange={set('email')} ph="name@shop.in" error={err.email} />
-    <Field select label="City" req value={f.city} ph="Choose city" onPress={() => setCityOpen(true)} error={err.city} hint="Chosen from the company city list — not typed." hintIcon="pin" />
-    <Field label="State" req value={f.state} onChange={set('state')} error={err.state} />
-    <Field label="Place / area" value={f.place} onChange={set('place')} ph="Road or area" />
-    <Field label="Full address" req value={f.address} onChange={set('address')} ph="Shop number, building, road" error={err.address} />
+    <AddressBlock open={setPick} errors={err}
+      value={{ state: f.state, district: f.district, city: f.city, place: f.place, address: f.address }}
+      onChange={a => { setF(x => ({ ...x, ...a })); setErr(e => ({ ...e, state: '', district: '', city: '', address: '' })); }} />
     <Field label="Distributor code" value="" ph="Head office will assign one" readonly />
     <Field label="Password" req secure value={f.password} onChange={set('password')} ph="••••••••" error={err.password} />
     <Card><CardH title="Shop documents" right={<Chip tone="mute" label="Optional" />} />

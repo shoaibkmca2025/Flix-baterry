@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, ScrollView, Pressable, TextInput, Platform } from 'react-native';
 import { useStore } from '@felix/shared/store';
-import { Audit, normalize, today } from '@felix/shared/domain';
+import { Audit, normalize, today, readLabel, anyDigitLengths } from '@felix/shared/domain';
 import { printHtml, escapeHtml } from '@felix/shared/reports';
 import { T, family } from '@felix/shared/ui/theme';
 import { X, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, IconBtn, Plate, PlateLab, PlateVal, AvTone, B, tap } from '@felix/shared/ui/kit';
@@ -119,6 +119,8 @@ export function D19({ p }: { p?: string }) {
 /* d23 · serial search */
 export function D23({ p }: { p?: string }) {
   const d = useD(); const { state, dealerId } = useStore();
+  // a scan hands over the whole label; the search box wants the digits off it
+  const modelIds = state.models.map(m => m.id), lengths = anyDigitLengths(state.serialDigitLengths);
   const [q, setQ] = useState(''), [scan, setScan] = useState(p === 'scan');
   const entries = dealerEntries(state, dealerId).filter(e => e.status !== 'Draft');
   const res = useMemo(() => {
@@ -132,7 +134,7 @@ export function D23({ p }: { p?: string }) {
   }, [q, state, dealerId]);
   const recent = (d.recent.length ? d.recent : state.batteries.filter(b => b.dealerId === dealerId && b.state !== 'Available').slice(-3).reverse().map(b => b.code)).slice(0, 5);
   const found = res.list.length + res.ents.length;
-  return <Screen tab="search" overlay={<ScanSheet open={scan} title="Scan a battery" onClose={() => setScan(false)} onCode={c => setQ(c)} />}
+  return <Screen tab="search" overlay={<ScanSheet open={scan} title="Scan a battery" onClose={() => setScan(false)} onCode={c => setQ(readLabel(c, modelIds, lengths).code || c)} />}
     top={<View style={{ flexDirection: 'row', alignItems: 'center', gap: 11, paddingTop: 8, paddingHorizontal: 15, paddingBottom: 13, backgroundColor: T.zinc, borderBottomWidth: 1, borderBottomColor: T.zinc2 }}>
       <View style={{ flex: 1, minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 9, backgroundColor: T.white, borderWidth: 1.5, borderColor: q ? T.ink3 : T.zinc3, borderRadius: 9, paddingHorizontal: 13 }}>
         <Ic n="search" color={T.slate} />

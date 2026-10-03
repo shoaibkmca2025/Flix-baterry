@@ -21,7 +21,9 @@ export type NewDealer = {
   contactPerson: string;
   mobile: string;
   email: string | null;
-  cityId: string;
+  cityId?: string | null;
+  cityName: string;
+  district?: string | null;
   state: string;
   pin?: string | null; // no longer asked for (client, 3 Oct 2026)
   place: string | null;
@@ -92,7 +94,7 @@ export async function updateDealerStatus(tx: Tx, id: string, input: DealerStatus
 // which distributor the shop sits under (client, 4 Oct 2026).
 export type DealerProfileUpdate = {
   name?: string; contactPerson?: string; mobile?: string; email?: string | null;
-  cityId?: string; state?: string; address?: string; place?: string | null; distributorId?: string;
+  cityId?: string | null; cityName?: string; district?: string | null; state?: string; address?: string; place?: string | null; distributorId?: string;
 };
 
 export async function updateDealerProfile(tx: Tx, id: string, input: DealerProfileUpdate) {
