@@ -5,7 +5,7 @@ import { Audit, normalize, today } from '@felix/shared/domain';
 import { printHtml, escapeHtml } from '@felix/shared/reports';
 import { T, family } from '@felix/shared/ui/theme';
 import { X, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, IconBtn, Plate, PlateLab, PlateVal, AvTone, B, tap } from '@felix/shared/ui/kit';
-import { Screen, AppBar, Sheet, useD } from './shell';
+import { Screen, AppBar, Sheet, useD, useAbove } from './shell';
 import { PickList } from '@felix/shared/ui/pick';
 import { EntryLine, openEntry, useSyncNow } from './Home';
 import { getAccessToken } from '@felix/shared/api/session';
@@ -53,6 +53,7 @@ export function D18({ p }: { p?: string }) {
 /* d19 · entry detail */
 export function D19({ p }: { p?: string }) {
   const d = useD(); const { state, setState, dealerId, audit } = useStore(); const sync = useSyncNow();
+  const { above, Above } = useAbove();
   const [ask, setAsk] = useState(false), [what, setWhat] = useState(''), [why, setWhy] = useState('');
   const e = state.entries.find(x => x.id === p && x.dealerId === dealerId);
   const del = useDeleteEntry(e && NOT_SENT.includes(e.status) ? e : undefined, 'd18');
@@ -68,28 +69,28 @@ export function D19({ p }: { p?: string }) {
   const rep = e.type === 'Replacement', problem = firstProblem(e, state);
   const history = (trail.length ? trail : state.audits.filter(a => a.ref === e.id)).sort((a, b) => a.at.localeCompare(b.at));
   const icon = (action: string): [any, AvTone] => /approved/i.test(action) ? ['check', 'green'] : /reject/i.test(action) ? ['x', 'red'] : /review|correction/i.test(action) ? ['eye', 'amber'] : /submitted|sent/i.test(action) ? ['check', 'green'] : ['doc', 'mute'];
-  const label = (action: string, actor: string) => action === 'Entry submitted' ? (actor.includes(dealerId) ? 'You sent the entry' : 'Entry sent') : action === 'Entry approved' ? 'Head office approved the claim' : action === 'Reject entry' ? 'Head office refused the claim' : action === 'Start review' ? 'Head office started a review' : action === 'Correction requested' ? 'Correction asked for' : action;
+  const label = (action: string, actor: string) => action === 'Entry submitted' ? (actor.includes(dealerId) ? 'You sent the entry' : 'Entry sent') : action === 'Entry approved' ? `${Above} approved the claim` : action === 'Reject entry' ? `${Above} refused the claim` : action === 'Start review' ? `${Above} started a review` : action === 'Correction requested' ? 'Correction asked for' : action;
   const send = () => {
     if (what.trim().length < 3 || why.trim().length < 5) { d.toast('Say what should change and why.'); return; }
-    if (e.apiId) { d.toast('Correction requests are not available in this version. Call head office to change a sent entry.'); return; }
+    if (e.apiId) { d.toast(`Correction requests are not available in this version. Call ${above} to change a sent entry.`); return; }
     setState(s => audit({ ...s, entries: s.entries.map(x => x.id === e.id ? { ...x, correction: { reason: why.trim(), value: what.trim(), status: 'Pending' } } : x) }, 'Correction requested', e.id, why.trim(), e.remarks, what.trim()));
-    setAsk(false); setWhat(''); setWhy(''); d.toast('Sent to head office. You will see their answer here.');
+    setAsk(false); setWhat(''); setWhy(''); d.toast(`Sent to ${above}. You will see their answer here.`);
   };
   return <Screen tab="list" top={<AppBar title="Entry" back="d18" />}
-    overlay={<>{del.sheet}<Sheet open={ask} title="Ask head office to fix it" onClose={() => setAsk(false)}>
-      <X s={14} c={T.slate} style={{ marginBottom: 12 }}>A sent entry cannot be edited from the shop. Head office makes the change and keeps the original readable.</X>
+    overlay={<>{del.sheet}<Sheet open={ask} title={`Ask ${above} to fix it`} onClose={() => setAsk(false)}>
+      <X s={14} c={T.slate} style={{ marginBottom: 12 }}>A sent entry cannot be edited from the shop. {Above} makes the change and keeps the original readable.</X>
       <Field label="What should change?" req value={what} onChange={setWhat} ph="e.g. Serial 26080319 should be 26080318" multiline />
       <Field label="Why" req value={why} onChange={setWhy} ph="e.g. Misread the label in low light" multiline />
-      <Btn kind="blue" icon="check" label="Send to head office" onPress={send} /></Sheet></>}>
-    {e.status === 'Conflict' && <Banner tone="bad" icon="alert" style={{ marginBottom: 12 }}><B>This entry cannot be approved yet.</B> {problem || 'Head office found a problem with a serial on it.'} Fix the serial or ask head office to review it.</Banner>}
+      <Btn kind="blue" icon="check" label={`Send to ${above}`} onPress={send} /></Sheet></>}>
+    {e.status === 'Conflict' && <Banner tone="bad" icon="alert" style={{ marginBottom: 12 }}><B>This entry cannot be approved yet.</B> {problem || `${Above} found a problem with a serial on it.`} Fix the serial or ask {above} to review it.</Banner>}
     {/* a request put aside part-finished, or refused when it was sent — it waits here with its reason rather than holding up the counter */}
     {e.status === 'Draft' && !!problem && <Banner tone="warn" icon="alert" style={{ marginBottom: 12 }}><B>Not sent yet.</B> {problem} Open it, fix that, and send it when you can.</Banner>}
-    {e.status === 'Rejected' && <Banner tone="bad" icon="x" style={{ marginBottom: 12 }}><B>Head office refused this entry.</B> {e.decisionReason || state.audits.find(a => a.ref === e.id && a.action === 'Reject entry')?.reason || 'Ask head office for the reason.'}</Banner>}
-    {e.status === 'Pending sync' && <Banner tone="warn" icon="sync" style={{ marginBottom: 12 }}><B>Saved on this phone.</B> It is sent to head office when signal returns.</Banner>}
+    {e.status === 'Rejected' && <Banner tone="bad" icon="x" style={{ marginBottom: 12 }}><B>{Above} refused this entry.</B> {e.decisionReason || state.audits.find(a => a.ref === e.id && a.action === 'Reject entry')?.reason || 'Ask head office for the reason.'}</Banner>}
+    {e.status === 'Pending sync' && <Banner tone="warn" icon="sync" style={{ marginBottom: 12 }}><B>Saved on this phone.</B> It is sent to {above} when signal returns.</Banner>}
     {e.status === 'Draft' && <Banner tone="info" icon="pen" style={{ marginBottom: 12 }}><B>Not sent yet.</B> Continue where you left off.</Banner>}
     {e.status === 'With distributor' && <Banner tone="info" icon="people" style={{ marginBottom: 12 }}><B>With your distributor.</B> They check it{rep ? ' and take the old battery from you' : ''}, then send it on to head office.</Banner>}
     {['Submitted', 'Under Review'].includes(e.status) && <Banner tone="info" icon="clock" style={{ marginBottom: 12 }}><B>With head office.</B> {rep ? 'The claim is decided once the old battery is back and checked.' : 'Head office confirms it shortly.'}</Banner>}
-    {e.correction?.status === 'Pending' && <Banner tone="warn" icon="eye" style={{ marginBottom: 12 }}><B>Correction asked for.</B> “{e.correction.value}” — waiting for head office.</Banner>}
+    {e.correction?.status === 'Pending' && <Banner tone="warn" icon="eye" style={{ marginBottom: 12 }}><B>Correction asked for.</B> “{e.correction.value}” — waiting for {above}.</Banner>}
     <Card><CardH mono title={e.id} right={<StatusChip status={e.status} />} />
       <KV pairs={[['Type', e.type], ['Date', dLong(e.date)], ['Place', e.place], ['Customer', e.customer || '—'], ['Total batteries', String(e.items.length)], ['Sent', e.status === 'Draft' ? 'Not yet' : `${dShort(e.createdAt)}, ${tShort(e.createdAt)}`]]} /></Card>
     <SecT title="Batteries in this entry" />
@@ -100,13 +101,13 @@ export function D19({ p }: { p?: string }) {
     <SecT title="History of this entry" />
     <Card>{history.length || e.returnState ? <>
       {history.map((h, i) => { const [n, tone] = icon(h.action); return <Line key={h.id} last={i === history.length - 1 && !e.returnState} av={<Avatar n={n} tone={tone} />} title={label(h.action, h.actor)} titleSize={14} sub={`${dShort(h.at)} ${tShort(h.at)}${h.actor.includes(dealerId) ? '' : ` · ${h.actor.split(' · ')[0]}`}`} />; })}
-      {e.returnState && <Line last av={<Avatar n="truck" tone="vio" />} title={`Old battery · ${e.returnState.toLowerCase()}`} titleSize={14} sub={e.returnNote || 'Tracked with head office'} />}
+      {e.returnState && <Line last av={<Avatar n="truck" tone="vio" />} title={`Old battery · ${e.returnState.toLowerCase()}`} titleSize={14} sub={e.returnNote || `Tracked with ${above}`} />}
     </> : <X s={13.5} c={T.slate} style={{ paddingVertical: 8 }}>Nothing recorded yet.</X>}</Card>
     {e.status === 'Draft' && <Btn kind="primary" icon="pen" label="Continue this entry" style={{ marginTop: 13 }} onPress={() => openEntry(d, d.setFlow, e)} />}
     {e.status === 'Pending sync' && <Btn kind="primary" icon="sync" label="Send now" style={{ marginTop: 13 }} onPress={sync} />}
     {del.button}
-    {['Conflict', 'Rejected'].includes(e.status) && e.correction?.status !== 'Pending' && <Btn kind="ghost" icon="pen" label="Ask head office to fix it" style={{ marginTop: 13 }} onPress={() => setAsk(true)} />}
-    {rep && !['Draft', 'Pending sync'].includes(e.status) && <Btn kind="blue" icon="check" label="Head office decision" style={{ marginTop: 9 }} onPress={() => d.go('d32', e.id)} />}
+    {['Conflict', 'Rejected'].includes(e.status) && e.correction?.status !== 'Pending' && <Btn kind="ghost" icon="pen" label={`Ask ${above} to fix it`} style={{ marginTop: 13 }} onPress={() => setAsk(true)} />}
+    {rep && !['Draft', 'Pending sync'].includes(e.status) && <Btn kind="blue" icon="check" label={`${Above} decision`} style={{ marginTop: 9 }} onPress={() => d.go('d32', e.id)} />}
   </Screen>;
 }
 
@@ -163,6 +164,7 @@ export function D23({ p }: { p?: string }) {
 export function D24({ p = '' }: { p?: string }) {
   const d = useD(); const { state, dealerId } = useStore();
   useEffect(() => { if (p) d.addRecent(p); }, [p]);
+  const { above, Above } = useAbove();
   const b = findBattery(state, p), cover = coverOf(b, state);
   const entries = dealerEntries(state, dealerId).filter(e => e.items.some(i => i.code === p || i.oldSerial === p));
   const repEntry = entries.find(e => e.type === 'Replacement' && e.items.some(i => i.code === p));
@@ -179,7 +181,7 @@ export function D24({ p = '' }: { p?: string }) {
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 11, flexWrap: 'wrap' }}>
         <Chip tone={ct} icon="shield" label={cl} /><Chip tone={custody[1]} icon={custody[2]} label={custody[0]} />
         {!!cover?.replacements && <Chip tone="vio" icon="link" label={`${cover.replacements} ${cover.replacements === 1 ? 'replacement' : 'replacements'}`} />}</View></Plate>
-    {pending && <Banner tone="info" icon="clock" style={{ marginBottom: 12 }}><B>Not in the register yet.</B> It is on request {pending.id}, waiting for head office.</Banner>}
+    {pending && <Banner tone="info" icon="clock" style={{ marginBottom: 12 }}><B>Not in the register yet.</B> It is on request {pending.id}, waiting for {above}.</Banner>}
     <Card><KV pairs={[['Model', b?.model || it?.model || '—'], ['Serial', b?.serial || it?.serial || p.slice(-4), 'mono'], ['Made', monthLong(b?.mfg || it?.mfg)], ['Dealer', dealer?.name || '—'], ['City', dealer?.city || '—'], ['Replaced on', repEntry ? dLong(repEntry.date) : '—'], ['Old serial', b?.oldSerial || it?.oldSerial || '—', 'mono']]} /></Card>
     <SecT title="Warranty" />
     <Card style={cover?.status === 'Active' ? { borderColor: '#B8DFCB' } : undefined}>

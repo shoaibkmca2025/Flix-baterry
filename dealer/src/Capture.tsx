@@ -5,7 +5,7 @@ import { useStore } from '@felix/shared/store';
 import { Entry, Item, State, DEFAULT_DIGIT_LENGTHS, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, deriveCode, digitsOf, expiryFrom, fullCode, isValidDigits, lengthsLabel, newEntry, newItem, normalize, sameBattery, splitLabel, today, validateEntry } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banner, Steps, KV, SecT, Line, Avatar, BigOk, BigTile, ChipRow, CapBtn, IconBtn, Plate, PlateLab, PlateVal, Meter, Gap } from '@felix/shared/ui/kit';
-import { Screen, AppBar, Sheet, useD } from './shell';
+import { Screen, AppBar, Sheet, useD, useAbove } from './shell';
 import { PickList } from '@felix/shared/ui/pick';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
 import { coverChip, dLong, entryErrors, findBattery, monYear, monthLong, monthShort, needsNewBatteryPhoto, newPhotoTag, nextEntryId, roleOf, span, spanLong, spanShort, tShort } from '@felix/shared/data';
@@ -84,13 +84,14 @@ export const NOT_SENT: Entry['status'][] = ['Draft', 'Pending sync'];
  */
 export function useDeleteEntry(e: Entry | undefined, then: 'd07' | 'd18') {
   const d = useD(); const { setState } = useStore();
+  const { above, Above } = useAbove();
   const [ask, setAsk] = useState(false);
   if (!e) return { button: null, sheet: null };
   const remove = () => {
     SENT.add(e.id);
     setState(s => ({ ...s, entries: s.entries.filter(x => !(x.id === e.id && NOT_SENT.includes(x.status))) }));
     setAsk(false); d.tab(then); d.setFlow(null);
-    d.toast(`${e.id} deleted. It was never sent to head office.`);
+    d.toast(`${e.id} deleted. It was never sent to ${above}.`);
   };
   return {
     // Throwing the request away sat directly under "Next", one mis-tap apart. HIG puts roughly
@@ -101,7 +102,7 @@ export function useDeleteEntry(e: Entry | undefined, then: 'd07' | 'd18') {
       <Btn kind="ghost" icon="x" label="Delete this entry" color={T.terminal} borderColor="#F0C7BC" onPress={() => setAsk(true)} />
     </View>,
     sheet: <Sheet open={ask} title="Delete this entry?" onClose={() => setAsk(false)}>
-      <X s={14} c={T.slate} style={{ marginBottom: 14 }}><B>{e.id}</B> was never sent to head office, so nothing else changes. This cannot be undone.</X>
+      <X s={14} c={T.slate} style={{ marginBottom: 14 }}><B>{e.id}</B> was never sent to {above}, so nothing else changes. This cannot be undone.</X>
       <Btn kind="danger" icon="x" label="Delete entry" onPress={remove} />
       <Btn kind="ghost" label="Keep it" style={{ marginTop: 9 }} onPress={() => setAsk(false)} />
     </Sheet>,
@@ -180,6 +181,7 @@ const printedPlate = (m: Mdl) => `${m.brand === 'gold_power' ? 'GP ' : ''}${m.pl
 const modelOrder = (a: Mdl, b: Mdl) => (Number(a.modelNo) || 9e9) - (Number(b.modelNo) || 9e9) || (a.modelNo ?? '').localeCompare(b.modelNo ?? '');
 function PlateModelPicker({ value, onChange, error, label = 'Battery' }: { value: string; onChange: (id: string) => void; error?: string; label?: string }) {
   const { state } = useStore();
+  const { above, Above } = useAbove();
   const [open, setOpen] = useState<'model' | 'code' | null>(null);
   const active = state.models.filter(m => m.active && m.plate && m.modelNo);
   const cur = state.models.find(m => m.id === value);
@@ -203,7 +205,7 @@ function PlateModelPicker({ value, onChange, error, label = 'Battery' }: { value
   };
 
   if (!active.length) return <Banner tone="bad" icon="alert" style={{ marginBottom: 13 }}>
-    The models and codes list has not loaded from head office yet. Go back and tap Sync now. If it stays empty, the server needs updating — call head office.
+    The models and codes list has not loaded yet. Go back and tap Sync now. If it stays empty, the server needs updating — call {above}.
   </Banner>;
 
   const chosenCode = cur && cur.modelNo === modelNo ? printedPlate(cur) : '';
@@ -312,7 +314,7 @@ export function D10() {
   return <Screen top={<AppBar title="What are you recording?" back="d07" />}>
     <Banner tone="info" icon="alert" style={{ marginBottom: 15 }}>Choose one. The next screen then asks only for what that choice needs — nothing extra.</Banner>
     {TYPES.map(t => <BigTile key={t[0]} icon={t[2]} title={t[0]} sub={t[1]} desc={t[4]} hot={t[3]} onPress={() => start(t[0])} />)}
-    <Hint icon="lock" style={{ marginTop: 4 }}>Only these two are switched on for your shop. Head office can turn on more types later without an app update.</Hint>
+    <Hint icon="lock" style={{ marginTop: 4 }}>Only these two are switched on for your shop. More types can be switched on later without an app update.</Hint>
   </Screen>;
 }
 
@@ -335,6 +337,7 @@ function WarrantyLeft({ start, expiry, from, months = DEFAULT_TERM, grace = DEFA
 }
 function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code: string; lookup: BatteryLookupResult | null; looking: boolean; token: string | null; fallbackModel?: string }) {
   const { state } = useStore();
+  const { above, Above } = useAbove();
   if (!isValidDigits(code, anyDigitLengths(state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS))) return null;
   const local = deriveCode(code, [], anyDigitLengths(state.serialDigitLengths ?? DEFAULT_DIGIT_LENGTHS));
   const mfg = (lookup?.mfgMonth) || local.mfg;
@@ -347,7 +350,7 @@ function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code:
   const fromMfg = mfg ? { start: `${mfg}-01`, expiry: expiryFrom(`${mfg}-01`, term + grace) } : null;
 
   if (!token || looking || !lookup) return <Card style={{ marginBottom: 14 }}>
-    <CardH title="Checking with head office…" right={<Chip tone="mute" icon="clock" label="Please wait" />} />
+    <CardH title="Checking the record…" right={<Chip tone="mute" icon="clock" label="Please wait" />} />
     <KV pairs={ident} />
     {fromMfg && <WarrantyLeft start={fromMfg.start} expiry={fromMfg.expiry} from="manufacture date" months={term} grace={grace} />}</Card>;
 
@@ -374,10 +377,10 @@ function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code:
   if (custody === 'other') return <Card style={{ borderColor: '#F0C7BC', backgroundColor: '#FFF8F6', marginBottom: 14 }}>
     <CardH title="Held by another shop" right={<Chip tone="bad" icon="lock" label="Not yours" />} />
     <KV pairs={ident} />
-    <Gap h={8} /><X s={13.5} c={T.slate}>This serial is recorded against a different shop. Check the label again, or call head office.</X></Card>;
+    <Gap h={8} /><X s={13.5} c={T.slate}>This serial is recorded against a different shop. Check the label again, or call {above}.</X></Card>;
 
   const blocked = battery.alreadyReplaced ? 'This battery has already been replaced once — its replacement carries the cover now. Check the label again.'
-    : !cover.inWarranty ? 'Cover has ended for this chain. Head office will not accept a warranty replacement for it.' : null;
+    : !cover.inWarranty ? `Cover has ended for this chain. ${Above} will not accept a warranty replacement for it.` : null;
   return <Card style={{ borderColor: blocked ? '#F0C7BC' : '#B8DFCB', backgroundColor: blocked ? '#FFF8F6' : '#F7FCF9', marginBottom: 14 }}>
     <CardH title="Found on record" right={<Chip tone={battery.alreadyReplaced ? 'bad' : chipTone} icon={battery.alreadyReplaced ? 'lock' : status === 'Active' ? 'shield' : 'clock'} label={battery.alreadyReplaced ? 'Already replaced' : chipLabel} />} />
     <KV pairs={pairs} />
@@ -390,6 +393,7 @@ function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code:
 /* d11 · old battery */
 export function D11() {
   const { f, d, upd, item, saveDraft } = useFlow(); const { state } = useStore();
+  const { above, Above } = useAbove();
   const token = useAccessToken();
   const [errs, setErrs] = useState<Record<string, string>>({});
   const del = useDeleteEntry(f?.entry, 'd07');
@@ -438,7 +442,7 @@ export function D11() {
     <ChipRow options={FAULTS} value={it.fault || ''} onChange={v => { item({ fault: v }); setErrs(x => ({ ...x, fault: '' })); }} />
     {errs.fault && <Hint tone="err" style={{ marginTop: -9, marginBottom: 13 }}>{errs.fault}</Hint>}
     <Field label="Customer name" req mr="ग्राहकाचे नाव" value={e.customer} onChange={v => { upd({ customer: v }); setErrs(x => ({ ...x, customer: '' })); }} ph="Name of the customer" error={errs.customer} />
-    <Field label="Remarks" mr="शेरा" multiline value={it.remarks} onChange={v => item({ remarks: v })} ph="Anything head office should know" />
+    <Field label="Remarks" mr="शेरा" multiline value={it.remarks} onChange={v => item({ remarks: v })} ph={`Anything ${above} should know`} />
     <Btn kind="primary" big iconAfter="chev" label="Next: the new battery" style={{ marginTop: 4 }} onPress={next} />
     {del.button}
     <Hint icon="lock" center style={{ marginTop: 10 }}>Your shop, city and code are added automatically.</Hint>
@@ -448,6 +452,7 @@ export function D11() {
 /* d13 · new (or returned) battery */
 export function D13() {
   const { f, d, upd, item, saveDraft } = useFlow(); const { state } = useStore();
+  const { above, Above } = useAbove();
   const token = useAccessToken();
   const [errs, setErrs] = useState<Record<string, string>>({});
   const del = useDeleteEntry(f?.entry, 'd07');
@@ -499,7 +504,7 @@ export function D13() {
       ? (lookup?.found ? { t: 'This code is already registered — check it, or use a different one.', ok: false, bad: true } : { t: 'Not yet registered — this will be recorded as a new battery.', ok: true, bad: false })
       : (lookup?.found && lookup.custody === 'yours' ? { t: 'In your stock, being returned.', ok: true, bad: false }
         : lookup?.found && lookup.custody === 'other' ? { t: 'This battery belongs to another shop — check the label again.', ok: false, bad: true }
-        : { t: 'Not on record — head office will check it.', ok: false, bad: false });
+        : { t: `Not on record — ${above} will check it.`, ok: false, bad: false });
   return <Screen top={<AppBar title={rep ? 'New battery' : 'Returned battery'} back={rep ? 'd11' : 'd10'} right={<Chip tone="mute" mono label={e.id} />} />}
     overlay={del.sheet}>
     <Steps labels={rep ? REP_STEPS : RET_STEPS} now={rep ? 2 : 1} />
@@ -555,7 +560,7 @@ export function D31() {
     <Plate style={{ marginBottom: 13 }}>
       <PlateLab>{cover ? `OLD BATTERY · COVER STARTED ${dLong(cover.start).toUpperCase()}` : 'OLD BATTERY · COVER FROM THE LABEL'}</PlateLab><PlateVal>{it.oldSerial || '—'}</PlateVal>
       <X s={12} w={6} c={T.volt} style={{ textAlign: 'center', letterSpacing: 0.96, marginTop: 9, marginBottom: 7 }}>SAME COVER MOVES ACROSS</X>
-      <PlateLab>{cover ? `NEW BATTERY · COVER STILL ENDS ${dLong(cover.expiry).toUpperCase()}` : 'NEW BATTERY · COVER SET BY HEAD OFFICE'}</PlateLab><PlateVal color="#7FD3A9">{it.code || '—'}</PlateVal>
+      <PlateLab>{cover ? `NEW BATTERY · COVER STILL ENDS ${dLong(cover.expiry).toUpperCase()}` : 'NEW BATTERY · COVER SET ON APPROVAL'}</PlateLab><PlateVal color="#7FD3A9">{it.code || '—'}</PlateVal>
     </Plate>
     {cover ? <>
       <Card><CardH title="Cover remaining" right={<Chip tone={cover.status === 'Expired' ? 'bad' : 'live'} icon="clock" label={cover.status === 'Expired' ? 'Cover ended' : `${spanShort(cover.leftSpan)} left`} />} />
@@ -645,7 +650,7 @@ function ReviewItem({ it, i, e, rep, token }: { it: Item; i: number; e: Entry; r
         <PlateLab>OLD BATTERY OUT</PlateLab><PlateVal>{it.oldSerial || '—'}</PlateVal>
         <X s={19} c={T.volt} style={{ textAlign: 'center', marginVertical: 5 }}>↓</X>
         <PlateLab>NEW BATTERY IN</PlateLab><PlateVal color="#7FD3A9">{it.code || '—'}</PlateVal></> : <><PlateLab>RETURNED BATTERY</PlateLab><PlateVal>{it.code || '—'}</PlateVal></>}</Plate>
-      <KV pairs={[['Model', it.model], ['Mfg month', monthShort(it.mfg)], ['Quantity', '1'], [rep ? 'Cover ends' : 'Reason', rep ? (cover ? dLong(cover.expiryDate) : 'Set by head office') : (it.remarks || '—')], ['Photos', `${photoCount(e, i)} attached`], ['Signature', e.signature ? 'Captured' : 'Not captured']]} />
+      <KV pairs={[['Model', it.model], ['Mfg month', monthShort(it.mfg)], ['Quantity', '1'], [rep ? 'Cover ends' : 'Reason', rep ? (cover ? dLong(cover.expiryDate) : 'Set on approval') : (it.remarks || '—')], ['Photos', `${photoCount(e, i)} attached`], ['Signature', e.signature ? 'Captured' : 'Not captured']]} />
     </Card>
     {cover && chained && cover.inWarranty && <Banner tone="warn" icon="shield" style={{ marginTop: 12 }}><B>Warranty carried over, not restarted.</B> This battery is covered until {dLong(cover.expiryDate)} — the date the first battery in the chain got. {spanLong(span(today(), cover.expiryDate))} remain. No new period is created.</Banner>}
   </React.Fragment>;
@@ -654,6 +659,7 @@ function ReviewItem({ it, i, e, rep, token }: { it: Item; i: number; e: Entry; r
 /* d16 · review & send */
 export function D16() {
   const { f, d } = useFlow(); const { state, setState, audit, dealerId } = useStore(); const { sync } = useSync();
+  const { above, Above } = useAbove();
   const token = useAccessToken();
   const [busy, setBusy] = useState(false), [phase, setPhase] = useState('');
   const del = useDeleteEntry(f?.entry, 'd07');
@@ -694,7 +700,7 @@ export function D16() {
         handover: rep ? `Given to ${e.customer || 'the customer'} at the counter · ${dLong(result.createdAt)}, ${tShort(result.createdAt)}` : e.handover };
       setState(s => audit({ ...s, entries: [data, ...s.entries.filter(x => x.id !== e.id)] }, 'Entry submitted', data.id, 'Sent from the app'));
       d.setFlow(null); d.go('d17', data.id);
-      if (photosFailed) d.toast(`${photosFailed} ${photosFailed === 1 ? 'photo' : 'photos'} could not be sent. The request reached head office — tell them, or send the photos on WhatsApp.`);
+      if (photosFailed) d.toast(`${photosFailed} ${photosFailed === 1 ? 'photo' : 'photos'} could not be sent. The request reached ${above} — tell them, or send the photos on WhatsApp.`);
       sync(true); // the server's copy (with its items and claim) replaces the bridged one
     } catch (err) {
       // Head office refused it (an expired chain, a duplicate serial) or the shop lost signal.
@@ -716,7 +722,7 @@ export function D16() {
     <Card style={{ backgroundColor: T.deep, borderColor: '#082A13', marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
       <X s={13} c="#9BA9BB">Total batteries</X><X s={19} w={7} c={T.white}>{e.items.length}</X></Card>
     <Btn kind="primary" big icon="check" label={busy ? (phase || 'Sending…') : state.offline ? 'Save and send later' : 'Send entry'} style={{ marginTop: 13 }} onPress={send} disabled={busy} />
-    <Hint icon="lock" center style={{ marginTop: 9 }}>{rep ? 'The customer takes the battery today. Head office confirms the claim afterwards.' : 'Head office confirms the return afterwards.'}</Hint>
+    <Hint icon="lock" center style={{ marginTop: 9 }}>{rep ? `The customer takes the battery today. ${Above} confirms the claim afterwards.` : `${Above} confirms the return afterwards.`}</Hint>
     {!busy && del.button}
   </Screen>;
 }
@@ -742,7 +748,7 @@ export function D17({ p }: { p?: string }) {
     <X s={15} c={T.slate} style={{ textAlign: 'center', marginBottom: 16 }}>{rep ? (queued ? 'It sends by itself when signal returns. Give the new battery to the customer now.' : `Give the new battery to the customer now. ${approver} confirms it afterwards — the customer does not wait.${viaDistributor ? ' Hand the old battery to your distributor.' : ''}`) : (queued ? 'It sends by itself when signal returns.' : `${approver} confirms the return afterwards.`)}</X>
     <Plate><PlateLab center>REQUEST NUMBER</PlateLab><PlateVal size={22} center>{e.id}</PlateVal></Plate>
     <Card style={{ marginTop: 12 }}><KV pairs={rep
-      ? [['Old battery', list('oldSerial'), 'mono'], ['New battery', list('code'), 'mono'], ['Cover ends', cover ? dLong(cover.expiryDate) : 'Set by head office'], ['Remaining', cover ? spanShort(span(today(), cover.expiryDate)) : '—'], [queued ? 'Saved' : 'Sent', tShort(e.createdAt)], ['Claim decided', 'After the battery is checked']]
+      ? [['Old battery', list('oldSerial'), 'mono'], ['New battery', list('code'), 'mono'], ['Cover ends', cover ? dLong(cover.expiryDate) : 'Set on approval'], ['Remaining', cover ? spanShort(span(today(), cover.expiryDate)) : '—'], [queued ? 'Saved' : 'Sent', tShort(e.createdAt)], ['Claim decided', 'After the battery is checked']]
       : [['Returned battery', list('code'), 'mono'], ['Model', e.items.map(it => it.model).join(', ')], [queued ? 'Saved' : 'Sent', tShort(e.createdAt)], ['Decision', 'By head office']]} /></Card>
     {rep && <Banner tone="warn" icon="shop" style={{ marginTop: 12 }}><B>Keep the old battery in your shop.</B> Hand it over at the next pickup — the claim cannot be settled until the company has checked it.</Banner>}
   </Screen>;

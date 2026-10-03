@@ -10,12 +10,13 @@ import { uploadEntryPhotos } from '@felix/shared/api/photos';
 import { Entry, today, validateEntry } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, Mono, Btn, BtnRow, Card, Chip, StatusChip, Kpis, SecT, Line, Avatar, Gap, AvTone } from '@felix/shared/ui/kit';
-import { Screen, AppBar, useD, useTr } from './shell';
+import { Screen, AppBar, useD, useTr, useAbove } from './shell';
 import { attention, avatarTone, refunds, dealerEntries, dShort, toSendBack, ageDays, needsNewBatteryPhoto, isDealerShop } from '@felix/shared/data';
 import { DistributorCard } from './Network';
 
 /** Sends everything saved on this phone; invalid entries come back as serial exceptions. */
 export function useSyncNow() {
+  const { above } = useAbove();
   const { state, setState, dealerId, audit } = useStore(); const d = useD(); const { sync } = useSync();
   const sendLive = async (rows: Entry[], token: string) => {
     let sent = 0, bad = 0, photosFailed = 0;
@@ -32,7 +33,7 @@ export function useSyncNow() {
       }
     }
     await sync(true);
-    d.toast((bad ? `${sent} sent. ${bad} need a fix — see My requests.` : `${sent} ${sent === 1 ? 'entry' : 'entries'} sent to head office.`) + (photosFailed ? ` ${photosFailed} ${photosFailed === 1 ? 'photo' : 'photos'} could not be sent.` : ''));
+    d.toast((bad ? `${sent} sent. ${bad} need a fix — see My requests.` : `${sent} ${sent === 1 ? 'entry' : 'entries'} sent to ${above}.`) + (photosFailed ? ` ${photosFailed} ${photosFailed === 1 ? 'photo' : 'photos'} could not be sent.` : ''));
   };
   return async () => {
     const rows = state.entries.filter(e => e.dealerId === dealerId && e.status === 'Pending sync');
@@ -41,7 +42,7 @@ export function useSyncNow() {
       // signed in for real: send what is waiting, then pull the latest from head office
       if (rows.length) { await sendLive(rows, token); return; }
       const ok = await sync();
-      d.toast(ok ? 'Up to date with head office.' : 'Nothing waiting to send.');
+      d.toast(ok ? `Up to date with ${above}.` : 'Nothing waiting to send.');
       return;
     }
     if (!rows.length) { d.toast('Nothing waiting to send.'); return; }

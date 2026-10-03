@@ -7,7 +7,7 @@ import { Challan, Entry } from '@felix/shared/domain';
 import { printHtml, escapeHtml, saveHtmlDocument } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Ic, Btn, BtnRow, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, SecT, Line, Avatar, BigOk, CheckBox, Kpis, Plate, PlateLab, PlateVal, AvTone, Tone, IconName, tap } from '@felix/shared/ui/kit';
-import { Screen, AppBar, useD } from './shell';
+import { Screen, AppBar, useD, useAbove } from './shell';
 import { useMyDealerNames } from './Network';
 import { getAccessToken } from '@felix/shared/api/session';
 import { createChallan } from '@felix/shared/api/returns';
@@ -18,22 +18,23 @@ import { ageDays, approvedForRefund, challanHtml, challanStatus, coverOf, dLong,
 
 const oldList = (e: Entry) => e.items.map(i => i.oldSerial).filter(Boolean).join(', ');
 
-/* d32 · head office decision */
+/* d32 · the decision on a request — from the distributor, or head office, by who is reading */
 export function D32({ p }: { p?: string }) {
   const d = useD(); const { state } = useStore();
+  const { above, Above } = useAbove();
   const e = state.entries.find(x => x.id === p);
-  if (!e) return <Screen tab="list" top={<AppBar title="Head office decision" back="d18" />}><X c={T.slate}>This request could not be found.</X></Screen>;
+  if (!e) return <Screen tab="list" top={<AppBar title={`${Above} decision`} back="d18" />}><X c={T.slate}>This request could not be found.</X></Screen>;
   const decided = decisionOf(state, e.id), rep = e.type === 'Replacement';
   const cover = rep ? coverOf(findBattery(state, e.items[0]?.oldSerial || ''), state) : null;
   const approved = e.status === 'Approved', refused = e.status === 'Rejected';
   const back = e.returnState && e.returnState !== 'At dealer';
   const meaning: [string, IconName, AvTone][] = refused
-    ? [['The customer keeps the battery you already gave', 'user', 'green'], ['This battery is not approved for refund', 'x', 'red'], ['Head office settles it with you separately', 'phone', 'amber']]
+    ? [['The customer keeps the battery you already gave', 'user', 'green'], ['This battery is not approved for refund', 'x', 'red'], [`${Above} settles it with you separately`, 'phone', 'amber']]
     : [['The customer keeps the battery you already gave', 'user', 'green'], [`Cover still ends ${cover ? dLong(cover.expiry) : 'on the original date'} — unchanged`, 'shield', 'green'], back ? [`The old battery is ${e.returnState?.toLowerCase()} at the company`, 'truck', 'green'] : [approved ? 'The old battery is now due back to the company' : 'The old battery goes back at the next pickup', 'truck', 'amber']];
-  return <Screen tab="list" top={<AppBar title="Head office decision" back="d18" right={approved ? <Chip tone="live" icon="check" label="Approved" /> : refused ? <Chip tone="bad" icon="x" label="Refused" /> : <Chip tone="warn" icon="clock" label="Waiting" />} />}>
-    {approved && <Banner tone="ok" icon="check" style={{ marginBottom: 13 }}><B>Approved on {dShort(decided?.at || e.date)} by {personOf(decided?.actor)}.</B> {decided?.reason || 'Head office checked the claim and accepted it.'}</Banner>}
+  return <Screen tab="list" top={<AppBar title={`${Above} decision`} back="d18" right={approved ? <Chip tone="live" icon="check" label="Approved" /> : refused ? <Chip tone="bad" icon="x" label="Refused" /> : <Chip tone="warn" icon="clock" label="Waiting" />} />}>
+    {approved && <Banner tone="ok" icon="check" style={{ marginBottom: 13 }}><B>Approved on {dShort(decided?.at || e.date)} by {personOf(decided?.actor)}.</B> {decided?.reason || `${Above} checked the claim and accepted it.`}</Banner>}
     {refused && <Banner tone="bad" icon="x" style={{ marginBottom: 13 }}><B>Refused on {dShort(decided?.at || e.date)} by {personOf(decided?.actor)}.</B> {decided?.reason || 'The claim is outside the warranty.'}</Banner>}
-    {!approved && !refused && <Banner tone="warn" icon="clock" style={{ marginBottom: 13 }}><B>Waiting for head office.</B> {e.status === 'Pending sync' ? 'This request is still saved on your phone and has not been sent yet.' : e.status === 'Conflict' ? 'Head office has a question about a serial on this request — open it to see what to fix.' : 'The battery is already with the customer. The claim is decided once the old battery is back and checked.'}</Banner>}
+    {!approved && !refused && <Banner tone="warn" icon="clock" style={{ marginBottom: 13 }}><B>Waiting for {above}.</B> {e.status === 'Pending sync' ? 'This request is still saved on your phone and has not been sent yet.' : e.status === 'Conflict' ? `${Above} has a question about a serial on this request — open it to see what to fix.` : 'The battery is already with the customer. The claim is decided once the old battery is back and checked.'}</Banner>}
     <Card><CardH mono title={e.id} right={<StatusChip status={e.status} />} />
       <KV pairs={rep ? [['Old battery', oldList(e) || '—', 'mono'], ['New battery', e.items.map(i => i.code).join(', '), 'mono'], ['Finding', decided?.reason ? (approved ? 'Claim accepted' : 'Claim refused') : 'Not checked yet'], ['Checked by', decided ? personOf(decided.actor) : '—'], ['Cover ends', cover ? dLong(cover.expiry) : 'Set by head office'], ['Remaining', cover ? spanShort(cover.leftSpan) : '—']]
         : [['Battery', e.items.map(i => i.code).join(', '), 'mono'], ['Type', e.type], ['Checked by', decided ? personOf(decided.actor) : '—'], ['Date', dLong(e.date)]]} /></Card>
@@ -44,7 +45,7 @@ export function D32({ p }: { p?: string }) {
     <SecT title="What this means" />
     <Card>{meaning.map((r, i) => <Line key={r[0]} last={i === meaning.length - 1} av={<Avatar n={r[1]} tone={r[2]} />} title={r[0]} titleSize={14} />)}</Card>
     {rep && !back && !refused && <Btn kind="primary" icon="truck" label="Old batteries to send back" style={{ marginTop: 13 }} onPress={() => d.tab('d33')} />}
-    <Hint style={{ marginTop: 10 }}>If a claim is ever refused, you are told why here — the battery stays with the customer and head office settles it with you.</Hint>
+    <Hint style={{ marginTop: 10 }}>If a claim is ever refused, you are told why here — the battery stays with the customer and {above} settles it with you.</Hint>
   </Screen>;
 }
 
@@ -255,12 +256,13 @@ export function D36({ p }: { p?: string }) {
 /* d37 · refunds — which batteries are approved for refund (no amounts, D-20) */
 export function D37() {
   const d = useD(); const { state, dealerId } = useStore();
+  const { Above } = useAbove();
   const dealer = state.dealers.find(x => x.id === dealerId)!, r = refunds(state, dealerId, dealer.kind !== 'Dealer');
   const statement = () => printHtml(`<h1>Felix Batteries · Approved for refund</h1><p><b>${escapeHtml(dealer.name)}</b> · ${escapeHtml(dealer.city)} · ${escapeHtml(dealer.id)}<br/>Generated ${escapeHtml(dLong(new Date().toISOString()))}</p>
     <table><thead><tr><th>Request</th><th>Batteries</th><th>Approved on</th></tr></thead><tbody>${r.approved.map(x => `<tr><td>${escapeHtml(x.entry.id)}</td><td>${escapeHtml(x.entry.items.map(i => `${i.oldSerial} · ${i.model}`).join(', '))}</td><td>${escapeHtml(dLong(x.date))}</td></tr>`).join('')}</tbody></table>
     <p>Approved for refund: <b>${r.approved.length}</b> · Still being checked: ${r.checking.length} · Refused: ${r.refused.length}</p>`).then(() => d.toast('Statement ready.')).catch(() => d.toast('The statement could not be printed on this device.'));
   return <Screen tab="truck" top={<AppBar title="Refunds" back="d32" right={<Chip tone="live" label={`${r.monthCount} this month`} />} />}>
-    <Banner tone="ok" icon="check" style={{ marginBottom: 13 }}><B>These batteries are approved for refund.</B> Head office approves each one after checking it at the factory.</Banner>
+    <Banner tone="ok" icon="check" style={{ marginBottom: 13 }}><B>These batteries are approved for refund.</B> Each one is approved after it is checked at the factory.</Banner>
     <Kpis items={[{ v: String(r.monthCount), l: 'Approved this month' }, { v: String(r.approved.length), l: 'Approved for refund' }, { v: String(r.checking.length), l: 'Still being checked', tone: 'flag' }, { v: String(r.refused.length), l: 'Refused', tone: 'bad' }]} />
     <SecT title="Approved for refund" />
     <Card>{r.approved.length ? r.approved.map((x, i) => <Line key={x.entry.id} last={i === r.approved.length - 1} onPress={() => d.go('d32', x.entry.id)} av={<Avatar n="check" tone="green" />} title={oldList(x.entry) || x.entry.id} titleMono
@@ -269,7 +271,7 @@ export function D37() {
     {r.refused.length > 0 && <><SecT title="Refused" />
       <Card>{r.refused.map((e, i) => <Line key={e.id} last={i === r.refused.length - 1} onPress={() => d.go('d32', e.id)} av={<Avatar n="x" tone="red" />} title={oldList(e) || e.id} titleMono
         sub={`${e.items[0]?.model} · ${dShort(e.date)} · ${decisionOf(state, e.id)?.reason || 'outside cover'}`} right={<StatusChip status="Rejected" label="Not approved" />} />)}
-        <Hint style={{ marginTop: 10 }}>The customer kept the battery. Head office has raised this one with you separately.</Hint></Card></>}
+        <Hint style={{ marginTop: 10 }}>The customer kept the battery. {Above} has raised this one with you separately.</Hint></Card></>}
     <Btn kind="ghost" icon="down" label="Download list" style={{ marginTop: 13 }} onPress={statement} />
   </Screen>;
 }
