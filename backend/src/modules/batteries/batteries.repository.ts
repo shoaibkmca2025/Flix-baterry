@@ -1,8 +1,9 @@
-import { and, desc, eq, lt, or } from 'drizzle-orm';
+import { and, desc, eq, lt, ne, or } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db, type Tx } from '../../database/client';
 import { batteries, batteryState } from '../../models/batteries.model';
 import { batteryModels } from '../../models/masters.model';
+import { entries, entryItems } from '../../models/entries.model';
 import { replacementLinks, warrantyChains } from '../../models/warranty.model';
 
 type DbOrTx = typeof db | Tx;
@@ -36,6 +37,22 @@ export function findChainById(dbh: DbOrTx, id: string) {
 // The link that put THIS battery into its chain (null for the chain's original battery).
 export function findReplacementLinkByNewBatteryId(dbh: DbOrTx, newBatteryId: string) {
   return dbh.select().from(replacementLinks).where(eq(replacementLinks.newBatteryId, newBatteryId)).then((r) => r[0]);
+}
+
+/**
+ * The replacement request on which this battery was itself handed over as the NEW battery — pending,
+ * approved or refused, since the customer takes it at the counter either way; voided ones excepted.
+ * The newest one wins if a number was ever used twice.
+ */
+export function findIssuingRequest(dbh: DbOrTx, batteryCode: string) {
+  return dbh
+    .select({ ref: entries.ref, dealerId: entries.dealerId, entryDate: entries.entryDate, status: entries.status, oldBatteryCode: entryItems.oldBatteryCode })
+    .from(entryItems)
+    .innerJoin(entries, eq(entries.id, entryItems.entryId))
+    .where(and(eq(entryItems.batteryCode, batteryCode), eq(entries.entryType, 'replacement'), ne(entries.status, 'void')))
+    .orderBy(desc(entries.createdAt))
+    .limit(1)
+    .then((r) => r[0]);
 }
 
 export type NewBattery = {

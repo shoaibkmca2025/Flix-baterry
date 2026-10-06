@@ -8,7 +8,7 @@ import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Label, Hint, Banne
 import { Screen, AppBar, Sheet, useD, useAbove } from './shell';
 import { PickList } from '@felix/shared/ui/pick';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
-import { warrantyView, coverChip, dLong, entryErrors, findBattery, monYear, monthLong, monthShort, needsNewBatteryPhoto, newPhotoTag, nextEntryId, roleOf, span, spanLong, spanShort, tShort, salesReturnsOf, dShort, placeOf } from '@felix/shared/data';
+import { replacedForLine, warrantyView, coverChip, dLong, entryErrors, findBattery, monYear, monthLong, monthShort, needsNewBatteryPhoto, newPhotoTag, nextEntryId, roleOf, span, spanLong, spanShort, tShort, salesReturnsOf, dShort, placeOf } from '@felix/shared/data';
 import { useAccessToken } from '@felix/shared/api/session';
 import { lookupBattery, type BatteryLookupResult } from '@felix/shared/api/batteries';
 import { createEntry } from '@felix/shared/api/entries';
@@ -350,6 +350,11 @@ function SpecialNotice({ cover, style, withDays = true }: { cover: BatteryLookup
     <B>{withDays && v ? `${v.headline}. ` : ''}Special request</B> — {isDealer ? 'distributor and head office' : 'head office'} must approve. {ext ? `New battery keeps the old end date (${dLong(cover.expiryDate)}).` : 'New battery gets NO warranty.'}
   </Banner>;
 }
+/** The battery being replaced was itself a replacement: say what it stood in for, first (client, 6 Oct 2026). */
+function ReplacedForNotice({ r, style }: { r?: BatteryLookupResult['replacementFor']; style?: object }) {
+  if (!r) return null;
+  return <Banner tone="warn" icon="link" style={style}><B>Already a replacement battery.</B> {replacedForLine({ oldSerial: r.oldBatteryCode, date: r.date, ref: r.ref })}.</Banner>;
+}
 /** The warranty headline + meter: start → end of the extension. The words are warrantyView's, as on every screen. */
 function WarrantyLeft({ start, expiry, termEnd, from, months = DEFAULT_TERM, grace = DEFAULT_GRACE, noWarranty }: { start: string; expiry: string; termEnd?: string; from: string; months?: number; grace?: number; noWarranty?: boolean }) {
   const total = Math.max(1, Date.parse(expiry) - Date.parse(start)), used = (Date.parse(today()) - Date.parse(start)) / total;
@@ -382,6 +387,7 @@ function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code:
 
   if (!lookup.found) return <Card style={{ borderColor: '#EBD49C', backgroundColor: '#FFFBF1', marginBottom: 14 }}>
     <CardH title="Cover from the label" right={<Chip tone="mute" icon="batt" label="Sold before the app" />} />
+    <ReplacedForNotice r={lookup.replacementFor} style={{ marginBottom: 10 }} />
     <KV pairs={[ident[0], ['Model · code', lookup.model ? `${lookup.model.id} · ${lookup.model.warrantyMonths} months` : lookup.labelModelId || fallbackModel || 'Choose above'], ['Cover rule', `${lookup.cover.termMonths} + ${lookup.cover.graceMonths} months from manufacture`], ['Cover ends', dLong(lookup.cover.expiryDate)]]} />
     {mfg && <WarrantyLeft start={lookup.cover.startDate} expiry={lookup.cover.expiryDate} termEnd={lookup.cover.termEnd} from="manufacture date" months={lookup.cover.termMonths} grace={lookup.cover.graceMonths} />}
     <SpecialNotice cover={lookup.cover} withDays={false} style={{ marginTop: 10 }} />
@@ -409,6 +415,7 @@ function OldBatteryInfo({ code, lookup, looking, token, fallbackModel }: { code:
   const blocked = battery.alreadyReplaced ? 'This battery has already been replaced once — its replacement carries the cover now. Check the label again.' : null;
   const bad = !!blocked || !!cover.noWarranty;
   return <Card style={{ borderColor: bad ? '#F0C7BC' : '#B8DFCB', backgroundColor: bad ? '#FFF8F6' : '#F7FCF9', marginBottom: 14 }}>
+    <ReplacedForNotice r={lookup.replacementFor} style={{ marginBottom: 10 }} />
     <CardH title="Found on record" right={<Chip tone={battery.alreadyReplaced ? 'bad' : chipTone} icon={battery.alreadyReplaced ? 'lock' : status === 'Active' ? 'shield' : 'clock'} label={battery.alreadyReplaced ? 'Already replaced' : chipLabel} />} />
     <KV pairs={pairs} />
     <WarrantyLeft start={cover.startDate} expiry={cover.expiryDate} termEnd={cover.termEnd} noWarranty={cover.noWarranty} from={chain && !chain.isOriginal ? "first battery's manufacture date" : 'manufacture date'} months={cover.termMonths} grace={cover.graceMonths} />
@@ -707,6 +714,7 @@ function ReviewItem({ it, i, e, rep, token }: { it: Item; i: number; e: Entry; r
         <PlateLab>NEW BATTERY IN</PlateLab><PlateVal color="#7FD3A9">{it.code || '—'}</PlateVal></> : <><PlateLab>RETURNED BATTERY</PlateLab><PlateVal>{it.code || '—'}</PlateVal></>}</Plate>
       <KV pairs={[['Model', it.model], ['Mfg month', monthShort(it.mfg)], ['Quantity', '1'], [rep ? 'Warranty' : 'Reason', rep ? (cover ? (warrantyView({ termEnd: cover.termEnd, coverEnd: cover.expiryDate, noWarranty: cover.noWarranty })?.headline ?? '—') : 'Set on approval') : (it.remarks || '—')], ['Photos', `${photoCount(e, i)} attached`], ['Signature', e.signature ? 'Captured' : 'Not captured']]} />
     </Card>
+    {rep && <ReplacedForNotice r={lookup?.replacementFor} style={{ marginTop: 12 }} />}
     {cover && <SpecialNotice cover={cover} style={{ marginTop: 12 }} />}
     {cover && chained && cover.inWarranty && <Banner tone="warn" icon="shield" style={{ marginTop: 12 }}><B>Warranty carried over, not restarted.</B> This battery is covered until {dLong(cover.expiryDate)} — the date the first battery in the chain got. No new period is created.</Banner>}
   </React.Fragment>;

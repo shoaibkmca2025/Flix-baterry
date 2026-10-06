@@ -197,6 +197,23 @@ export function specialLine(it: { coverCase?: string; coverTermEnd?: string; cov
   const v = warrantyView({ termEnd: it.coverTermEnd, coverEnd: it.coverEnd }, onDate);
   return v ? `${v.headline} · ${v.detail.charAt(0).toLowerCase()}${v.detail.slice(1)}` : '';
 }
+/**
+ * The request on which a battery was itself handed over as the NEW battery (client, 6 Oct 2026): when
+ * it comes back as an OLD battery, every screen says what it stood in for. Pending, approved or
+ * refused all count — the customer took it at the counter either way; drafts and voided ones do not.
+ */
+export function issuedOn(state: Pick<State, 'entries'>, code: string, model?: string, notOn?: string): { entry: Entry; oldSerial: string } | null {
+  if (!code) return null;
+  for (const e of state.entries) {
+    if (e.type !== 'Replacement' || e.id === notOn || ['Draft', 'Cancelled', 'Pending sync'].includes(e.status)) continue;
+    const it = e.items.find(i => i.oldSerial && sameBattery(i.code, i.model, code, model));
+    if (it) return { entry: e, oldSerial: it.oldSerial };
+  }
+  return null;
+}
+/** "Already a replacement battery — given on 06 Oct 2026 in place of old battery M100025105802 (RP-26-10-0015)" */
+export const replacedForLine = (r: { oldSerial: string; date: string; ref?: string | null }) =>
+  `Given on ${dLong(r.date)} in place of old battery ${r.oldSerial}${r.ref ? ` (${r.ref})` : ''}`;
 /** A special request the distributor has passed on (or raised himself): head office decides it in Correction requests. */
 export const specialWaiting = (e: Entry) => e.special === 'Pending' && e.status === 'Submitted';
 /** What the new battery gets if a special request is approved: the old end date, or nothing. */

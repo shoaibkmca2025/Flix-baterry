@@ -9,8 +9,10 @@ vi.mock('./batteries.repository', () => ({
   findModelById: vi.fn(),
   findChainById: vi.fn(),
   findReplacementLinkByNewBatteryId: vi.fn(),
+  findIssuingRequest: vi.fn(),
   listBatteries: vi.fn(),
 }));
+vi.mock('../dealers/dealers.service', () => ({ visibleShopIds: vi.fn(async (ctx: { user: { dealerId: string } }) => new Set([ctx.user.dealerId])) }));
 
 import * as repo from './batteries.repository';
 import { list, lookup } from './batteries.service';
@@ -228,5 +230,33 @@ describe('list', () => {
     await list(adminCtx, { limit: 50 });
 
     expect(repo.listBatteries).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dealerId: undefined }));
+  });
+});
+
+describe('a battery that was itself given as a replacement says so (client, 6 Oct 2026)', () => {
+  const asReplacement = { ref: 'RP-26-10-0015', dealerId: 'dealer-1', entryDate: '2026-10-06', status: 'approved', oldBatteryCode: 'M100025105802' };
+
+  it('on record: names the old battery it replaced, the date and — for its own shop — the request', async () => {
+    vi.mocked(repo.findBatteryByCode).mockResolvedValue({ id: 'b-9', batteryCode: 'M100026105802', serialNo: '5802', modelId: 'M1000', mfgMonth: '2026-10', state: 'replacement', custodian: 'customer', dealerId: 'dealer-1', chainId: null, replacedFromId: null } as never);
+    vi.mocked(repo.findModelById).mockResolvedValue({ id: 'M1000', warrantyMonths: 12 } as never);
+    vi.mocked(repo.findIssuingRequest).mockResolvedValue(asReplacement as never);
+    const r = await lookup(dealerCtx, 'M100026105802');
+    expect(repo.findIssuingRequest).toHaveBeenCalledWith(expect.anything(), 'M100026105802');
+    expect(r.replacementFor).toEqual({ oldBatteryCode: 'M100025105802', date: '2026-10-06', ref: 'RP-26-10-0015', decided: true });
+  });
+
+  it('not on record yet (its request is still waiting): still said, and another shop gets no request number', async () => {
+    vi.mocked(repo.findBatteryByCode).mockResolvedValue(undefined);
+    vi.mocked(repo.findModelById).mockResolvedValue({ id: 'M1000', warrantyMonths: 12 } as never);
+    vi.mocked(repo.findIssuingRequest).mockResolvedValue({ ...asReplacement, dealerId: 'dealer-9', status: 'submitted' } as never);
+    const r = await lookup(dealerCtx, 'M100026105802');
+    expect(r.replacementFor).toEqual({ oldBatteryCode: 'M100025105802', date: '2026-10-06', ref: null, decided: false });
+  });
+
+  it('a battery never handed over as a replacement has nothing to say', async () => {
+    vi.mocked(repo.findBatteryByCode).mockResolvedValue(undefined);
+    vi.mocked(repo.findModelById).mockResolvedValue({ id: 'M1000', warrantyMonths: 12 } as never);
+    vi.mocked(repo.findIssuingRequest).mockResolvedValue(undefined);
+    expect((await lookup(dealerCtx, 'M100026035801')).replacementFor).toBeNull();
   });
 });

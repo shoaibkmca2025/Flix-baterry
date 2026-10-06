@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newEntry, newItem, type Entry, type State } from '../domain';
 import { initialState } from '../seed';
-import { warrantyView, entryErrors, distributorStage, isDealerShop, networkEntries, refunds, specialLine, specialOutcome, specialWaiting, toSendBack } from '../data';
+import { issuedOn, replacedForLine, warrantyView, entryErrors, distributorStage, isDealerShop, networkEntries, refunds, specialLine, specialOutcome, specialWaiting, toSendBack } from '../data';
 
 // Head office → distributor → dealer (client, 2 Oct 2026). In a distributor's app the store
 // holds his own requests and his dealers'; dealer-1 is the distributor, dealer-1a his dealer.
@@ -97,4 +97,17 @@ test('a voided request reads Voided and leaves every queue', () => {
   assert.match(distributorStage(v, v.items[0]!).hint, /Repeated entry/);
   assert.deepEqual(toSendBack({ entries: [{ ...v, items: v.items.map(it => ({ ...it, arrivedAtDistributor: '2026-10-06T10:00:00Z' })) }] } as unknown as State, 'dealer-1', true), []);
   assert.equal(specialWaiting({ ...v, special: 'Pending' }), false);
+});
+
+// A battery given as a replacement comes back for one of its own (client, 6 Oct 2026): every screen
+// names the old battery it stood in for, and the request it was given on.
+test('a battery that was itself a replacement is recognised, with what it replaced', () => {
+  const first = { ...rep('RP-1', 'dealer-1a', 'Approved'), date: '2026-10-06', items: [{ ...newItem(), model: 'M1000', oldModel: 'M1000', code: 'M100026105802', oldSerial: 'M100025105802' }] } as Entry;
+  const again = { ...rep('RP-2', 'dealer-1a', 'Submitted'), items: [{ ...newItem(), model: 'M1000', oldModel: 'M1000', code: 'M100026115900', oldSerial: 'M100026105802' }] } as Entry;
+  const s = { entries: [again, first, { ...first, id: 'RP-0', status: 'Cancelled' } as Entry] } as unknown as State;
+  const was = issuedOn(s, again.items[0]!.oldSerial, 'M1000', again.id)!;
+  assert.equal(was.entry.id, 'RP-1');
+  assert.equal(replacedForLine({ oldSerial: was.oldSerial, date: was.entry.date, ref: was.entry.id }), 'Given on 06 Oct 2026 in place of old battery M100025105802 (RP-1)');
+  assert.equal(issuedOn(s, 'M100025105802', 'M1000', again.id), null); // the very first battery was never a replacement
+  assert.equal(issuedOn({ entries: [{ ...first, status: 'Cancelled' } as Entry] }, 'M100026105802', 'M1000'), null); // voided requests do not count
 });

@@ -9,7 +9,7 @@ import { listPhotos, type EntryPhoto } from '@felix/shared/api/photos';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Btn, Card, Chip, StatusChip, Field, Hint, Banner, Line, Avatar, Gap, KV, SecT, Plate, PlateLab, PlateVal, tap, AdminChip } from '@felix/shared/ui/kit';
 import { PickList } from '@felix/shared/ui/pick';
-import { dLong, dShort, monthShort, tShort, distributorStage, specialLine, specialOutcome, type DistributorStage, inheritedArea } from '@felix/shared/data';
+import { dLong, dShort, monthShort, tShort, distributorStage, issuedOn, replacedForLine, specialLine, specialOutcome, type DistributorStage, inheritedArea } from '@felix/shared/data';
 import { getAccessToken, dealerStatusLabel } from '@felix/shared/api/session';
 import { createMyDealer, listMyDealers, setMyDealerStatus, type ApiDealer } from '@felix/shared/api/dealers';
 import { ApiError, errorMessage } from '@felix/shared/api/client';
@@ -215,6 +215,8 @@ export function D43({ p }: { p?: string }) {
           <X s={19} c={T.volt} style={{ textAlign: 'center', marginVertical: 4 }}>↓</X>
           <PlateLab>NEW BATTERY IN</PlateLab><PlateVal color="#7FD3A9">{it.code || '—'}</PlateVal></> : <><PlateLab>RETURNED BATTERY</PlateLab><PlateVal>{it.code || '—'}</PlateVal></>}</Plate>
         <KV pairs={[['Made', monthShort(it.mfg)], [rep ? 'Problem' : 'Remarks', (rep ? it.fault : it.remarks) || '—'], ['Where it is', `${distributorStage(e, it).label} — ${distributorStage(e, it).hint}`]]} />
+        {(() => { const was = rep && it.oldSerial ? issuedOn(state, it.oldSerial, it.oldModel, e.id) : null;
+          return was ? <Banner tone="warn" icon="link" style={{ marginTop: 9 }}><B>Already a replacement battery.</B> {replacedForLine({ oldSerial: was.oldSerial, date: was.entry.date, ref: was.entry.id })}.</Banner> : null; })()}
         {it.coverCase ? <Banner tone="warn" icon="clock" style={{ marginTop: 9 }}><B>{specialLine(it, e.date)}.</B> {specialOutcome(it)}</Banner> : null}
         {distributorStage(e, it).key === 'awaiting' && e.apiId && <Btn kind="blue" sm icon="box" label="Mark arrived" style={{ marginTop: 9, alignSelf: 'flex-start' }} onPress={async () => {
           const token = await getAccessToken(); if (!token) { d.toast('Your sign-in has ended. Sign in again.'); return; }

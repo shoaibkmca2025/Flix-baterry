@@ -5,7 +5,7 @@ import { Entry, Item, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approv
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, ChipRow, Label, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
-import { warrantyView, approvedForRefund, batteryUnits, entryErrors, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, specialLine, specialOutcome, specialWaiting, tShort, monthShort, salesReturnsOf, monthLong, placeOf, addressLine } from '@felix/shared/data';
+import { issuedOn, replacedForLine, warrantyView, approvedForRefund, batteryUnits, entryErrors, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, specialLine, specialOutcome, specialWaiting, tShort, monthShort, salesReturnsOf, monthLong, placeOf, addressLine } from '@felix/shared/data';
 import { listPhotos, splitTag, uploadEntryPhotos } from '@felix/shared/api/photos';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
@@ -343,6 +343,8 @@ function SpecialCard({ e, onAct }: { e: Entry; onAct: (kind: 'approve' | 'reject
             <X s={14.5} w={7} f="m" style={{ marginTop: 3 }}>{it.oldSerial || '—'} → {it.code}</X>
             <X s={13.5} w={7} c="#8A5A00" style={{ marginTop: 7 }}>{specialLine(it, e.date) || 'Within the warranty term'}</X>
             <X s={13} c={T.slate} style={{ marginTop: 3 }}>{it.coverCase ? specialOutcome(it) : 'A normal battery on the same request — it inherits the old end date.'}</X>
+            {(() => { const was = it.oldSerial ? issuedOn(state, it.oldSerial, it.oldModel, e.id) : null;
+              return was ? <X s={13} c={T.terminal} style={{ marginTop: 6 }}><B u onPress={() => a.go('entry', was.entry.id)}>Already a replacement battery.</B> {replacedForLine({ oldSerial: was.oldSerial, date: was.entry.date, ref: was.entry.id })}.</X> : null; })()}
           </View>
           {mine.length ? <View style={{ flexDirection: 'row', gap: 9 }}>{mine.slice(0, 3).map(ph =>
             <Pressable key={ph.key} accessibilityRole="imagebutton" accessibilityLabel={`Open photo: ${ph.tag}`} onPress={() => { Linking.openURL(ph.uri).catch(() => a.toast('The photo could not be opened here.')); }}>
@@ -607,6 +609,8 @@ export function EntryDetail({ id }: { id?: string }) {
                   <X s={11} w={6} c={T.deepText} style={{ marginTop: 5 }}>{ph.tag === 'New label' ? 'New battery' : ph.tag}</X>
                 </Pressable>))}</View> : null}
             </View></Plate>
+            {(() => { const was = it.oldSerial ? issuedOn(state, it.oldSerial, it.oldModel, e.id) : null;
+              return was ? <Banner tone="warn" icon="link" style={{ marginBottom: 11 }}><B>Already a replacement battery.</B> {replacedForLine({ oldSerial: was.oldSerial, date: was.entry.date, ref: was.entry.id })}. <B u onPress={() => a.go('entry', was.entry.id)}>Open {was.entry.id}</B></Banner> : null; })()}
             <KV cols={2} pairs={[['Reported fault', it.fault || '—'], ['Remarks', it.remarks || '—']]} />
             {/* where this battery has got to, in the four words head office uses for it. Serial,
                 manufacture month, cover dates, replacement and return months and the WR reference

@@ -5,6 +5,7 @@ import { graceMonths, serialDigitLengths } from '../../utils/settings';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
 import { decodeCursor } from '../../utils/cursor';
+import { visibleShopIds } from '../dealers/dealers.service';
 import * as repo from './batteries.repository';
 import type { BatteryListQuery } from './batteries.validation';
 
@@ -44,6 +45,19 @@ function coverFromChain(
 function withCase<T extends { startDate: string; expiryDate: string; termMonths: number }>(cover: T, today: string) {
   const c = coverCase(cover, today);
   return { ...cover, coverCase: c.case, termEnd: c.termEnd, daysOver: c.daysOver };
+}
+
+/**
+ * A battery that was itself given as a replacement says so wherever it is looked up — when it comes
+ * back for a replacement of its own, the counter and head office must see what it stood in for
+ * (client, 6 Oct 2026). Found on record or not: a battery on a request still waiting is not on
+ * record yet. The request number is shown to head office and to the shops it belongs to only.
+ */
+async function replacementFor(ctx: Ctx, batteryCode: string) {
+  const row = await repo.findIssuingRequest(db, batteryCode);
+  if (!row || !row.oldBatteryCode) return null;
+  const visible = ctx.user!.scope === 'admin' || (await visibleShopIds(ctx)).has(row.dealerId);
+  return { oldBatteryCode: row.oldBatteryCode, date: row.entryDate, ref: visible ? row.ref : null, decided: row.status === 'approved' || row.status === 'rejected' };
 }
 
 // architecture.md §9.9 batteries.lookup — capture-time lookup. Never reveals which OTHER
@@ -87,6 +101,7 @@ export async function lookup(ctx: Ctx, code: string, modelIdHint?: string) {
     // across products by design — so they are not mentioned here.
     return {
       found: false as const,
+      replacementFor: productId ? await replacementFor(ctx, fullCode(productId, derived.normalised)) : null,
       mfgMonth: derived.mfgMonth,
       serialNo: derived.serialNo,
       labelModelId: derived.modelId, // what the printed label says, if it carried a prefix
@@ -117,6 +132,7 @@ export async function lookup(ctx: Ctx, code: string, modelIdHint?: string) {
 
   return {
     found: true as const,
+    replacementFor: await replacementFor(ctx, battery.batteryCode),
     mfgMonth,
     serialNo: battery.serialNo,
     battery: {

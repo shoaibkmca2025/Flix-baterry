@@ -31,10 +31,14 @@ export type BatteryChainInfo = {
   installedOn: string | null; // when THIS battery was handed over as a replacement
 };
 
+/** The request on which this battery was itself handed over as a replacement (client, 6 Oct 2026). `ref` is withheld from other shops. */
+export type ReplacementFor = { oldBatteryCode: string; date: string; ref: string | null; decided: boolean } | null;
+
 export type BatteryLookupResult =
-  | { found: false; mfgMonth: string | null; serialNo: string; labelModelId: string | null; model: LookupModel | null; custody: null; chain: null; cover: BatteryCover }
+  | { found: false; replacementFor?: ReplacementFor; mfgMonth: string | null; serialNo: string; labelModelId: string | null; model: LookupModel | null; custody: null; chain: null; cover: BatteryCover }
   | {
       found: true;
+      replacementFor?: ReplacementFor;
       mfgMonth: string | null;
       serialNo: string;
       labelModelId: string | null;
