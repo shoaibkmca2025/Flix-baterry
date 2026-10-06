@@ -5,7 +5,7 @@ import { Entry, Item, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approv
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, ChipRow, Label, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
-import { issuedOn, replacedForLine, warrantyView, approvedForRefund, batteryUnits, entryErrors, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, specialLine, specialOutcome, specialWaiting, tShort, monthShort, salesReturnsOf, monthLong, placeOf, addressLine } from '@felix/shared/data';
+import { batteryDates, issuedOn, replacedForLine, warrantyView, approvedForRefund, batteryUnits, entryErrors, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, specialLine, specialOutcome, specialWaiting, tShort, monthShort, salesReturnsOf, monthLong, placeOf, addressLine } from '@felix/shared/data';
 import { listPhotos, splitTag, uploadEntryPhotos } from '@felix/shared/api/photos';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
@@ -566,15 +566,9 @@ export function EntryDetail({ id }: { id?: string }) {
           // the server still works one out from the label when it approves, which is where
           // "cover ran out on …" comes from. The same sum here keeps the console and the server
           // from disagreeing, and shows the reviewer the remaining cover the dealer already sees.
-          const oldMfg = it.oldSerial ? deriveCode(it.oldSerial, state.models.map(m => m.id), anyDigitLengths(state.serialDigitLengths)).mfg : '';
-          const termMonths = state.models.find(m => m.id === (it.oldModel || it.model))?.months ?? 24, grace = state.graceMonths ?? 2;
-          // The old battery's warranty, the one way every screen shows it (warrantyView): the dates the
-          // server judged the request on when it has them, else the record, else the label — and
-          // counted at the request's date, exactly like the card in Correction requests.
-          const dates = it.coverTermEnd && it.coverEnd ? { termEnd: it.coverTermEnd, coverEnd: it.coverEnd, from: 'as judged when the request was made' }
-            : cover ? { termEnd: cover.termEnd, coverEnd: cover.expiry, from: 'from the warranty record' }
-            : oldMfg ? { termEnd: expiryFrom(`${oldMfg}-01`, termMonths), coverEnd: expiryFrom(`${oldMfg}-01`, termMonths + grace), from: `worked out from the label — made ${monthShort(oldMfg)}, ${termMonths} months warranty + ${grace} months extension` }
-            : null;
+          // The old battery's warranty, the one way every screen shows it (batteryDates + warrantyView),
+          // counted at the request's date, exactly like the card in Correction requests and the register.
+          const dates = it.oldSerial ? batteryDates(state, it.oldSerial, it.oldModel || it.model, { termEnd: it.coverTermEnd, coverEnd: it.coverEnd }, it.code) : null;
           const view = it.oldSerial && dates ? warrantyView({ ...dates, noWarranty: old?.noWarranty }, e.date) : null;
           const [cl, ct] = view ? view.chip : coverChip(cover?.status || '');
           const mine = photos?.filter(p => (p.itemSeq ?? 0) === i) ?? [];

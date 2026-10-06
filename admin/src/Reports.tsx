@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Pressable } from 'react-native';
 import { useStore } from '@felix/shared/store';
 import { expiryFrom, filterEntries, today, uid, warranty, ENTRY_TYPES } from '@felix/shared/domain';
-import { columns, exportReport } from '@felix/shared/reports';
+import { columns, defaultColumns, exportReport } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar } from '@felix/shared/ui/kit';
 import { dLong, monYear } from '@felix/shared/data';
@@ -11,7 +11,7 @@ import { Page, Box, Cols, Stack, Table, Pills, FilterPick, DatePick, Tabs, Dialo
 export function Reports() {
   const a = useA(); const { state, setState, audit, canEdit } = useStore();
   const [tab, setTab] = useState('build'), [type, setType] = useState('All'), [status, setStatus] = useState('All'), [model, setModel] = useState('All'), [dealer, setDealer] = useState('All'), [from, setFrom] = useState(''), [to, setTo] = useState('');
-  const [format, setFormat] = useState('Excel'), [selected, setSelected] = useState<string[]>(columns), [busy, setBusy] = useState(false), [save, setSave] = useState(false), [name, setName] = useState(''), [schedule, setSchedule] = useState('Manual');
+  const [format, setFormat] = useState('Excel'), [selected, setSelected] = useState<string[]>(defaultColumns), [busy, setBusy] = useState(false), [save, setSave] = useState(false), [name, setName] = useState(''), [schedule, setSchedule] = useState('Manual');
   const dealerId = state.dealers.find(d => d.name === dealer)?.id;
   const rows = filterEntries(state.entries, '', type, status, model, from, to).filter(e => !dealerId || e.dealerId === dealerId);
   const lines = rows.reduce((n, e) => n + e.items.length, 0);
@@ -39,7 +39,7 @@ export function Reports() {
       </>}>
         <View style={{ padding: 14 }}><Banner tone="ok" icon="check"><B>Every filter applies at once.</B> {rows.length} entries · {lines} battery lines match.</Banner></View>
       </Box>
-      <Box title="2 · Which columns, in which order" right={<Pressable accessibilityRole="button" onPress={() => setSelected(columns)}><X s={12.5} w={6} c={T.steel}>Reset to register order</X></Pressable>} pad>
+      <Box title="2 · Which columns, in which order" right={<Pressable accessibilityRole="button" onPress={() => setSelected(defaultColumns)}><X s={12.5} w={6} c={T.steel}>Reset to register order</X></Pressable>} pad>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>{selected.map((c, i) => <View key={c} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: T.steelSoft, borderWidth: 1, borderColor: '#6FAF7F', borderRadius: 7, paddingLeft: 4, paddingRight: 8, paddingVertical: 3 }}>
           {i > 0 ? <Pressable accessibilityRole="button" accessibilityLabel={`Move ${c} left`} onPress={() => { const x = [...selected]; [x[i - 1], x[i]] = [x[i], x[i - 1]]; setSelected(x); }} style={{ padding: 3 }}><Ic n="back" size={13} color={T.steel} /></Pressable> : <View style={{ width: 19 }} />}
           <X s={12.5} w={6} c={T.steel}>{c}</X>

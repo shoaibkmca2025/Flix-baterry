@@ -214,6 +214,41 @@ export function issuedOn(state: Pick<State, 'entries'>, code: string, model?: st
 /** "Already a replacement battery — given on 06 Oct 2026 in place of old battery M100025105802 (RP-26-10-0015)" */
 export const replacedForLine = (r: { oldSerial: string; date: string; ref?: string | null }) =>
   `Given on ${dLong(r.date)} in place of old battery ${r.oldSerial}${r.ref ? ` (${r.ref})` : ''}`;
+/**
+ * The warranty dates of a battery on a request — where its warranty term ends and where the extension
+ * after it ends — read ONE way wherever they are shown (client, 6 Oct 2026): the dates the server
+ * judged the request on, when it stored them; else the battery's warranty record; else its label
+ * (manufacture month + the model's term + the extension months).
+ */
+export function batteryDates(state: State, code: string, model?: string, stored?: { termEnd?: string; coverEnd?: string }, alsoOnRecord?: string) {
+  if (stored?.termEnd && stored.coverEnd) return { termEnd: stored.termEnd, coverEnd: stored.coverEnd, from: 'as judged when the request was made', onRecord: findBattery(state, code) };
+  const rec = findBattery(state, code) || (alsoOnRecord ? findBattery(state, alsoOnRecord) : undefined), cover = coverOf(rec, state);
+  if (cover) return { termEnd: cover.termEnd, coverEnd: cover.expiry, from: 'from the warranty record', onRecord: rec };
+  const mfg = code ? deriveCode(code, state.models.map(m => m.id), anyDigitLengths(state.serialDigitLengths)).mfg : '';
+  if (!mfg) return null;
+  const termMonths = state.models.find(m => m.id === model)?.months ?? 24, grace = state.graceMonths ?? 2;
+  return { termEnd: expiryFrom(`${mfg}-01`, termMonths), coverEnd: expiryFrom(`${mfg}-01`, termMonths + grace), from: `worked out from the label — made ${monthShort(mfg)}, ${termMonths} months warranty + ${grace} months extension`, onRecord: undefined };
+}
+/** The register's columns, in the client's order (6 Oct 2026). The All entries table and the Excel export are both this. */
+export const REGISTER_COLUMNS = ['Reference', 'Type', 'Model', 'Old Serial', 'New Serial', 'Expiry MMYY', 'Distributor', 'City', 'Dealer', 'Date', 'Status'] as const;
+/**
+ * One battery of a request as a register row. `expiry` is the OVERALL end of the battery's cover —
+ * the warranty plus its extension — of the battery that goes back: a replacement's old one, a sales
+ * return's own (client, 6 Oct 2026). `expired`: already over on the request's date.
+ */
+export function registerRow(state: State, e: Entry, it = e.items[0]) {
+  const s = shopRole(state, e.dealerId), dealer = s.shop?.kind === 'Dealer';
+  const code = it ? travellingSerial(e, it) : '', rep = e.type === 'Replacement';
+  const dates = it && code ? batteryDates(state, code, rep ? (it.oldModel || it.model) : it.model, { termEnd: it.coverTermEnd, coverEnd: it.coverEnd }, rep ? it.code : undefined) : null;
+  return {
+    reference: e.id, type: e.type, model: it?.model ?? '', oldSerial: it?.oldSerial ?? '', newSerial: it?.code ?? '',
+    expiry: dates?.coverEnd, expired: !!dates && dates.coverEnd < e.date,
+    distributor: dealer ? (s.parent?.name ?? '') : s.name, city: s.shop?.city ?? '', dealer: dealer ? s.name : '',
+    date: e.date, status: e.status === 'Cancelled' ? 'Voided' : e.status === 'Conflict' ? 'Serial exception' : e.status,
+  };
+}
+/** 30 Apr 2026 → "04/26" */
+export const mmyy = (iso?: string) => iso && /^\d{4}-\d{2}/.test(iso) ? `${iso.slice(5, 7)}/${iso.slice(2, 4)}` : '—';
 /** A special request the distributor has passed on (or raised himself): head office decides it in Correction requests. */
 export const specialWaiting = (e: Entry) => e.special === 'Pending' && e.status === 'Submitted';
 /** What the new battery gets if a special request is approved: the old end date, or nothing. */

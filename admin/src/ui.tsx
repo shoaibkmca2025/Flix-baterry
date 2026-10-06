@@ -7,7 +7,7 @@ import { Entry, tagOf } from '@felix/shared/domain';
 import { T, family } from '@felix/shared/ui/theme';
 import { X, Ic, IconName, Btn, Field, Chip, StatusChip, Mono, IconBtn, Line, Avatar, AvTone, ChipRow, Hint, TagChip, BARCODE_TYPES } from '@felix/shared/ui/kit';
 import { PickList } from '@felix/shared/ui/pick';
-import { dShort, avatarTone } from '@felix/shared/data';
+import { dShort, avatarTone, mmyy, registerRow } from '@felix/shared/data';
 
 /* ---------- navigation context ---------- */
 export type ARoute = { r: string; id?: string };
@@ -203,16 +203,25 @@ export const fmtAt = (iso: string) => { const d = new Date(iso); return `${dShor
 export function EntryTable({ entries, onOpen, empty, showDealer = true, compact }: { entries: Entry[]; onOpen: (e: Entry) => void; empty?: string; showDealer?: boolean; compact?: boolean }) {
   const { state } = useStore();
   const dealerName = (id: string) => state.dealers.find(d => d.id === id)?.name || id;
+  const none = <X s={13.5} c={T.zinc3}>—</X>;
+  // Columns in the order the client reads the register (6 Oct 2026), and the very same values the
+  // Excel export writes (shared/data registerRow): what it is, the batteries, the overall warranty
+  // end, then who — the distributor, the town, and the dealer when it came from one under him.
   return <Table compact={compact} rows={entries} keyOf={e => e.id} onRow={onOpen} empty={empty || 'No entries match.'}
     cols={[
-      { h: 'Reference', w: 1.3, cell: e => <X s={13} f="m" w={6}>{e.id}</X> },
-      { h: 'Type', w: 1.1, cell: e => <View style={{ flexDirection: 'row', gap: 7, alignItems: 'center' }}><TagChip tag={tagOf(e)} /><X s={13.5}>{e.type}</X></View> },
-      { h: 'Model', w: 0.6, cell: e => <X s={13.5} w={7}>{e.items.map(i => i.model).join(', ')}</X> },
-      { h: 'Serial', w: 1, cell: e => <X s={13} f="m" w={6}>{e.items[0]?.code || '—'}{e.items.length > 1 ? ` +${e.items.length - 1}` : ''}</X> },
-      { h: 'Old serial', w: 1, cell: e => e.items[0]?.oldSerial ? <X s={13} f="m" w={6} c={T.steel}>{e.items[0].oldSerial}</X> : <X s={13.5} c={T.zinc3}>—</X> },
-      ...(showDealer ? [{ h: 'Dealer', w: 1.3, cell: (e: Entry) => dealerName(e.dealerId) }] : []),
-      { h: 'Date', w: 0.7, cell: e => dShort(e.date) },
-      { h: 'Status', w: 1.1, cell: e => <StatusChip status={e.status} /> },
+      { h: 'Reference', w: 1.25, cell: e => <X s={13} f="m" w={6}>{e.id}</X> },
+      { h: 'Type', w: 1.05, cell: e => <View style={{ flexDirection: 'row', gap: 7, alignItems: 'center' }}><TagChip tag={tagOf(e)} /><X s={13.5}>{e.type}</X></View> },
+      { h: 'Model', w: 0.65, cell: e => <X s={13.5} w={7}>{e.items.map(i => i.model).join(', ')}</X> },
+      { h: 'Old serial', w: 1.15, cell: e => e.items[0]?.oldSerial ? <X s={13} f="m" w={6} c={T.steel}>{e.items[0].oldSerial}</X> : none },
+      { h: 'New serial', w: 1.15, cell: e => <X s={13} f="m" w={6}>{e.items[0]?.code || '—'}{e.items.length > 1 ? ` +${e.items.length - 1}` : ''}</X> },
+      { h: 'Expiry MMYY', w: 0.7, cell: e => { const r = registerRow(state, e); return r.expiry ? <X s={13} f="m" w={6} c={r.expired ? T.terminal : T.ink}>{mmyy(r.expiry)}</X> : none; } },
+      ...(showDealer ? [
+        { h: 'Distributor', w: 1.1, cell: (e: Entry) => registerRow(state, e).distributor || '—' },
+        { h: 'City', w: 0.8, cell: (e: Entry) => registerRow(state, e).city || '—' },
+        { h: 'Dealer', w: 1.05, cell: (e: Entry) => registerRow(state, e).dealer || none },
+      ] : []),
+      { h: 'Date', w: 0.6, cell: e => dShort(e.date) },
+      { h: 'Status', w: 1, cell: e => <StatusChip status={e.status} /> },
     ]}
     mobile={{ av: e => <Avatar n="batt" tone={avatarTone(e.status) as AvTone} />, title: e => <>{e.items[0]?.model} · <Mono>{e.items[0]?.code || '—'}</Mono></>, sub: e => <><Mono>{tagOf(e)} {e.id}</Mono>{showDealer ? ` · ${dealerName(e.dealerId)}` : ''} · {dShort(e.date)}</>, right: e => <StatusChip status={e.status} /> }} />;
 }

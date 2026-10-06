@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newEntry, newItem, type Entry, type State } from '../domain';
 import { initialState } from '../seed';
-import { issuedOn, replacedForLine, warrantyView, entryErrors, distributorStage, isDealerShop, networkEntries, refunds, specialLine, specialOutcome, specialWaiting, toSendBack } from '../data';
+import { REGISTER_COLUMNS, registerRow, batteryDates, mmyy, issuedOn, replacedForLine, warrantyView, entryErrors, distributorStage, isDealerShop, networkEntries, refunds, specialLine, specialOutcome, specialWaiting, toSendBack } from '../data';
 
 // Head office → distributor → dealer (client, 2 Oct 2026). In a distributor's app the store
 // holds his own requests and his dealers'; dealer-1 is the distributor, dealer-1a his dealer.
@@ -110,4 +110,40 @@ test('a battery that was itself a replacement is recognised, with what it replac
   assert.equal(replacedForLine({ oldSerial: was.oldSerial, date: was.entry.date, ref: was.entry.id }), 'Given on 06 Oct 2026 in place of old battery M100025105802 (RP-1)');
   assert.equal(issuedOn(s, 'M100025105802', 'M1000', again.id), null); // the very first battery was never a replacement
   assert.equal(issuedOn({ entries: [{ ...first, status: 'Cancelled' } as Entry] }, 'M100026105802', 'M1000'), null); // voided requests do not count
+});
+
+// The register's "Expiry MMYY" and the request page read the same dates (client, 6 Oct 2026).
+test('a battery has one set of warranty dates — stored by the server, else its record, else its label', () => {
+  const s = { ...structuredClone(initialState), entries: [], batteries: [] } as unknown as State;
+  s.models = [...s.models, { id: 'GPM1000', type: '', capacity: '', months: 12, threshold: 0, active: true }];
+  s.graceMonths = 2;
+  // not on record: from the label — GPM1000, made May 2025, 12 months + 2
+  const label = batteryDates(s, 'GPM100025058899', 'GPM1000')!;
+  assert.deepEqual([label.termEnd, label.coverEnd, mmyy(label.termEnd)], ['2026-04-30', '2026-06-30', '04/26']);
+  // what the server stored when it judged the request wins
+  assert.equal(batteryDates(s, 'GPM100025058899', 'GPM1000', { termEnd: '2026-05-31', coverEnd: '2026-07-31' })!.termEnd, '2026-05-31');
+  // on record: the warranty record's dates
+  const rec = { ...s, batteries: [{ code: 'GPM100025058899', serial: '8899', model: 'GPM1000', dealerId: '', customer: '', mfg: '2025-05', start: '2025-03-01', expiry: '2026-04-30', termEnd: '2026-02-28', state: 'Sold' }] } as State;
+  assert.equal(mmyy(batteryDates(rec, 'GPM100025058899', 'GPM1000')!.termEnd), '02/26');
+  assert.equal(mmyy(undefined), '—');
+});
+
+// The register row behind both the All entries table and the Excel export (client, 6 Oct 2026):
+// the expiry is the OVERALL end of the cover — warranty plus extension — and the "who" columns
+// name the distributor for every request and the dealer only when one sent it.
+test('a register row: overall expiry, then distributor, city and dealer', () => {
+  const s = { ...structuredClone(initialState), batteries: [], graceMonths: 2 } as unknown as State;
+  s.models = [...s.models, { id: 'GPM1000', type: '', capacity: '', months: 12, threshold: 0, active: true }];
+  s.dealers = [
+    { id: 'd-1', name: 'Abc solutions', kind: 'Distributor', city: 'Nashik' } as never,
+    { id: 'd-1a', name: 'Rahul', kind: 'Dealer', distributorId: 'd-1', city: 'Sinnar' } as never,
+  ];
+  const mk = (dealerId: string): Entry => ({ ...newEntry(dealerId), id: 'RP-26-10-0010', date: '2026-10-06', status: 'Rejected', items: [{ ...newItem(), model: 'GPM1000', oldModel: 'GPM1000', code: 'GPM100026058866', oldSerial: 'GPM100025058899' }] });
+  const r = registerRow(s, mk('d-1a'));
+  assert.deepEqual([r.oldSerial, r.newSerial, r.expiry, mmyy(r.expiry), r.expired], ['GPM100025058899', 'GPM100026058866', '2026-06-30', '06/26', true]);
+  assert.deepEqual([r.distributor, r.city, r.dealer], ['Abc solutions', 'Sinnar', 'Rahul']);
+  const own = registerRow(s, mk('d-1'));
+  assert.deepEqual([own.distributor, own.city, own.dealer], ['Abc solutions', 'Nashik', '']);
+  assert.equal(registerRow(s, { ...mk('d-1'), status: 'Cancelled' }).status, 'Voided');
+  assert.deepEqual([...REGISTER_COLUMNS], ['Reference', 'Type', 'Model', 'Old Serial', 'New Serial', 'Expiry MMYY', 'Distributor', 'City', 'Dealer', 'Date', 'Status']);
 });
