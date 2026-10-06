@@ -210,11 +210,12 @@ export function EntryTable({ entries, onOpen, empty, showDealer = true, compact 
   return <Table compact={compact} rows={entries} keyOf={e => e.id} onRow={onOpen} empty={empty || 'No entries match.'}
     cols={[
       { h: 'Reference', w: 1.25, cell: e => <X s={13} f="m" w={6}>{e.id}</X> },
-      { h: 'Type', w: 1.05, cell: e => <View style={{ flexDirection: 'row', gap: 7, alignItems: 'center' }}><TagChip tag={tagOf(e)} /><X s={13.5}>{e.type}</X></View> },
+      // the tag alone (RP / SR) — the full name made every row two lines tall (client, 6 Oct 2026)
+      { h: 'Type', w: 0.45, cell: e => <View accessibilityLabel={e.type} style={{ flexDirection: 'row' }}><TagChip tag={tagOf(e)} /></View> },
       { h: 'Model', w: 0.65, cell: e => <X s={13.5} w={7}>{e.items.map(i => i.model).join(', ')}</X> },
-      { h: 'Old serial', w: 1.15, cell: e => e.items[0]?.oldSerial ? <X s={13} f="m" w={6} c={T.steel}>{e.items[0].oldSerial}</X> : none },
-      { h: 'New serial', w: 1.15, cell: e => <X s={13} f="m" w={6}>{e.items[0]?.code || '—'}{e.items.length > 1 ? ` +${e.items.length - 1}` : ''}</X> },
-      { h: 'Expiry MMYY', w: 0.7, cell: e => { const r = registerRow(state, e); return r.expiry ? <X s={13} f="m" w={6} c={r.expired ? T.terminal : T.ink}>{mmyy(r.expiry)}</X> : none; } },
+      { h: 'Old serial', w: 1.45, cell: e => e.items[0]?.oldSerial ? <X s={13} f="m" w={6} c={T.steel} numberOfLines={1}>{e.items[0].oldSerial}</X> : none },
+      { h: 'New serial', w: 1.45, cell: e => <X s={13} f="m" w={6} numberOfLines={1}>{e.items[0]?.code || '—'}{e.items.length > 1 ? ` +${e.items.length - 1}` : ''}</X> },
+      { h: 'Expiry MMYY', w: 0.85, cell: e => { const r = registerRow(state, e); return r.expiry ? <X s={13} f="m" w={6} c={r.expired ? T.terminal : T.ink}>{mmyy(r.expiry)}</X> : none; } },
       ...(showDealer ? [
         { h: 'Distributor', w: 1.1, cell: (e: Entry) => registerRow(state, e).distributor || '—' },
         { h: 'City', w: 0.8, cell: (e: Entry) => registerRow(state, e).city || '—' },

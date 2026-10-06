@@ -181,7 +181,7 @@ export function Settings() {
     <Cols>
       <Stack>
         <Card><CardH title="Your account" right={<Chip tone="info" icon="shield" label={role} />} />
-          <KV pairs={[['Name', a.user.name], ['Role', role], ['Sign-in', 'Email, password + two-step code'], ['Session', 'Ends after 15 minutes']]} />
+          <KV pairs={[['Name', a.user.name], ['Role', a.user.role], ['Sign-in', 'Email, password + two-step code'], ['Session', 'Ends after 15 minutes']]} />
           <View style={{ height: 12 }} />
           <Select label="Language for menus" value={state.language} options={['English', 'मराठी']} onChange={v => setState(s => ({ ...s, language: v as any }))} hint="Menu labels switch to Marathi. Record details stay in English." />
           <View style={{ flexDirection: 'row', gap: 9, flexWrap: 'wrap' }}><Btn kind="ghost" sm icon="logout" label="Sign out" onPress={a.signOut} /></View>

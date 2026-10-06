@@ -183,6 +183,13 @@
       "when": 1791269759779,
       "tag": "0024_void_entries",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791281915998,
+      "tag": "0025_operations_read_shops_batteries",
+      "breakpoints": true
     }
   ]
 }

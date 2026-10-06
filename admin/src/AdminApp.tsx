@@ -3,7 +3,7 @@ import { View, ScrollView, Pressable, BackHandler, StatusBar, ActivityIndicator 
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useStore } from '@felix/shared/store';
 import { State } from '@felix/shared/domain';
-import type { Session } from '@felix/shared/api/session';
+import { roleName, type Session } from '@felix/shared/api/session';
 import { useSync } from '@felix/shared/api/sync';
 import { T, useDealerFonts } from '@felix/shared/ui/theme';
 import { X, Ic, IconName, Btn, Line, Avatar, Chip } from '@felix/shared/ui/kit';
@@ -69,7 +69,8 @@ export function AdminApp({ session, onSignedIn, onSignOut }: { session: Session 
     return () => clearInterval(id);
   }, [session, sync]);
 
-  const user = { name: session?.user.name || '', role };
+  // the role's own name, for showing: an Operations user reads 'Operations', not the rights tier 'Co-Admin'
+  const user = { name: session?.user.name || '', role: session ? roleName(session.user.role) : role };
   const ctx: AdminCtx = { route, go, root: (r: string) => { setHistory([]); setRoute({ r }); }, back, canBack: history.length > 0, toast, wide, openMenu: () => go('more'), openSwitcher: () => setAccount(true), signOut: () => { setAccount(false); onSignOut(); }, user };
   if (!fontsLoaded && !fontError) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: T.deep }}><ActivityIndicator color={T.volt} /></View>;
   // No login, no console: until a head-office session exists only the sign-in screen renders.
@@ -131,7 +132,7 @@ function Sidebar() {
       </ScrollView>
       <Pressable accessibilityRole="button" accessibilityLabel="Your account" onPress={a.openSwitcher} style={{ marginTop: 'auto', paddingVertical: 12, paddingHorizontal: 9, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)', flexDirection: 'row', gap: 9, alignItems: 'center' }}>
         <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: T.volt, alignItems: 'center', justifyContent: 'center' }}><Ic n="user" size={18} color={T.white} /></View>
-        <View style={{ flex: 1 }}><X s={12} w={7} c={T.white} lh={1.3} numberOfLines={1}>{a.user.name}</X><X s={12} c={T.deepNav} lh={1.3}>{role} · {state.offline ? 'offline' : 'online'}</X></View>
+        <View style={{ flex: 1 }}><X s={12} w={7} c={T.white} lh={1.3} numberOfLines={1}>{a.user.name}</X><X s={12} c={T.deepNav} lh={1.3}>{a.user.role} · {state.offline ? 'offline' : 'online'}</X></View>
         <Ic n="logout" size={16} color={T.deepNav} />
       </Pressable>
     </View>;
@@ -153,7 +154,7 @@ function More() {
   const { state, role } = useStore(); const a = useA();
   return <Page title="Everything">
     <Pressable accessibilityRole="button" onPress={a.openSwitcher} style={{ flexDirection: 'row', gap: 12, alignItems: 'center', backgroundColor: T.white, borderWidth: 1, borderColor: T.zinc2, borderRadius: 10, padding: 14 }}>
-      <Avatar n="user" tone="amber" /><View style={{ flex: 1 }}><X s={17} w={7}>{a.user.name}</X><X s={12.5} c={T.slate}>{role} · account & sign out</X></View><Ic n="logout" color={T.slate} /></Pressable>
+      <Avatar n="user" tone="amber" /><View style={{ flex: 1 }}><X s={17} w={7}>{a.user.name}</X><X s={12.5} c={T.slate}>{a.user.role} · account & sign out</X></View><Ic n="logout" color={T.slate} /></Pressable>
     {NAV.map(([group, items]) => <View key={group}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 20, marginBottom: 9 }}><X s={13} w={7} c={T.slate}>{group}</X><View style={{ flex: 1, height: 1, backgroundColor: T.zinc2 }} /></View>
       <View style={{ backgroundColor: T.white, borderWidth: 1, borderColor: T.zinc2, borderRadius: 10, paddingHorizontal: 14 }}>

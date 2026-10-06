@@ -58,7 +58,8 @@ const ROLES = [
     key: 'operations',
     label: 'Operations',
     scope: 'admin' as const,
-    templatePermissions: ['entries.*', 'corrections.decide', 'claims.*', 'returns.*', 'evidence.read', 'reports.run', 'notifications.read'],
+    // dealers.read + batteries.read: they decide requests, so they see who sent them (6 Oct 2026, migration 0025)
+    templatePermissions: ['entries.*', 'corrections.decide', 'claims.*', 'returns.*', 'evidence.read', 'reports.run', 'notifications.read', 'dealers.read', 'batteries.read'],
     system: true,
   },
   {

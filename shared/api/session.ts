@@ -111,6 +111,11 @@ export function dealerStatusLabel(status: string): string {
   return map[status] ?? status;
 }
 
+/** The role's own name, for showing — "Operations" stays "Operations" (client, 6 Oct 2026). */
+export function roleName(role: string): string {
+  return ({ main_admin: 'Main Admin', co_admin: 'Co-Admin', operations: 'Operations', inventory_manager: 'Inventory manager', read_only: 'Read-only' } as Record<string, string>)[role] ?? role;
+}
+
 /** Backend admin role → the console's role labels. Unknown head-office roles get Co-Admin rights, never Main Admin. */
 export function adminRoleLabel(role: string): 'Main Admin' | 'Co-Admin' | 'Read-only' {
   if (role === 'main_admin') return 'Main Admin';
