@@ -4,6 +4,7 @@ import { checkWarranty, coverCase } from '../../domain/warranty';
 import { graceMonths, serialDigitLengths } from '../../utils/settings';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
+import { decodeCursor } from '../../utils/cursor';
 import * as repo from './batteries.repository';
 import type { BatteryListQuery } from './batteries.validation';
 
@@ -156,15 +157,6 @@ export async function list(ctx: Ctx, query: BatteryListQuery) {
   // dealer-scoped rule (rules.md §7.4): a dealer caller only ever sees their own batteries,
   // regardless of what's in the query — the scope always comes from the token.
   const dealerId = ctx.user.scope === 'dealer' ? ctx.user.dealerId : undefined;
-  return repo.listBatteries(db, { state: query.state, dealerId, limit: query.limit, cursor: decodeCursor(query.cursor) });
+  return repo.listBatteries(db, { state: query.state, dealerId, limit: query.limit, cursor: decodeCursor(query.cursor, 'createdAt') });
 }
 
-function decodeCursor(cursor?: string) {
-  if (!cursor) return undefined;
-  try {
-    const { createdAt, id } = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-    return { createdAt: new Date(createdAt), id };
-  } catch {
-    throw new AppError('filter_invalid', 422, 'That page link is not valid — start from the first page again.');
-  }
-}

@@ -1,6 +1,24 @@
 import { z } from 'zod';
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.');
+/**
+ * A real calendar date, not a string that merely looks like one.
+ *
+ * The shape test alone accepted 2026-99-99 and stored it, because entry_date is text and nothing
+ * downstream re-read it (QA, 6 Oct 2026). Rolling the parsed date back to a string catches every
+ * impossible day — the 31st of February, month 99, day 00 — and leaves the leap years right.
+ *
+ * Whether the date is in a sensible WINDOW is a separate question, asked in the service: a shop
+ * is held to today-or-recent, head office is not (client, 3 Oct 2026). An impossible date is not
+ * judgement, so it is refused for everyone, here.
+ */
+const isoDate = z.string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.')
+  .refine((v) => {
+    // Date.toISOString() THROWS on an invalid date rather than returning something falsy, and a
+    // throw inside a refinement escapes safeParse instead of failing it. Check the time value.
+    const t = Date.parse(`${v}T00:00:00Z`);
+    return Number.isFinite(t) && new Date(t).toISOString().startsWith(v);
+  }, 'That is not a real date.');
 
 export const EntryItemInput = z.object({
   modelId: z.string().trim().min(1, 'Choose a model.'),
@@ -36,7 +54,16 @@ export const EntryCreateBody = z.object({
  * records what it finds and is held to none of them (client, 3 Oct 2026). The schema cannot see
  * who is calling, so the service applies this to a dealer's request only.
  */
-export function shopEntryIssues(v: EntryCreateBody): { message: string; field: string } | null {
+export function shopEntryIssues(v: EntryCreateBody, today?: string, backdateDays = 30): { message: string; field: string } | null {
+  // architecture.md §9.3: entry_date is today or within the backdate window — never the future.
+  // `today` comes from the server's own clock; without it the window is simply not checked, and
+  // the date rules that do not need it still are. Nothing here may throw on a bad date.
+  const from = today ? Date.parse(`${today}T00:00:00Z`) : NaN;
+  if (v.entryDate && Number.isFinite(from)) {
+    if (v.entryDate > today!) return { message: 'An entry cannot be dated in the future.', field: 'entryDate' };
+    const earliest = new Date(from - backdateDays * 86_400_000).toISOString().slice(0, 10);
+    if (v.entryDate < earliest) return { message: `An entry can be backdated ${backdateDays} days at most.`, field: 'entryDate' };
+  }
   if (v.entryType === 'replacement') {
     for (const [i, item] of v.items.entries()) {
       if (!item.oldCode) return { message: 'Enter the old battery code.', field: `items.${i}.oldCode` };

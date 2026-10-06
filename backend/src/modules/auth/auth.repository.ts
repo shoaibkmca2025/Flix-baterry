@@ -92,6 +92,24 @@ export function revokeSession(tx: Tx, id: string, reason: string, replacedBy?: s
   return tx.update(sessions).set({ revokedAt: new Date(), revokedReason: reason, replacedBy }).where(eq(sessions.id, id));
 }
 
+/**
+ * Claim a refresh token for rotation: revoke it only if it is still live, and say whether this
+ * caller is the one that did it.
+ *
+ * Reading the session, deciding it was not revoked, and revoking it in a later statement is a
+ * race. Four refreshes arriving together all read "not revoked" before any of them wrote, and
+ * three extra sets of credentials came out of one single-use token (QA, 6 Oct 2026). The
+ * condition and the write are one statement now, so exactly one caller gets a row back.
+ */
+export function claimSessionForRotation(tx: Tx, id: string, replacedBy?: string) {
+  return tx
+    .update(sessions)
+    .set({ revokedAt: new Date(), revokedReason: 'rotated', replacedBy })
+    .where(and(eq(sessions.id, id), isNull(sessions.revokedAt)))
+    .returning({ id: sessions.id })
+    .then((r) => r.length > 0);
+}
+
 export function revokeSessionFamily(tx: Tx, familyId: string, reason: string) {
   return tx
     .update(sessions)

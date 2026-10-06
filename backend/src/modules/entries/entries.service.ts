@@ -6,6 +6,7 @@ import { graceMonths, serialDigitLengths } from '../../utils/settings';
 import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
+import { decodeCursor } from '../../utils/cursor';
 import { putObject, signedUrl } from '../../utils/storage';
 import { monthKey, nextFormattedRef } from '../../utils/ids';
 import * as batteriesRepo from '../batteries/batteries.repository';
@@ -73,8 +74,19 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
    * duplicates one already on record is still refused there, where the battery row is made.
    */
   const byAdmin = user.scope === 'admin';
+
+  /*
+   * A plain sale is head office's to record, not a shop's.
+   *
+   * entries.model.ts has said so since the type existed — it is what first establishes a
+   * battery's warranty, and neither app offers it — but nothing enforced it, so a dealer token
+   * could create one and walk it through approval (QA, 6 Oct 2026).
+   */
+  if (!byAdmin && input.entryType === 'regular_sales') {
+    throw new AppError('entry_type_not_allowed', 403, 'A sale is recorded by head office, not from the app.', { field: 'entryType' });
+  }
   if (!byAdmin) {
-    const issue = shopEntryIssues(input);
+    const issue = shopEntryIssues(input, todayIso(ctx));
     if (issue) throw new AppError('validation_error', 422, issue.message, { field: issue.field });
   }
 
@@ -579,8 +591,8 @@ export async function list(ctx: Ctx, query: EntryListQuery) {
   const user = requireDealer(ctx);
   // a shop reads its own requests; a distributor his dealers' too (client, 2 Oct 2026)
   const page = user.scope === 'dealer'
-    ? await repo.listEntries(db, { status: query.status, dealerIds: [...(await visibleShopIds(ctx))], limit: query.limit, cursor: decodeCursor(query.cursor) })
-    : await repo.listEntries(db, { status: query.status, dealerId: query.dealerId, limit: query.limit, cursor: decodeCursor(query.cursor) });
+    ? await repo.listEntries(db, { status: query.status, dealerIds: [...(await visibleShopIds(ctx))], limit: query.limit, cursor: decodeCursor(query.cursor, 'createdAt') })
+    : await repo.listEntries(db, { status: query.status, dealerId: query.dealerId, limit: query.limit, cursor: decodeCursor(query.cursor, 'createdAt') });
   return { ...page, items: page.items.map((e) => forViewer(e, user)) };
 }
 
@@ -701,16 +713,6 @@ export async function voidEntry(ctx: Ctx, entryId: string, reason: string) {
     await audit(tx, { ctx, action: 'entry.voided', entityType: 'entry', entityId: entry.id, entityRef: entry.ref, before: { status: entry.status }, after: { status: 'void' }, reason, outcome: 'ok' });
     return updated;
   });
-}
-
-function decodeCursor(cursor?: string) {
-  if (!cursor) return undefined;
-  try {
-    const { createdAt, id } = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-    return { createdAt: new Date(createdAt), id };
-  } catch {
-    throw new AppError('filter_invalid', 422, 'That page link is not valid — start from the first page again.');
-  }
 }
 
 /* ---------- photos (D-10: Neon Object Storage) ---------- */

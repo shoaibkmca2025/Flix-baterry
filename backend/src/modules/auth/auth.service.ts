@@ -5,7 +5,7 @@ import { hashOtp, hashPassword, otpCode, sha256, verifyPassword } from '../../ut
 import { AppError } from '../../utils/errors';
 import { env } from '../../config/env';
 import * as repo from './auth.repository';
-import { newFamilyId, newRefreshToken, signAccessToken, signVerifiedToken, verifyVerifiedToken } from './auth.tokens';
+import { newFamilyId, newRefreshToken, passwordFingerprint, signAccessToken, signVerifiedToken, verifyVerifiedToken } from './auth.tokens';
 import type { AdminLoginBody, OtpVerifyBody, PasswordResetBody, RefreshBody } from './auth.validation';
 
 // requestOtp is also called internally for 'admin_2fa', which a client never requests
@@ -173,7 +173,16 @@ export async function verifyOtp(ctx: Ctx, input: OtpVerifyBody) {
   // register / verify_mobile / reset — prove the OTP was checked, hand back a short-lived
   // token the next step (dealers.register, auth.resetPassword) redeems.
   await withTransaction((tx) => repo.consumeOtpChallenge(tx, challenge.id));
-  const verifiedToken = await signVerifiedToken({ purpose: challenge.purpose as 'register' | 'reset' | 'verify_mobile', target: challenge.target });
+  const purpose = challenge.purpose as 'register' | 'reset' | 'verify_mobile';
+  // A reset proof is bound to the password it was issued against, so it works once (QA, 6 Oct 2026)
+  let pwv: string | undefined;
+  if (purpose === 'reset') {
+    const owner = challenge.target.includes('@')
+      ? await repo.findUserByEmail(db, challenge.target)
+      : await repo.findUserByMobile(db, challenge.target);
+    pwv = passwordFingerprint(owner?.passwordHash);
+  }
+  const verifiedToken = await signVerifiedToken({ purpose, target: challenge.target, pwv });
   return { verifiedToken };
 }
 
@@ -223,6 +232,11 @@ export async function resetPassword(ctx: Ctx, input: PasswordResetBody) {
   if (!user) {
     throw new AppError('verified_token_invalid', 401, 'This link has expired. Start the reset again.');
   }
+  // Spent the moment it is used: the fingerprint is of the password this proof replaces, so the
+  // second attempt with the same proof no longer matches (QA, 6 Oct 2026).
+  if (claims.pwv && claims.pwv !== passwordFingerprint(user.passwordHash)) {
+    throw new AppError('verified_token_invalid', 401, 'This link has already been used. Start the reset again.');
+  }
 
   const passwordHash = await hashPassword(input.newPassword);
   await withTransaction(async (tx) => {
@@ -260,8 +274,16 @@ export async function refresh(ctx: Ctx, input: RefreshBody) {
   }
 
   return withTransaction(async (tx) => {
+    // Claim the token first: whoever wins the race rotates it, and anyone arriving a moment
+    // later is holding a token that is now spent — which is the reuse case, not a second
+    // rotation (QA, 6 Oct 2026).
     const t = await issueTokens(tx, { id: user.id, scope: user.scope, role: user.role, dealerId: user.dealerId }, input.deviceId ?? session.deviceId ?? undefined, ctx, session.familyId);
-    await repo.revokeSession(tx, session.id, 'rotated', t.sessionId);
+    const won = await repo.claimSessionForRotation(tx, session.id, t.sessionId);
+    if (!won) {
+      await repo.revokeSessionFamily(tx, session.familyId, 'refresh_token_reused');
+      await audit(tx, { ctx, action: 'auth.refresh_reused', entityType: 'user', entityId: session.userId, outcome: 'denied' });
+      throw new AppError('session_invalid', 401, 'Please sign in again.');
+    }
     return { accessToken: t.accessToken, refreshToken: t.refreshToken };
   });
 }

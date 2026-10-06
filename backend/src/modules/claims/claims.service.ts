@@ -2,6 +2,7 @@ import { db, withTransaction } from '../../database/client';
 import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
+import { decodeCursor } from '../../utils/cursor';
 import { issueInTx as issueCreditNoteInTx } from '../credits/credits.service';
 import { findBatteryById } from '../batteries/batteries.repository';
 import { postMovementInTx } from '../stock/stock.service';
@@ -120,8 +121,8 @@ export async function decide(ctx: Ctx, id: string, input: ClaimDecideBody) {
 export async function list(ctx: Ctx, query: ClaimListQuery) {
   const user = requireUser(ctx);
   // a shop reads its own claims; a distributor his dealers' too, so their requests show the true status (client, 2 Oct 2026)
-  if (user.scope === 'dealer') return repo.listClaims(db, { status: query.status, dealerIds: [...(await visibleShopIds(ctx))], limit: query.limit, cursor: decodeCursor(query.cursor) });
-  return repo.listClaims(db, { status: query.status, limit: query.limit, cursor: decodeCursor(query.cursor) });
+  if (user.scope === 'dealer') return repo.listClaims(db, { status: query.status, dealerIds: [...(await visibleShopIds(ctx))], limit: query.limit, cursor: decodeCursor(query.cursor, 'createdAt') });
+  return repo.listClaims(db, { status: query.status, limit: query.limit, cursor: decodeCursor(query.cursor, 'createdAt') });
 }
 
 export async function getById(ctx: Ctx, id: string) {
@@ -134,12 +135,3 @@ export async function getById(ctx: Ctx, id: string) {
   return claim;
 }
 
-function decodeCursor(cursor?: string) {
-  if (!cursor) return undefined;
-  try {
-    const { createdAt, id } = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-    return { createdAt: new Date(createdAt), id };
-  } catch {
-    throw new AppError('filter_invalid', 422, 'That page link is not valid — start from the first page again.');
-  }
-}

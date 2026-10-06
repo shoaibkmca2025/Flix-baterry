@@ -35,7 +35,7 @@ export async function registerDealerRoutes(app: FastifyInstance) {
     '/:id', { preHandler: [requireAuth, requirePermission('dealers.approve')], schema: { body: DealerAdminUpdateBody } }, controller.updateDealer,
   );
 
-  app.get<{ Querystring: DealerListQuery }>('/', { preHandler: [requireAuth, requirePermission('dealers.read')] }, controller.list);
+  app.get<{ Querystring: DealerListQuery }>('/', { preHandler: [requireAuth, requirePermission('dealers.read')], schema: { querystring: DealerListQuery } }, controller.list);
   app.get<{ Params: { id: string } }>('/:id', { preHandler: [requireAuth, requirePermission('dealers.read')] }, controller.getById);
 
   app.post<{ Params: { id: string }; Body: DealerApproveBody }>(

@@ -6,6 +6,7 @@ import type { batteries } from '../../models/batteries.model';
 import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
+import { decodeCursor } from '../../utils/cursor';
 import * as batteriesRepo from '../batteries/batteries.repository';
 import * as repo from './stock.repository';
 import type { StockMovementListQuery, StockMovementPostBody, StockPositionsQuery } from './stock.validation';
@@ -132,7 +133,7 @@ export async function ledger(ctx: Ctx, query: StockMovementListQuery) {
     if (!battery) return { items: [], nextCursor: null };
     batteryId = battery.id;
   }
-  return repo.listMovements(db, { batteryId, dealerId, reasonCode: query.reasonCode, limit: query.limit, cursor: decodeCursor(query.cursor) });
+  return repo.listMovements(db, { batteryId, dealerId, reasonCode: query.reasonCode, limit: query.limit, cursor: decodeCursor(query.cursor, 'postedAt') });
 }
 
 // GET /stock/positions — counts of batteries by state, model or dealer, derived live.
@@ -144,12 +145,3 @@ export async function positions(ctx: Ctx, query: StockPositionsQuery) {
   return { by: query.by, dealerId: dealerId ?? null, total, rows };
 }
 
-function decodeCursor(cursor?: string) {
-  if (!cursor) return undefined;
-  try {
-    const { postedAt, id } = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-    return { postedAt: new Date(postedAt), id };
-  } catch {
-    throw new AppError('filter_invalid', 422, 'That page link is not valid — start from the first page again.');
-  }
-}

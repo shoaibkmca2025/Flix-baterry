@@ -2,6 +2,7 @@ import { db } from '../../database/client';
 import type { auditEvents } from '../../models/governance.model';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
+import { decodeCursor } from '../../utils/cursor';
 import { findEntryById } from '../entries/entries.repository';
 import * as repo from './audit.repository';
 import type { AuditListQuery } from './audit.validation';
@@ -96,7 +97,7 @@ export async function list(ctx: Ctx, query: AuditListQuery) {
     from: query.from ? businessDayStart(query.from) : undefined,
     to: query.to ? new Date(businessDayStart(query.to).getTime() + 86_400_000) : undefined,
     limit: query.limit,
-    cursor: decodeCursor(query.cursor),
+    cursor: decodeCursor(query.cursor, 'at', 'number'),
   });
   return { items: await present(page.items, { level: redactionLevelFor(user.role), hideAdminIdentity: false }), nextCursor: page.nextCursor };
 }
@@ -122,13 +123,3 @@ export async function entryTrail(ctx: Ctx, entryId: string) {
   return present(rows, { level: isDealer ? 'contacts' : redactionLevelFor(user.role), hideAdminIdentity: isDealer });
 }
 
-function decodeCursor(cursor?: string) {
-  if (!cursor) return undefined;
-  try {
-    const { at, id } = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-    if (typeof id !== 'number' || Number.isNaN(Date.parse(at))) throw new Error('bad cursor');
-    return { at: new Date(at), id };
-  } catch {
-    throw new AppError('filter_invalid', 422, 'That page link is not valid — start from the first page again.');
-  }
-}
