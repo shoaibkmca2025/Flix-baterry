@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { SignJWT, jwtVerify } from 'jose';
 import { env } from '../../config/env';
 import { randomToken, sha256 } from '../../utils/crypto';
@@ -49,10 +49,22 @@ export function newFamilyId() {
 // Short-lived token proving an OTP was verified for a purpose other than login
 // (register / reset / verify_mobile), redeemed by dealers.register / auth.resetPassword.
 // Not a session — carries no scope/role, only enough to prove "this target's OTP was checked".
-export type VerifiedTokenClaims = { purpose: 'register' | 'reset' | 'verify_mobile'; target: string };
+export type VerifiedTokenClaims = {
+  purpose: 'register' | 'reset' | 'verify_mobile';
+  target: string;
+  /**
+   * For a reset: a fingerprint of the password this proof was issued against.
+   *
+   * The proof is a stateless JWT, so nothing marked it used and the same one reset the password
+   * twice, ten minutes apart, to two different values (QA, 6 Oct 2026). Binding it to the
+   * password it replaces makes it single-use without a table: once the password changes the
+   * fingerprint no longer matches, and the spent proof is refused.
+   */
+  pwv?: string;
+};
 
 export async function signVerifiedToken(claims: VerifiedTokenClaims): Promise<string> {
-  return new SignJWT({ typ: 'verified', purpose: claims.purpose, target: claims.target })
+  return new SignJWT({ typ: 'verified', purpose: claims.purpose, target: claims.target, ...(claims.pwv ? { pwv: claims.pwv } : {}) })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('10m')
@@ -64,5 +76,10 @@ export async function verifyVerifiedToken(token: string, expectedPurpose: Verifi
   if (payload.typ !== 'verified' || payload.purpose !== expectedPurpose) {
     throw new Error('verified_token_invalid');
   }
-  return { purpose: payload.purpose as VerifiedTokenClaims['purpose'], target: payload.target as string };
+  return { purpose: payload.purpose as VerifiedTokenClaims['purpose'], target: payload.target as string, pwv: payload.pwv as string | undefined };
+}
+
+/** What a reset proof is bound to: the password it was issued against, never the hash itself. */
+export function passwordFingerprint(passwordHash: string | null | undefined): string {
+  return createHash('sha256').update(`pwv:${passwordHash ?? ''}`).digest('hex').slice(0, 16);
 }

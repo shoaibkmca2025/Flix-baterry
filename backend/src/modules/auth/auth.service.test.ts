@@ -25,6 +25,7 @@ vi.mock('./auth.repository', () => ({
   countRecentBadLogins: vi.fn(),
   findSessionByRefreshHash: vi.fn(),
   revokeSession: vi.fn(),
+  claimSessionForRotation: vi.fn(async () => true),
   revokeSessionFamily: vi.fn(),
 }));
 
@@ -222,7 +223,29 @@ describe('refresh (rotating refresh tokens)', () => {
     expect(r.accessToken).toBeTruthy();
     expect(r.refreshToken).toBeTruthy();
     expect(repo.insertSession).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ userId: 'user-1', familyId: 'fam-1' }));
-    expect(repo.revokeSession).toHaveBeenCalledWith(expect.anything(), 'sess-1', 'rotated', 'sess-2');
+    expect(repo.claimSessionForRotation).toHaveBeenCalledWith(expect.anything(), 'sess-1', 'sess-2');
+  });
+
+  // Four refreshes arriving together all read "not revoked" before any of them wrote, and three
+  // extra sets of credentials came out of one single-use token (QA, 6 Oct 2026). The claim is one
+  // statement now, so whoever loses the race is holding a spent token — which is reuse.
+  it('only one of several simultaneous refreshes rotates; the losers are treated as reuse', async () => {
+    vi.mocked(repo.findSessionByRefreshHash).mockResolvedValue(live as never);
+    vi.mocked(repo.findUserById).mockResolvedValue({ id: 'user-1', status: 'active', scope: 'admin', role: 'main_admin', dealerId: null } as never);
+    vi.mocked(repo.insertSession).mockResolvedValue({ id: 'sess-2' } as never);
+    // the database hands the row to the first caller only
+    let first = true;
+    vi.mocked(repo.claimSessionForRotation).mockImplementation(async () => { const won = first; first = false; return won; });
+
+    const results = await Promise.allSettled([0, 1, 2, 3].map(() => refresh(rctx, { refreshToken: 'x'.repeat(40) })));
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((r) => r.status === 'rejected')).toHaveLength(3);
+    for (const r of results.filter((x) => x.status === 'rejected')) {
+      expect((r as PromiseRejectedResult).reason).toMatchObject({ code: 'session_invalid', status: 401 });
+    }
+    // and the family is pulled down, because two parties held the same token
+    expect(repo.revokeSessionFamily).toHaveBeenCalledWith(expect.anything(), 'fam-1', 'refresh_token_reused');
   });
 
   it('a reused (already rotated) token revokes the whole family and is refused', async () => {
