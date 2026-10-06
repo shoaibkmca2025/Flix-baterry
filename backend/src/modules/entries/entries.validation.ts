@@ -54,11 +54,14 @@ export const EntryCreateBody = z.object({
  * records what it finds and is held to none of them (client, 3 Oct 2026). The schema cannot see
  * who is calling, so the service applies this to a dealer's request only.
  */
-export function shopEntryIssues(v: EntryCreateBody, today: string, backdateDays = 30): { message: string; field: string } | null {
+export function shopEntryIssues(v: EntryCreateBody, today?: string, backdateDays = 30): { message: string; field: string } | null {
   // architecture.md §9.3: entry_date is today or within the backdate window — never the future.
-  if (v.entryDate) {
-    if (v.entryDate > today) return { message: 'An entry cannot be dated in the future.', field: 'entryDate' };
-    const earliest = new Date(Date.parse(`${today}T00:00:00Z`) - backdateDays * 86_400_000).toISOString().slice(0, 10);
+  // `today` comes from the server's own clock; without it the window is simply not checked, and
+  // the date rules that do not need it still are. Nothing here may throw on a bad date.
+  const from = today ? Date.parse(`${today}T00:00:00Z`) : NaN;
+  if (v.entryDate && Number.isFinite(from)) {
+    if (v.entryDate > today!) return { message: 'An entry cannot be dated in the future.', field: 'entryDate' };
+    const earliest = new Date(from - backdateDays * 86_400_000).toISOString().slice(0, 10);
     if (v.entryDate < earliest) return { message: `An entry can be backdated ${backdateDays} days at most.`, field: 'entryDate' };
   }
   if (v.entryType === 'replacement') {
