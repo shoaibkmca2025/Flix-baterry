@@ -3,6 +3,7 @@ import { findDealerById } from '../dealers/dealers.repository';
 import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
+import { decodeCursor } from '../../utils/cursor';
 import { monthKey, nextFormattedRef } from '../../utils/ids';
 import type { warrantyClaims } from '../../models/claims.model';
 import { countClaimsByStatus } from '../claims/claims.repository';
@@ -59,7 +60,7 @@ export async function issueInTx(tx: Tx, ctx: Ctx, input: { claim: Pick<Claim, 'i
 export async function list(ctx: Ctx, query: CreditNoteListQuery) {
   const user = requireUser(ctx);
   const dealerId = user.scope === 'dealer' ? user.dealerId : query.dealerId;
-  return repo.listCreditNotes(db, { status: query.status, dealerId, limit: query.limit, cursor: decodeCursor(query.cursor) });
+  return repo.listCreditNotes(db, { status: query.status, dealerId, limit: query.limit, cursor: decodeCursor(query.cursor, 'issuedAt') });
 }
 
 function findByNoOrId(noOrId: string) {
@@ -126,12 +127,3 @@ export async function reverse(ctx: Ctx, noOrId: string, input: CreditNoteReverse
   });
 }
 
-function decodeCursor(cursor?: string) {
-  if (!cursor) return undefined;
-  try {
-    const { issuedAt, id } = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-    return { issuedAt: new Date(issuedAt), id };
-  } catch {
-    throw new AppError('filter_invalid', 422, 'That page link is not valid — start from the first page again.');
-  }
-}

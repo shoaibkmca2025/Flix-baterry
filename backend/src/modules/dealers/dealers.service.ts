@@ -3,6 +3,7 @@ import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
 import { hashPassword } from '../../utils/crypto';
 import { AppError } from '../../utils/errors';
+import { decodeCursor } from '../../utils/cursor';
 import { revokeAllSessionsForUser } from '../auth/auth.repository';
 import { invalidateAccountStatus } from '../users/users.service';
 import { verifyVerifiedToken } from '../auth/auth.tokens';
@@ -11,15 +12,6 @@ import * as repo from './dealers.repository';
 import type { AdminDealerCreateBody, DealerAdminUpdateBody, DealerApproveBody, DealerCreateBody, DealerListQuery, DealerProfileUpdateBody, DealerReasonBody, DealerRegisterBody } from './dealers.validation';
 import { findUserByMobile } from '../users/users.repository';
 
-function decodeCursor(cursor?: string) {
-  if (!cursor) return undefined;
-  try {
-    const { createdAt, id } = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-    return { createdAt: new Date(createdAt), id };
-  } catch {
-    throw new AppError('filter_invalid', 422, 'That page link is not valid — start from the first page again.');
-  }
-}
 
 /**
  * Where a shop is, as the forms now ask for it: State, District, then the town typed by hand
@@ -204,7 +196,7 @@ export async function activate(ctx: Ctx, dealerId: string, input: DealerReasonBo
 
 export async function list(ctx: Ctx, query: DealerListQuery) {
   await requireAdminActor(ctx);
-  const { items, nextCursor } = await repo.listDealers(db, { status: query.status, limit: query.limit, cursor: decodeCursor(query.cursor) });
+  const { items, nextCursor } = await repo.listDealers(db, { status: query.status, limit: query.limit, cursor: decodeCursor(query.cursor, 'createdAt') });
   return { items, nextCursor };
 }
 

@@ -2,6 +2,7 @@ import { db, withTransaction } from '../../database/client';
 import { audit } from '../../utils/audit';
 import type { Ctx } from '../../utils/context';
 import { AppError } from '../../utils/errors';
+import { decodeCursor } from '../../utils/cursor';
 import { monthKey, nextFormattedRef } from '../../utils/ids';
 import * as batteriesRepo from '../batteries/batteries.repository';
 import * as claimsRepo from '../claims/claims.repository';
@@ -256,7 +257,7 @@ export async function stage(ctx: Ctx, lineId: string, input: LineStageBody) {
 export async function list(ctx: Ctx, query: ChallanListQuery) {
   const user = requireUser(ctx);
   const dealerId = user.scope === 'dealer' ? user.dealerId : undefined;
-  const page = await repo.listChallans(db, { status: query.status, dealerId, limit: query.limit, cursor: decodeCursor(query.cursor) });
+  const page = await repo.listChallans(db, { status: query.status, dealerId, limit: query.limit, cursor: decodeCursor(query.cursor, 'createdAt') });
   // The outcome has to be on the LIST too, not just on one challan: the console and the dealer
   // app both build their whole store from this endpoint, and without it every battery read as
   // "still travelling" — so the Approved and Rejected groups were always empty however many
@@ -270,7 +271,7 @@ export async function list(ctx: Ctx, query: ChallanListQuery) {
 export async function listLines(ctx: Ctx, query: ReturnLineListQuery) {
   const user = requireUser(ctx);
   const dealerId = user.scope === 'dealer' ? user.dealerId : undefined;
-  return repo.listLines(db, { plantId: query.plantId, stage: query.stage, dealerId, limit: query.limit, cursor: decodeCursor(query.cursor) });
+  return repo.listLines(db, { plantId: query.plantId, stage: query.stage, dealerId, limit: query.limit, cursor: decodeCursor(query.cursor, 'createdAt') });
 }
 
 /**
@@ -343,12 +344,3 @@ export async function claimChecked(ctx: Ctx, id: string, input: ChallanClaimBody
   };
 }
 
-function decodeCursor(cursor?: string) {
-  if (!cursor) return undefined;
-  try {
-    const { createdAt, id } = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-    return { createdAt: new Date(createdAt), id };
-  } catch {
-    throw new AppError('filter_invalid', 422, 'That page link is not valid — start from the first page again.');
-  }
-}

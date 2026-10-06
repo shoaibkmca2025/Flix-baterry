@@ -99,11 +99,23 @@ const otherDealerCtx: Ctx = { ...dealerCtx, user: { ...dealerCtx.user!, dealerId
 const adminCtx: Ctx = { ...dealerCtx, user: { id: 'admin-1', scope: 'admin', role: 'main_admin' } };
 const anonCtx: Ctx = { ...dealerCtx, user: null };
 
+/**
+ * A request as a SHOP sends one.
+ *
+ * It used to default to `regular_sales`, which no shop may send — that is head office's to
+ * record, and nothing enforced it until QA walked a dealer's plain sale through approval
+ * (6 Oct 2026). A replacement is what these tests are really about: it is a dealer-sendable type
+ * and its new battery follows the 7/8/9 rule the format cases below check.
+ */
+/** One replacement item, with whatever the case under test wants changed about it. */
+const repItem = (over: Record<string, unknown> = {}) =>
+  ({ modelId: 'M5', code: '26041212', oldCode: '26030777', oldModelId: 'M5', faultCode: 'low_backup', ...over });
+
 function baseBody(overrides: Partial<EntryCreateBody> = {}): EntryCreateBody {
   return {
-    entryType: 'regular_sales',
+    entryType: 'replacement',
     place: 'Nashik',
-    items: [{ modelId: 'M5', code: '26041212' }],
+    items: [{ modelId: 'M5', code: '26041212', oldCode: '26030777', oldModelId: 'M5', faultCode: 'low_backup' }],
     coverTold: false,
     ...overrides,
   } as EntryCreateBody;
@@ -129,7 +141,7 @@ describe('create', () => {
   });
 
   it('rejects a malformed battery code before opening a transaction', async () => {
-    await expect(create(dealerCtx, baseBody({ items: [{ modelId: 'M5', code: '123' }] }))).rejects.toMatchObject({ code: 'format_mismatch' });
+    await expect(create(dealerCtx, baseBody({ items: [repItem({ code: '123' })] } as never))).rejects.toMatchObject({ code: 'format_mismatch' });
     expect(repo.insertEntry).not.toHaveBeenCalled();
   });
 
@@ -138,7 +150,7 @@ describe('create', () => {
     vi.mocked(repo.insertEntryItem).mockResolvedValue({ id: 'item-len' } as never);
     // 2609 + 3, 4 and 5 serial digits: every form the plants print is accepted on a new battery
     for (const code of ['2609123', '26091234', '260912345']) {
-      await expect(create(dealerCtx, baseBody({ entryType: 'regular_sales', items: [{ modelId: 'M5', code }] }))).resolves.toBeTruthy();
+      await expect(create(dealerCtx, baseBody({ items: [repItem({ code })] } as never))).resolves.toBeTruthy();
     }
   });
 
@@ -146,7 +158,7 @@ describe('create', () => {
     // too short, too long, and a month that does not exist — none reach a transaction. The
     // long one also proves 10 digits is not quietly trimmed to the valid 8-digit tail '09123456'.
     for (const code of ['260912', '2609123456', '269912345']) {
-      await expect(create(dealerCtx, baseBody({ entryType: 'regular_sales', items: [{ modelId: 'M5', code }] })))
+      await expect(create(dealerCtx, baseBody({ items: [repItem({ code })] } as never)))
         .rejects.toMatchObject({ code: 'format_mismatch', field: 'items.0.code', message: expect.stringContaining('a 7-, 8- or 9-digit number') });
     }
     expect(repo.insertEntry).not.toHaveBeenCalled();
@@ -235,6 +247,23 @@ describe('create', () => {
     });
   });
 
+  it("a shop's request cannot be dated in the future, nor long in the past", async () => {
+    vi.mocked(repo.insertEntry).mockResolvedValue({ id: 'entry-d', ref: 'RP-26-10-0002' } as never);
+    vi.mocked(repo.insertEntryItem).mockResolvedValue({ id: 'item-d' } as never);
+    await expect(create(dealerCtx, baseBody({ entryDate: '2099-01-01' }))).rejects.toMatchObject({ field: 'entryDate' });
+    await expect(create(dealerCtx, baseBody({ entryDate: '2020-01-01' }))).rejects.toMatchObject({ field: 'entryDate' });
+    // head office is not held to the window — it records what it finds
+    await expect(create(adminCtx, baseBody({ dealerId: 'dealer-1', entryDate: '2020-01-01' }))).resolves.toBeTruthy();
+  });
+
+  it('a plain sale is head office’s to record, never a shop’s', async () => {
+    await expect(create(dealerCtx, baseBody({ entryType: 'regular_sales' })))
+      .rejects.toMatchObject({ code: 'entry_type_not_allowed', status: 403 });
+    vi.mocked(repo.insertEntry).mockResolvedValue({ id: 'entry-s', ref: 'ENT-26-10-0003' } as never);
+    vi.mocked(repo.insertEntryItem).mockResolvedValue({ id: 'item-s' } as never);
+    await expect(create(adminCtx, baseBody({ dealerId: 'dealer-1', entryType: 'regular_sales' }))).resolves.toBeTruthy();
+  });
+
   it('a sales return (a battery already in the field) may have 7 digits', async () => {
     vi.mocked(repo.insertEntry).mockResolvedValue({ id: 'entry-8', ref: 'ENT-26-09-0008' } as never);
     vi.mocked(repo.insertEntryItem).mockResolvedValue({ id: 'item-8' } as never);
@@ -247,7 +276,7 @@ describe('create', () => {
   });
 
   it('rejects the same battery code appearing twice in one entry', async () => {
-    const body = baseBody({ items: [{ modelId: 'M5', code: '26041212' }, { modelId: 'M5', code: '26041212' }] });
+    const body = baseBody({ items: [repItem(), repItem({ oldCode: '26030778' })] } as never);
     await expect(create(dealerCtx, body)).rejects.toMatchObject({ code: 'duplicate_serial' });
   });
 
@@ -258,13 +287,13 @@ describe('create', () => {
     const result = await create(dealerCtx, baseBody());
 
     expect(result).toMatchObject({ id: 'entry-1', ref: 'ENT-26-09-0001' });
-    expect(repo.insertEntry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dealerId: 'dealer-1', entryType: 'regular_sales', totalQty: 1 }));
+    expect(repo.insertEntry).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ dealerId: 'dealer-1', entryType: 'replacement', totalQty: 1 }));
     expect(repo.insertEntryItem).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ entryId: 'entry-1', batteryCode: 'M526041212' })); // product + digits (D-13)
   });
 
   it('refuses an unknown or discontinued plate + model combination (that row is where the warranty term lives)', async () => {
-    await expect(create(dealerCtx, baseBody({ items: [{ modelId: 'Z9', code: '26041212' }] }))).rejects.toMatchObject({ code: 'model_unknown', field: 'items.0.modelId' });
-    await expect(create(dealerCtx, baseBody({ items: [{ modelId: 'OLD1', code: '26041212' }] }))).rejects.toMatchObject({ code: 'model_inactive' });
+    await expect(create(dealerCtx, baseBody({ items: [repItem({ modelId: 'Z9', oldModelId: 'Z9' })] } as never))).rejects.toMatchObject({ code: 'model_unknown', field: 'items.0.modelId' });
+    await expect(create(dealerCtx, baseBody({ items: [repItem({ modelId: 'OLD1', oldModelId: 'OLD1' })] } as never))).rejects.toMatchObject({ code: 'model_inactive' });
     expect(repo.insertEntry).not.toHaveBeenCalled();
   });
 
@@ -822,9 +851,9 @@ describe("a dealer's request goes to its distributor first (client, 2 Oct 2026)"
   it("a dealer's request starts with its distributor; a distributor's own goes straight to head office", async () => {
     vi.mocked(repo.insertEntry).mockResolvedValue({ id: 'entry-x', ref: 'ENT-26-10-0010' } as never);
     vi.mocked(repo.insertEntryItem).mockResolvedValue({ id: 'item-x' } as never);
-    await create(childCtx, baseBody({ entryType: 'regular_sales', items: [{ modelId: 'M5', code: '26091234' }] }));
+    await create(childCtx, baseBody({ items: [repItem({ code: '26091234' })] } as never));
     expect(repo.insertEntry).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ dealerId: 'dealer-1a', status: 'with_distributor' }));
-    await create(dealerCtx, baseBody({ entryType: 'regular_sales', items: [{ modelId: 'M5', code: '26091235' }] }));
+    await create(dealerCtx, baseBody({ items: [repItem({ code: '26091235', oldCode: '26030779' })] } as never));
     expect(repo.insertEntry).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ dealerId: 'dealer-1', status: 'submitted' }));
   });
 

@@ -3,6 +3,9 @@ import { z } from 'zod';
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'staging', 'production']).default('development'),
+  // Which web origins may call this API, comma separated. Empty in development, where any
+  // localhost origin is allowed instead (see app.ts).
+  APP_ORIGINS: z.string().default(''),
   PORT: z.coerce.number().int().positive().default(8080),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),

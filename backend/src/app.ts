@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import { randomUUID } from 'node:crypto';
 import { loggerOptions } from './utils/logger';
+import { env } from './config/env';
 import { registerErrorHandler } from './middleware/errorHandler';
 import { registerHealthRoutes } from './modules/health/health.routes';
 import { registerAuthRoutes } from './modules/auth/auth.routes';
@@ -31,7 +32,27 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.setSerializerCompiler(serializerCompiler);
 
   await app.register(helmet);
-  await app.register(cors, { origin: true }); // tightened to an allow-list once app origins are known (P4-04)
+  /*
+   * Only the company's own apps may call this API from a browser.
+   *
+   * `origin: true` reflected whatever Origin was sent, so any site on the internet could make
+   * credentialed cross-origin calls from a visitor's browser (QA, 6 Oct 2026). It never bypassed
+   * sign-in — a bearer token is still required — but it is one less thing standing between a
+   * phished dealer and his own session.
+   *
+   * The allow-list comes from APP_ORIGINS. Off a browser there is no Origin header at all (curl,
+   * the apps' own native builds), and those are left alone.
+   */
+  const allowed = env.APP_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean);
+  const localhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+  await app.register(cors, {
+    origin(origin, done) {
+      if (!origin) return done(null, true);                                  // not a browser
+      if (allowed.includes(origin)) return done(null, true);
+      if (env.NODE_ENV !== 'production' && localhost.test(origin)) return done(null, true);
+      return done(null, false);                                              // no CORS headers back
+    },
+  });
 
   registerErrorHandler(app);
   await app.register(registerHealthRoutes, { prefix: '/api/v1' });
