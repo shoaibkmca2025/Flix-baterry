@@ -75,3 +75,8 @@ export async function specialApprove(request: FastifyRequest<{ Params: { id: str
 export async function specialReject(request: FastifyRequest<{ Params: { id: string }; Body: EntryDecisionBody }>, reply: FastifyReply) {
   reply.status(200).send(await service.decideSpecial(buildCtx(request), request.params.id, 'reject', request.body.reason));
 }
+
+// head office takes a request out of every live queue; nothing is deleted (client, 6 Oct 2026)
+export async function voidEntry(request: FastifyRequest<{ Params: { id: string }; Body: EntryDecisionBody }>, reply: FastifyReply) {
+  reply.status(200).send(await service.voidEntry(buildCtx(request), request.params.id, request.body.reason));
+}

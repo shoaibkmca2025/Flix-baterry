@@ -1,4 +1,4 @@
-import { deriveCode, digitsOf, faultLabel } from '../domain';
+import { deriveCode, digitsOf, expiryFrom, faultLabel } from '../domain';
 import type { Audit, Battery, Challan, Dealer, Entry, Item, Model, Movement, Staff, State } from '../domain';
 import { listAudit } from './audit';
 import { listBatteries, type ApiBattery } from './batteries';
@@ -68,6 +68,7 @@ export function returnStageOf(claim: ApiClaim | undefined): Entry['returnState']
  * claim decision it reads "Under Review", which is what the two-step flow (memory.md D-05) is.
  */
 export function entryStatusOf(e: EntryWithItems, claim: ApiClaim | undefined): Entry['status'] {
+  if (e.status === 'void') return 'Cancelled'; // voided by head office — shown as 'Voided'
   if (e.status === 'with_distributor') return 'With distributor';
   if (e.status === 'submitted') return 'Submitted';
   if (e.status === 'rejected') return 'Rejected';
@@ -169,6 +170,8 @@ export function toEntry(e: EntryWithItems, claims: Map<string, ApiClaim>, batter
     special: e.specialStatus === 'pending' ? 'Pending' : e.specialStatus === 'approved' ? 'Approved' : e.specialStatus === 'rejected' ? 'Rejected' : undefined,
     specialReason: e.specialReason ?? undefined,
     specialDecidedAt: e.specialDecidedAt ?? undefined,
+    voidedAt: e.voidedAt ?? undefined,
+    voidReason: e.voidReason ?? undefined,
   };
 }
 
@@ -183,6 +186,7 @@ export function toBattery(b: ApiBattery, customerByCode: Map<string, string>): B
     oldSerial: b.replacedFromCode ?? undefined,
     start: b.warrantyStart ?? undefined,
     expiry: b.warrantyExpiry ?? undefined,
+    termEnd: b.warrantyStart && b.termMonths ? expiryFrom(b.warrantyStart, b.termMonths) : undefined,
     policy: b.chainId ? 'POL-01' : undefined,
     state: STATE_LABEL[b.state],
     noWarranty: b.noWarranty || undefined,

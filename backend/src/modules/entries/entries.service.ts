@@ -601,6 +601,7 @@ export async function markArrived(ctx: Ctx, entryId: string, itemId?: string) {
   const sr = entry.entryType === 'sales_return';
   if (entry.status === 'with_distributor') throw new AppError('not_approved_yet', 422, `Approve ${entry.ref} first — the dealer hands the battery over after you approve it.`);
   if (entry.status === 'rejected') throw new AppError('nothing_to_receive', 422, `${entry.ref} was refused — there is nothing to receive.`);
+  if (entry.status === 'void') throw new AppError('nothing_to_receive', 422, `${entry.ref} was voided by head office — there is nothing to receive.`);
   const items = (await repo.findItemsByEntryId(db, entryId)).filter((it) => (sr ? it.batteryCode : it.oldBatteryCode));
   const target = itemId ? items.filter((it) => it.id === itemId) : items.filter((it) => !it.distributorReceivedAt);
   if (itemId && !target.length) throw new AppError('item_not_found', 404, 'That battery is not on this request.');
@@ -629,7 +630,7 @@ export async function distributorDecide(ctx: Ctx, entryId: string, decision: 'ap
   const shop = entry ? await findDealerById(db, entry.dealerId) : undefined;
   if (!entry || !shop || shop.distributorId !== me.id) throw new AppError('entry_not_found', 404, 'Entry not found.'); // I-3
   if (entry.status !== 'with_distributor') {
-    throw new AppError('invalid_transition', 409, entry.status === 'rejected' ? 'This request was already refused.' : 'This request has already gone to head office.');
+    throw new AppError('invalid_transition', 409, entry.status === 'rejected' ? 'This request was already refused.' : entry.status === 'void' ? 'Head office voided this request.' : 'This request has already gone to head office.');
   }
   return withTransaction(async (tx) => {
     const updated = await repo.setDistributorDecision(tx, entryId, { approve: decision === 'approve', by: ctx.user!.id, reason });
@@ -673,6 +674,31 @@ export async function decideSpecial(ctx: Ctx, entryId: string, decision: 'approv
       ctx, action: decision === 'approve' ? 'entry.special_approved' : 'entry.special_rejected', entityType: 'entry', entityId: entry.id, entityRef: entry.ref,
       before: { special: 'pending' }, after: { special: updated.specialStatus }, reason, outcome: 'ok',
     });
+    return updated;
+  });
+}
+
+/**
+ * Head office voids a request that should never have counted — a repeated entry, a test, a mistake
+ * (client, 6 Oct 2026). Nothing is deleted: the request keeps every field, its history and its audit
+ * trail, and only leaves the live queues, totals and reports. It is allowed while nothing of it is on
+ * record yet — waiting for the distributor, waiting for head office, or refused. Once a request is
+ * approved, or any battery on it has a claim, stock and warranty and credit hang off it, and voiding
+ * would leave them pointing at a request that "never happened": refuse or reverse those instead.
+ */
+export async function voidEntry(ctx: Ctx, entryId: string, reason: string) {
+  if (!ctx.user || ctx.user.scope !== 'admin') throw new AppError('unauthenticated', 401, 'Sign in required.');
+  const entry = await repo.findEntryById(db, entryId);
+  if (!entry) throw new AppError('entry_not_found', 404, 'Entry not found.');
+  if (entry.status === 'void') throw new AppError('already_void', 409, `${entry.ref} is already voided.`);
+  const onRecord = 'Its batteries, warranty or credit are already on record, so it cannot be voided — refuse or reverse those instead.';
+  if (entry.status === 'approved') throw new AppError('cannot_void', 409, `${entry.ref} is approved. ${onRecord}`);
+  const items = await repo.findItemsByEntryId(db, entryId);
+  if (items.some((it) => it.claimId)) throw new AppError('cannot_void', 409, `A battery on ${entry.ref} already has a claim. ${onRecord}`);
+  return withTransaction(async (tx) => {
+    const updated = await repo.setVoid(tx, entryId, { from: entry.status, by: ctx.user!.id, reason });
+    if (!updated) throw new AppError('invalid_transition', 409, 'This request changed a moment ago. Refresh and check it.');
+    await audit(tx, { ctx, action: 'entry.voided', entityType: 'entry', entityId: entry.id, entityRef: entry.ref, before: { status: entry.status }, after: { status: 'void' }, reason, outcome: 'ok' });
     return updated;
   });
 }
@@ -744,8 +770,8 @@ async function openItem(ctx: Ctx, entryId: string, itemId: string) {
   // the whole request to 'approved', and gating on that refused every other battery on it — which
   // is exactly the case this feature exists for (client, 2 Oct 2026). What matters is this
   // battery: see `correctItem`, which refuses once THIS one is on record.
-  if (entry.status === 'rejected') {
-    throw new AppError('invalid_transition', 409, 'This request was refused — there is nothing left to change on it.');
+  if (entry.status === 'rejected' || entry.status === 'void') {
+    throw new AppError('invalid_transition', 409, `This request was ${entry.status === 'void' ? 'voided' : 'refused'} — there is nothing left to change on it.`);
   }
   return { entry, item, user: ctx.user };
 }

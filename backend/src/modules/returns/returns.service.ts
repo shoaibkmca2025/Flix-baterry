@@ -52,6 +52,7 @@ export async function dispatch(ctx: Ctx, input: ChallanCreateBody) {
     // battery, and a sales return's battery going back to be put right.
     if (e.entryType === 'regular_sales') throw new AppError('nothing_to_dispatch', 422, `${e.ref} is a sale — there is no battery to send back.`);
     if (e.status === 'rejected') throw new AppError('nothing_to_dispatch', 422, `${e.ref} was refused — nothing to send back.`);
+    if (e.status === 'void') throw new AppError('nothing_to_dispatch', 422, `${e.ref} was voided by head office — nothing to send back.`);
     // a dealer's request is sent back only once its distributor has approved it (client, 2 Oct 2026)
     if (e.status === 'with_distributor') throw new AppError('not_approved_yet', 422, `${e.ref} is waiting for your approval. Approve it first, then send its old battery.`);
     // a special request's old battery leaves only once head office has approved it (client, 3 Oct 2026)

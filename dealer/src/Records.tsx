@@ -15,7 +15,7 @@ import { entryTrail } from '@felix/shared/api/audit';
 const TRAIL_LABEL: Record<string, string> = { 'entry.submitted': 'Entry submitted', 'entry.approved': 'Entry approved', 'entry.rejected': 'Reject entry' };
 import { ScanSheet, NOT_SENT, useDeleteEntry } from './Capture';
 import { DealerGroups } from './Network';
-import { avatarTone, coverChip, coverOf, dLong, dShort, dealerEntries, findBattery, firstProblem, monthLong, spanLong, specialLine, specialOutcome, tShort } from '@felix/shared/data';
+import { warrantyView, avatarTone, coverChip, coverOf, dLong, dShort, dealerEntries, findBattery, firstProblem, monthLong, spanLong, specialLine, specialOutcome, tShort } from '@felix/shared/data';
 
 const FILTERS = ['all', 'rep', 'month', 'fix', 'notsent'] as const;
 
@@ -85,6 +85,7 @@ export function D19({ p }: { p?: string }) {
     {e.status === 'Conflict' && <Banner tone="bad" icon="alert" style={{ marginBottom: 12 }}><B>This entry cannot be approved yet.</B> {problem || `${Above} found a problem with a serial on it.`} Fix the serial or ask {above} to review it.</Banner>}
     {/* a request put aside part-finished, or refused when it was sent — it waits here with its reason rather than holding up the counter */}
     {e.status === 'Draft' && !!problem && <Banner tone="warn" icon="alert" style={{ marginBottom: 12 }}><B>Not sent yet.</B> {problem} Open it, fix that, and send it when you can.</Banner>}
+    {e.status === 'Cancelled' && <Banner tone="info" icon="x" style={{ marginBottom: 12 }}><B>Voided by head office.</B> {e.voidReason || 'It no longer counts — nothing more happens with it.'}</Banner>}
     {e.status === 'Rejected' && <Banner tone="bad" icon="x" style={{ marginBottom: 12 }}><B>{Above} refused this entry.</B> {e.decisionReason || state.audits.find(a => a.ref === e.id && a.action === 'Reject entry')?.reason || 'Ask head office for the reason.'}</Banner>}
     {e.status === 'Pending sync' && <Banner tone="warn" icon="sync" style={{ marginBottom: 12 }}><B>Saved on this phone.</B> It is sent to {above} when signal returns.</Banner>}
     {e.status === 'Draft' && <Banner tone="info" icon="pen" style={{ marginBottom: 12 }}><B>Not sent yet.</B> Continue where you left off.</Banner>}
@@ -193,7 +194,7 @@ export function D24({ p = '' }: { p?: string }) {
     <SecT title="Warranty" />
     <Card style={cover?.status === 'Active' ? { borderColor: '#B8DFCB' } : undefined}>
       {b?.noWarranty ? <Banner tone="bad" icon="lock"><B>No warranty.</B> Given as a special replacement — it cannot be replaced.</Banner>
-        : cover ? <><KV pairs={[['Cover started', dLong(cover.start)], ['Cover ends', dLong(cover.expiry)], ['Left', cover.status === 'Expired' ? 'None' : spanLong(cover.leftSpan)], ['Policy', `Standard ${cover.months} months`]]} />
+        : cover ? <><KV pairs={[['Cover started', dLong(cover.start)], ['Warranty', warrantyView({ termEnd: cover.termEnd, coverEnd: cover.expiry })!.headline], ['Dates', warrantyView({ termEnd: cover.termEnd, coverEnd: cover.expiry })!.detail], ['Policy', `Standard ${cover.months} months`]]} />
         <Banner tone="ok" icon="shield" style={{ marginTop: 11 }}>Dates come from the first sale in this chain. Nobody can type a different end date.</Banner></>
         : <Banner tone="warn" icon="alert">No cover dates on record. Head office sets them from the first sale — nothing is guessed.</Banner>}
     </Card>

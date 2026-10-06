@@ -41,7 +41,31 @@ export function coverOf(b: Battery | undefined, state: State) {
   const w = warranty(b, now, state.policies[0]?.alertDays ?? 30);
   const policy = state.policies.find(p => p.id === b.policy) || state.policies[0];
   const chain = chainFor(b.code, state.batteries);
-  return { start: b.start, expiry: b.expiry, used, status: w.status, policy, months: policy?.months ?? 24, usedSpan: span(b.start, now), leftSpan: span(now, b.expiry), replacements: Math.max(0, chain.length - 1) };
+  return { start: b.start, expiry: b.expiry, termEnd: b.termEnd ?? b.expiry, used, status: w.status, policy, months: policy?.months ?? 24, usedSpan: span(b.start, now), leftSpan: span(now, b.expiry), replacements: Math.max(0, chain.length - 1) };
+}
+
+/**
+ * A battery's warranty, described ONE way on every screen of both apps (client, 6 Oct 2026). Two
+ * screens used to disagree: one counted "exceeded by" from the end of the warranty, the other
+ * "expired … ago" from the end of the extension, so the same battery read 159 days and 98 days.
+ *
+ * The warranty is the TERM (12, 18, 24… months); the grace months after it are the EXTENSION, in
+ * which a replacement is a special request; after that the cover is over. Every count runs from the
+ * end of the term — the date the customer was told, and the same line the server draws between a
+ * normal and a special request. `onDate` is the request's date for a battery on a request (so the
+ * number does not grow while it waits for a decision), and today for one that is only looked up.
+ */
+export type WarrantyView = { kind: 'term' | 'extension' | 'expired' | 'none'; days: number; headline: string; detail: string; chip: [string, 'live' | 'warn' | 'bad'] };
+export function warrantyView(c: { termEnd?: string; coverEnd?: string; noWarranty?: boolean }, onDate: string = today()): WarrantyView | null {
+  if (c.noWarranty) return { kind: 'none', days: 0, headline: 'No warranty', detail: 'Given as a special replacement — it cannot be replaced', chip: ['No warranty', 'bad'] };
+  const termEnd = c.termEnd || c.coverEnd, coverEnd = c.coverEnd || c.termEnd;
+  if (!termEnd || !coverEnd) return null;
+  const on = onDate.slice(0, 10), extension = coverEnd > termEnd;
+  if (on <= termEnd) return { kind: 'term', days: Math.round((Date.parse(termEnd) - Date.parse(on)) / 86400000), headline: `${spanLong(span(on, termEnd))} left`,
+    detail: `Warranty to ${dLong(termEnd)}${extension ? ` · extension to ${dLong(coverEnd)}` : ''}`, chip: ['In warranty', 'live'] };
+  const over = Math.round((Date.parse(on) - Date.parse(termEnd)) / 86400000), headline = `Warranty exceeded by ${plural(over, 'day')}`;
+  if (on <= coverEnd) return { kind: 'extension', days: over, headline, detail: `Warranty ended ${dLong(termEnd)} · extension to ${dLong(coverEnd)}`, chip: ['In extension', 'warn'] };
+  return { kind: 'expired', days: over, headline, detail: extension ? `Warranty ended ${dLong(termEnd)} · extension ended ${dLong(coverEnd)}` : `Warranty ended ${dLong(termEnd)}`, chip: ['Warranty over', 'bad'] };
 }
 export const coverChip = (status: string): [string, 'live' | 'warn' | 'mute' | 'bad'] =>
   status === 'No warranty' ? ['No warranty', 'bad'] : status === 'Active' ? ['Cover active', 'live'] : status === 'Expiring soon' ? ['Cover ending soon', 'warn'] : status === 'Expired' ? ['Cover ended', 'bad'] : ['Not on record', 'mute'];
@@ -149,10 +173,11 @@ export const toSendBack = (state: State, dealerId: string, withDealers = false) 
  * requested → approved by him, waiting for the old battery → arrived at him → dispatched →
  * at the factory → head office's decision. A sales return has no old battery to hand over.
  */
-export type DistributorStage = { key: 'requested' | 'awaiting' | 'arrived' | 'held' | 'dispatched' | 'factory' | 'headoffice' | 'approved' | 'refused'; label: string; tone: 'warn' | 'info' | 'live' | 'vio' | 'bad' | 'mute'; hint: string };
+export type DistributorStage = { key: 'requested' | 'awaiting' | 'arrived' | 'held' | 'dispatched' | 'factory' | 'headoffice' | 'approved' | 'refused' | 'voided'; label: string; tone: 'warn' | 'info' | 'live' | 'vio' | 'bad' | 'mute'; hint: string };
 export function distributorStage(e: Entry, it: Entry['items'][number]): DistributorStage {
   const st = it.status ?? e.status;
   if (e.status === 'With distributor') return { key: 'requested', label: 'Requested', tone: 'warn', hint: 'Check the photos and serial, then approve or refuse' };
+  if (e.status === 'Cancelled') return { key: 'voided', label: 'Voided', tone: 'mute', hint: e.voidReason ? `Voided by head office — ${e.voidReason}` : 'Voided by head office' };
   if (st === 'Rejected' || e.status === 'Rejected') return { key: 'refused', label: 'Refused', tone: 'bad', hint: e.decisionReason || '' };
   if (st === 'Approved') return { key: 'approved', label: 'Approved', tone: 'live', hint: 'Head office approved it for refund' };
   if (e.type !== 'Replacement' || !it.oldSerial) return { key: 'headoffice', label: 'With head office', tone: 'info', hint: 'You approved it — head office decides' };
@@ -169,11 +194,8 @@ export function distributorStage(e: Entry, it: Entry['items'][number]): Distribu
  */
 export function specialLine(it: { coverCase?: string; coverTermEnd?: string; coverEnd?: string }, onDate: string): string {
   if (!it.coverCase || !it.coverTermEnd) return '';
-  const over = Math.max(0, Math.round((Date.parse(onDate.slice(0, 10)) - Date.parse(it.coverTermEnd)) / 86400000));
-  const days = `${over} ${over === 1 ? 'day' : 'days'}`;
-  return it.coverCase === 'Extension'
-    ? `Warranty exceeded by ${days}${it.coverEnd ? ` · extension ends ${dLong(it.coverEnd)}` : ' · in extension'}`
-    : `Warranty exceeded by ${days}${it.coverEnd ? ` · ended ${dLong(it.coverEnd)}` : ' · warranty over'}`;
+  const v = warrantyView({ termEnd: it.coverTermEnd, coverEnd: it.coverEnd }, onDate);
+  return v ? `${v.headline} · ${v.detail.charAt(0).toLowerCase()}${v.detail.slice(1)}` : '';
 }
 /** A special request the distributor has passed on (or raised himself): head office decides it in Correction requests. */
 export const specialWaiting = (e: Entry) => e.special === 'Pending' && e.status === 'Submitted';

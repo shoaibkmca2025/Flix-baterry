@@ -36,7 +36,10 @@ export type EntryResult = {
   customerName: string | null;
   remarks: string | null;
   totalQty: number;
-  status: 'submitted' | 'approved' | 'rejected' | 'with_distributor';
+  status: 'submitted' | 'approved' | 'rejected' | 'with_distributor' | 'void';
+  // head office voided it: out of every live queue, still readable (client, 6 Oct 2026)
+  voidedAt?: string | null;
+  voidReason?: string | null;
   gps: string | null;
   signature: string | null;
   coverToldAt: string | null;
@@ -143,4 +146,9 @@ export function markArrived(id: string, accessToken: string, itemId?: string) {
 /** Head office approves or rejects a special replacement request, from Correction requests (client, 3 Oct 2026). */
 export function decideSpecial(id: string, decision: 'approve' | 'reject', reason: string, accessToken: string) {
   return apiPost<EntryResult>(`/entries/${id}/special/${decision}`, { reason }, { accessToken });
+}
+
+/** Head office takes a request out of every live queue and total. Nothing is deleted (client, 6 Oct 2026). */
+export function voidEntry(id: string, reason: string, accessToken: string) {
+  return apiPost<EntryResult>(`/entries/${id}/void`, { reason }, { accessToken });
 }

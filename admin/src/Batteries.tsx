@@ -10,7 +10,7 @@ const NOT_IN_V1 = 'Not available in this version — warranty overrides, policie
 import { Battery, Model, chainFor, deriveCode, expiryFrom, normalize, today, uid, warranty, readLabel, anyDigitLengths } from '@felix/shared/domain';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, KV, Kpis, Line, Avatar, Plate, PlateLab, PlateVal, Meter } from '@felix/shared/ui/kit';
-import { coverChip, coverOf, dLong, dShort, monthLong, spanLong, spanShort } from '@felix/shared/data';
+import { warrantyView, coverChip, coverOf, dLong, dShort, monthLong, spanLong, spanShort } from '@felix/shared/data';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, Tabs, Dialog, ReasonDialog, Select, ToggleRow, EntryTable, ScanDialog, Empty, useA } from './ui';
 import { usePlantManager } from './plants';
 
@@ -83,7 +83,7 @@ export function BatteryDetail({ id = '' }: { id?: string }) {
           : cover ? <>
             <Meter used={cover.used} labels={[`${dLong(cover.start)} · first sale`, 'Today', `${dLong(cover.expiry)} · ends`]} />
             <View style={{ height: 12 }} />
-            <KV cols={a.wide ? 3 : 2} pairs={[['Cover started', dLong(cover.start)], ['Cover ends', dLong(cover.expiry)], ['Remaining', w.status === 'Expired' ? 'None' : spanLong(cover.leftSpan)], ['Policy', `${b.policy || '—'} · ${cover.months} months`], ['Replacements in chain', String(cover.replacements)], ['Overrides', ovs.length ? ovs.map(o => `${o.days}d ${o.status.toLowerCase()}`).join(', ') : 'None']]} />
+            <KV cols={a.wide ? 3 : 2} pairs={[['Cover started', dLong(cover.start)], ['Warranty', warrantyView({ termEnd: cover.termEnd, coverEnd: cover.expiry })!.headline], ['Dates', warrantyView({ termEnd: cover.termEnd, coverEnd: cover.expiry })!.detail], ['Policy', `${b.policy || '—'} · ${cover.months} months`], ['Replacements in chain', String(cover.replacements)], ['Overrides', ovs.length ? ovs.map(o => `${o.days}d ${o.status.toLowerCase()}`).join(', ') : 'None']]} />
             <Banner tone="ok" icon="shield" style={{ marginTop: 12 }}>These dates belong to the first sale in the chain. A replacement never starts a new term; only an approved override can move the end date.</Banner>
           </> : <Banner tone="warn" icon="alert">No cover dates on record. They are never guessed — they are set when a sale with a date is approved.</Banner>}
         </Box>

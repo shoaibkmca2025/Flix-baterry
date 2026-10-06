@@ -139,7 +139,7 @@ export const ST: Record<string, [Tone, IconName]> = {
 };
 export const StatusChip = ({ status, label }: { status: string; label?: string }) => {
   const [tone, icon] = ST[status] || ['mute', 'doc'];
-  return <Chip tone={tone} icon={icon} label={label || (status === 'Conflict' ? 'Serial exception' : status)} />;
+  return <Chip tone={tone} icon={icon} label={label || (status === 'Conflict' ? 'Serial exception' : status === 'Cancelled' ? 'Voided' : status)} />;
 };
 
 /* ---------- buttons ---------- */

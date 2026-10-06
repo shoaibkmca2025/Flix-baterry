@@ -94,6 +94,17 @@ export async function updateEntryStatus(
   return row!;
 }
 
+/** Takes a request out of every live queue. Guarded on the status it was read in, so a decision taken a moment earlier is not overwritten. */
+export async function setVoid(tx: Tx, id: string, input: { from: (typeof entryStatus.enumValues)[number]; by: string; reason: string }) {
+  const now = new Date();
+  const [row] = await tx
+    .update(entries)
+    .set({ status: 'void', voidedBy: input.by, voidedAt: now, voidReason: input.reason, updatedAt: now })
+    .where(and(eq(entries.id, id), eq(entries.status, input.from)))
+    .returning();
+  return row;
+}
+
 /** The distributor approves (→ submitted, head office's queue) or refuses (→ rejected) a dealer's request. */
 export async function setDistributorDecision(tx: Tx, id: string, input: { approve: boolean; by: string; reason: string }) {
   const now = new Date();

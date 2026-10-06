@@ -15,7 +15,9 @@ import { batteryModels } from './masters.model';
 export const entryType = pgEnum('entry_type', ['replacement', 'sales_return', 'regular_sales']);
 // with_distributor: a dealer's request waiting for its distributor (client, 2 Oct 2026); his
 // approval moves it to submitted (head office), his refusal to rejected.
-export const entryStatus = pgEnum('entry_status', ['submitted', 'approved', 'rejected', 'with_distributor']);
+// void: head office took the request out of every live queue and total (a repeated entry, a test,
+// a mistake — client, 6 Oct 2026). Nothing is deleted; it stays readable with who, when and why.
+export const entryStatus = pgEnum('entry_status', ['submitted', 'approved', 'rejected', 'with_distributor', 'void']);
 // A sales return is stock that never sold, or one that is faulty (client, 3 Oct 2026). Null on
 // a replacement, which has its own fault on each item instead.
 export const returnKind = pgEnum('return_kind', ['unsold', 'defective']);
@@ -60,6 +62,10 @@ export const entries = pgTable(
     specialDecidedBy: uuid('special_decided_by'),
     specialDecidedAt: timestamp('special_decided_at', { withTimezone: true }),
     specialReason: text('special_reason'),
+    // who voided it, when and why — kept apart from the decision fields, so a refusal's reason survives
+    voidedBy: uuid('voided_by'),
+    voidedAt: timestamp('voided_at', { withTimezone: true }),
+    voidReason: text('void_reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

@@ -283,7 +283,7 @@ export function D44({ p }: { p?: string }) {
   };
   const FILTERS: [string, string, (k: DistributorStage['key']) => boolean][] = [
     ['all', `All ${rows.length}`, () => true], ['requested', `To approve ${c.requested}`, k => k === 'requested'], ['awaiting', `To receive ${c.awaiting}`, k => k === 'awaiting'],
-    ['arrived', `Ready to send ${c.arrived}`, k => k === 'arrived'], ['held', 'Waiting for head office', k => k === 'held'], ['done', 'Sent on', k => ['dispatched', 'factory', 'headoffice', 'approved', 'refused'].includes(k)],
+    ['arrived', `Ready to send ${c.arrived}`, k => k === 'arrived'], ['held', 'Waiting for head office', k => k === 'held'], ['done', 'Sent on', k => ['dispatched', 'factory', 'headoffice', 'approved', 'refused', 'voided'].includes(k)],
   ];
   const [f, setF] = useState('all');
   const shown = rows.filter(({ e, it }) => FILTERS.find(x => x[0] === f)![2](distributorStage(e, it).key));

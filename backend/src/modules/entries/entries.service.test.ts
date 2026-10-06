@@ -73,6 +73,7 @@ vi.mock('./entries.repository', () => ({
   upsertPhoto: vi.fn(),
   setDistributorDecision: vi.fn(),
   setSpecialDecision: vi.fn(),
+  setVoid: vi.fn(),
   findPhotosByEntryId: vi.fn(),
 }));
 vi.mock('../../utils/storage', () => ({ putObject: vi.fn(), signedUrl: vi.fn(async (key: string) => `https://storage.example/${key}?sig=1`) }));
@@ -84,7 +85,7 @@ import * as returnsRepo from '../returns/returns.repository';
 import { postMovementInTx } from '../stock/stock.service';
 import * as repo from './entries.repository';
 import { nextFormattedRef } from '../../utils/ids';
-import { addPhoto, approve, correctItem, create, decideSpecial, distributorDecide, getById, list, listPhotos, markArrived, reject, reviewItem, settle } from './entries.service';
+import { addPhoto, approve, correctItem, create, decideSpecial, voidEntry, distributorDecide, getById, list, listPhotos, markArrived, reject, reviewItem, settle } from './entries.service';
 import { putObject } from '../../utils/storage';
 import type { Ctx } from '../../utils/context';
 import type { EntryCreateBody } from './entries.validation';
@@ -1066,5 +1067,55 @@ describe('special replacement requests — old battery past its term (client, 3 
     vi.mocked(batteriesRepo.findBatteryByCode).mockResolvedValueOnce({ id: 'old-1', chainId: 'chain-1', custodian: 'customer', dealerId: 'dealer-1a', replacedById: null } as never);
     vi.mocked(batteriesRepo.findChainById).mockResolvedValue({ id: 'chain-1', warrantyStart: '2024-01-01', warrantyExpiry: '2026-02-28' } as never);
     await expect(approve(adminCtx, 'entry-5', 'ok')).rejects.toMatchObject({ code: 'warranty_expired' });
+  });
+});
+
+describe('head office voids a request that should never have counted (client, 6 Oct 2026)', () => {
+  const base = { id: 'entry-v', ref: 'RP-26-10-0021', dealerId: 'dealer-1a', entryType: 'replacement', status: 'rejected' };
+  const item = { id: 'item-1', seq: 0, claimId: null };
+  beforeEach(() => {
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([item] as never);
+    vi.mocked(repo.setVoid).mockImplementation(async (_tx, id, input) => ({ ...base, id, status: 'void', voidReason: input.reason }) as never);
+  });
+
+  it('a refused, a waiting and a distributor-held request can be voided — with who, why and an audit row', async () => {
+    for (const status of ['rejected', 'submitted', 'with_distributor']) {
+      vi.mocked(repo.setVoid).mockClear();
+      vi.mocked(repo.findEntryById).mockResolvedValue({ ...base, status } as never);
+      const r = await voidEntry(adminCtx, 'entry-v', 'Repeated entry');
+      expect(r.status).toBe('void');
+      // guarded on the status it was read in, so a decision taken a moment earlier is not overwritten
+      expect(repo.setVoid).toHaveBeenCalledWith(expect.anything(), 'entry-v', { from: status, by: 'admin-1', reason: 'Repeated entry' });
+    }
+    const { audit } = await import('../../utils/audit');
+    expect(vi.mocked(audit).mock.calls.at(-1)?.[1]).toMatchObject({ action: 'entry.voided', before: { status: 'with_distributor' }, after: { status: 'void' }, reason: 'Repeated entry' });
+  });
+
+  it('nothing on record may be voided: not an approved request, not one whose battery has a claim', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...base, status: 'approved' } as never);
+    await expect(voidEntry(adminCtx, 'entry-v', 'Repeated entry')).rejects.toMatchObject({ code: 'cannot_void', status: 409 });
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...base, status: 'submitted' } as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([{ ...item, claimId: 'claim-1' }] as never);
+    await expect(voidEntry(adminCtx, 'entry-v', 'Repeated entry')).rejects.toMatchObject({ code: 'cannot_void' });
+    expect(repo.setVoid).not.toHaveBeenCalled();
+  });
+
+  it('only head office, only once, and not over a decision taken a moment earlier', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue(base as never);
+    await expect(voidEntry(dealerCtx, 'entry-v', 'Repeated entry')).rejects.toMatchObject({ code: 'unauthenticated' });
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...base, status: 'void' } as never);
+    await expect(voidEntry(adminCtx, 'entry-v', 'Repeated entry')).rejects.toMatchObject({ code: 'already_void' });
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...base, status: 'submitted' } as never);
+    vi.mocked(repo.setVoid).mockResolvedValue(undefined as never);
+    await expect(voidEntry(adminCtx, 'entry-v', 'Repeated entry')).rejects.toMatchObject({ code: 'invalid_transition' });
+  });
+
+  it('a voided request cannot be decided, received or corrected any more', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue({ ...base, status: 'void' } as never);
+    await expect(approve(adminCtx, 'entry-v', 'ok')).rejects.toMatchObject({ code: 'invalid_transition' });
+    await expect(settle(adminCtx, 'entry-v', { decision: 'approved', reason: 'Verified' })).rejects.toMatchObject({ code: 'invalid_transition' });
+    await expect(reject(adminCtx, 'entry-v', 'No')).rejects.toMatchObject({ code: 'invalid_transition' });
+    await expect(distributorDecide(dealerCtx, 'entry-v', 'approve', 'Looks fine')).rejects.toMatchObject({ code: 'invalid_transition' });
+    await expect(markArrived(dealerCtx, 'entry-v')).rejects.toMatchObject({ code: 'nothing_to_receive' });
   });
 });

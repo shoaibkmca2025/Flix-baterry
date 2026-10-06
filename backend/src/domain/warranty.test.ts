@@ -69,3 +69,11 @@ describe('coverCase — which kind of replacement a request is (client, 3 Oct 20
     expect(coverCase(noGrace, '2026-01-01').case).toBe('expired');
   });
 });
+
+describe('the server counts the same days the apps show (client, 6 Oct 2026)', () => {
+  it('GPM1000, 12 + 2 months, made May 2025, requested 6 Oct 2026: 159 days past the warranty', () => {
+    const cover = coverFromMfg('2025-05', 12, 2);
+    expect(cover.expiryDate).toBe('2026-06-30');
+    expect(coverCase(cover, '2026-10-06')).toEqual({ case: 'expired', termEnd: '2026-04-30', daysOver: 159 });
+  });
+});

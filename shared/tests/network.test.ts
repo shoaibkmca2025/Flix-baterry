@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newEntry, newItem, type Entry, type State } from '../domain';
 import { initialState } from '../seed';
-import { entryErrors, distributorStage, isDealerShop, networkEntries, refunds, specialLine, specialOutcome, specialWaiting, toSendBack } from '../data';
+import { warrantyView, entryErrors, distributorStage, isDealerShop, networkEntries, refunds, specialLine, specialOutcome, specialWaiting, toSendBack } from '../data';
 
 // Head office → distributor → dealer (client, 2 Oct 2026). In a distributor's app the store
 // holds his own requests and his dealers'; dealer-1 is the distributor, dealer-1a his dealer.
@@ -50,9 +50,9 @@ test('a special request is held until head office approves it', () => {
 });
 
 test('"warranty exceeded by X days" counts from the end of the term', () => {
-  assert.match(specialLine({ coverCase: 'Extension', coverTermEnd: '2025-12-31', coverEnd: '2026-02-28' }, '2026-01-10'), /^Warranty exceeded by 10 days · extension ends 28 Feb 2026$/);
+  assert.match(specialLine({ coverCase: 'Extension', coverTermEnd: '2025-12-31', coverEnd: '2026-02-28' }, '2026-01-10'), /^Warranty exceeded by 10 days · warranty ended 31 Dec 2025 · extension to 28 Feb 2026$/);
   assert.match(specialLine({ coverCase: 'Extension', coverTermEnd: '2025-12-31', coverEnd: '2026-02-28' }, '2026-01-01'), /by 1 day ·/);
-  assert.match(specialLine({ coverCase: 'Expired', coverTermEnd: '2025-12-31', coverEnd: '2026-02-28' }, '2026-03-01'), /by 60 days · ended 28 Feb 2026$/);
+  assert.match(specialLine({ coverCase: 'Expired', coverTermEnd: '2025-12-31', coverEnd: '2026-02-28' }, '2026-03-01'), /by 60 days · warranty ended 31 Dec 2025 · extension ended 28 Feb 2026$/);
   assert.equal(specialLine({}, '2026-03-01'), '');
   assert.match(specialOutcome({ coverCase: 'Expired' }), /NO warranty/);
   assert.match(specialOutcome({ coverCase: 'Extension', coverEnd: '2026-02-28' }), /keeps the old end date/);
@@ -67,4 +67,34 @@ test('a battery past its cover gets through the form — it is sent as a special
   // made five years ago: long past any term + grace, and not on record anywhere
   e.items = [{ ...newItem(), model: model.id, oldModel: model.id, code: '26090991', serial: '0991', mfg: '2026-09', oldSerial: '21010991', fault: 'Low backup' }];
   assert.equal(entryErrors(e, s)['items.0.oldSerial'], undefined);
+});
+
+// The battery from the client's screenshots (6 Oct 2026): GPM1000, 12 months + 2, made May 2025,
+// on a request dated 6 Oct 2026. The card said "exceeded by 159 days", the request page "expired 98
+// days ago". Every screen now reads it through warrantyView, so there is one answer.
+test('a battery reads the same on every screen: counted from the end of the warranty, at the request date', () => {
+  const dates = { termEnd: '2026-04-30', coverEnd: '2026-06-30' };
+  const v = warrantyView(dates, '2026-10-06')!;
+  assert.equal(v.kind, 'expired');
+  assert.equal(v.days, 159);
+  assert.equal(v.headline, 'Warranty exceeded by 159 days');
+  assert.equal(v.detail, 'Warranty ended 30 Apr 2026 · extension ended 30 Jun 2026');
+  // the special-request card prints the very same words
+  assert.equal(specialLine({ coverCase: 'Expired', coverTermEnd: dates.termEnd, coverEnd: dates.coverEnd }, '2026-10-06'), 'Warranty exceeded by 159 days · warranty ended 30 Apr 2026 · extension ended 30 Jun 2026');
+  // inside the extension, and inside the warranty
+  assert.deepEqual(warrantyView(dates, '2026-05-10')!.kind, 'extension');
+  assert.equal(warrantyView(dates, '2026-05-10')!.headline, 'Warranty exceeded by 10 days');
+  assert.equal(warrantyView(dates, '2026-04-30')!.kind, 'term'); // the last day of the warranty is still inside it
+  assert.equal(warrantyView(dates, '2026-02-28')!.detail, 'Warranty to 30 Apr 2026 · extension to 30 Jun 2026');
+  assert.equal(warrantyView({ ...dates, noWarranty: true }, '2026-02-28')!.kind, 'none');
+});
+
+// Head office voids a repeated entry (client, 6 Oct 2026): the server's 'void' is the store's
+// 'Cancelled', read as "Voided" everywhere, and it leaves the distributor's to-do lists.
+test('a voided request reads Voided and leaves every queue', () => {
+  const v = { ...rep('V1', 'dealer-1a', 'Cancelled'), voidReason: 'Repeated entry' } as Entry;
+  assert.equal(distributorStage(v, v.items[0]!).key, 'voided');
+  assert.match(distributorStage(v, v.items[0]!).hint, /Repeated entry/);
+  assert.deepEqual(toSendBack({ entries: [{ ...v, items: v.items.map(it => ({ ...it, arrivedAtDistributor: '2026-10-06T10:00:00Z' })) }] } as unknown as State, 'dealer-1', true), []);
+  assert.equal(specialWaiting({ ...v, special: 'Pending' }), false);
 });

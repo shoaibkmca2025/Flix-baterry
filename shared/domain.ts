@@ -15,6 +15,8 @@ export type Entry = { id: string; dealerId: string; type: string; date: string; 
   distributorDecidedAt?: string; distributorReason?: string;
   /** a SPECIAL request — a battery on it is past its term; head office decides it in Correction requests (client, 3 Oct 2026) */
   special?: 'Pending' | 'Approved' | 'Rejected'; specialReason?: string; specialDecidedAt?: string;
+  /** head office voided it (status 'Cancelled'): who decided is in the audit log, why is here */
+  voidedAt?: string; voidReason?: string;
   /** why a sales return came back: unsold stock, or a faulty battery (client, 3 Oct 2026) */
   returnKind?: ReturnKind;
   /** recorded by head office itself, not sent in by a shop (client, 3 Oct 2026) */
@@ -23,7 +25,9 @@ export type Entry = { id: string; dealerId: string; type: string; date: string; 
   itemId?: string; part?: string };
 export type Battery = { code: string; serial: string; model: string; dealerId: string; customer: string; mfg: string; oldSerial?: string; start?: string; expiry?: string; policy?: string; state: string;
   /** given against a battery whose cover was over: no warranty at all, and it can never be replaced (client, 3 Oct 2026) */
-  noWarranty?: boolean; noWarrantyReason?: string };
+  noWarranty?: boolean; noWarrantyReason?: string;
+  /** the end of the warranty term — the extension months run from here to `expiry` */
+  termEnd?: string };
 export type Dealer = { id: string; code?: string; name: string; contact: string; mobile: string; email: string; city: string;
   /** the district the town sits in — asked for since 4 Oct 2026; blank on shops recorded before */
   district?: string; place: string; address: string;

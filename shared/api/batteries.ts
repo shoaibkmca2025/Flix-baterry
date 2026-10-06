@@ -75,6 +75,7 @@ export type ApiBattery = {
   replacedById: string | null;
   warrantyStart: string | null;
   warrantyExpiry: string | null;
+  termMonths?: number | null; // the chain's own term, without the extension months
   replacementCount: number | null;
   replacedFromCode: string | null;
   noWarranty?: boolean;

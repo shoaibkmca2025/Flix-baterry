@@ -5,12 +5,12 @@ import { Entry, Item, FAULTS, NEW_BATTERY_DIGIT_LENGTHS, anyDigitLengths, approv
 import { exportReport, printEntry } from '@felix/shared/reports';
 import { T } from '@felix/shared/ui/theme';
 import { X, B, Mono, Ic, Btn, Card, CardH, Chip, StatusChip, Field, Hint, Banner, Steps, ChipRow, Label, KV, SecT, Line, Avatar, Plate, PlateLab, PlateVal, CapBtn, BigOk } from '@felix/shared/ui/kit';
-import { approvedForRefund, batteryUnits, entryErrors, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, specialLine, specialOutcome, specialWaiting, tShort, monthShort, salesReturnsOf, monthLong, placeOf, addressLine } from '@felix/shared/data';
+import { warrantyView, approvedForRefund, batteryUnits, entryErrors, roleOf, shopRole, coverChip, coverOf, dLong, dShort, findBattery, nextEntryId, personOf, span, spanLong, spanShort, specialLine, specialOutcome, specialWaiting, tShort, monthShort, salesReturnsOf, monthLong, placeOf, addressLine } from '@felix/shared/data';
 import { listPhotos, splitTag, uploadEntryPhotos } from '@felix/shared/api/photos';
 import { Photo, SignaturePad, locate, parseGps, takePhoto } from '@felix/shared/ui/media';
 import { Page, Box, Cols, Stack, Table, Pills, SearchBox, FilterPick, DatePick, Dialog, ReasonDialog, Select, EntryTable, ScanDialog, Diff, Empty, fmtAt, useA } from './ui';
 import { getAccessToken } from '@felix/shared/api/session';
-import { approveEntry as apiApproveEntry, correctEntryItem, createEntry as apiCreateEntry, decideSpecial as apiDecideSpecial, rejectEntry as apiRejectEntry, reviewEntryItem, settleEntry, type EntryCreateInput, type EntryType } from '@felix/shared/api/entries';
+import { approveEntry as apiApproveEntry, correctEntryItem, createEntry as apiCreateEntry, decideSpecial as apiDecideSpecial, rejectEntry as apiRejectEntry, voidEntry as apiVoidEntry, reviewEntryItem, settleEntry, type EntryCreateInput, type EntryType } from '@felix/shared/api/entries';
 import { buildEntryBody } from '@felix/shared/api/entry-body';
 import { checkClaim, decideClaim } from '@felix/shared/api/claims';
 import { errorMessage } from '@felix/shared/api/client';
@@ -25,6 +25,9 @@ export const awaitingOldBattery = (e: Entry) => e.type === 'Replacement' && !arr
 const whereIsOld = (e: Entry) => e.returnState === 'In transit' ? 'Old battery on the way' : 'Old battery still at the dealer';
 const APPROVE_REASONS = ['Warranty checked against the first sale', 'Battery checked — manufacturing defect', 'Photos and serials match the label'];
 const REJECT_REASONS = ['Outside warranty cover', 'Physical damage — not covered', 'Serial does not match the label photo'];
+
+/** Voiding is open while nothing of the request is on record: with the distributor, waiting for head office, or refused. */
+const canVoid = (e: Entry) => e.status !== 'Cancelled' && (!e.apiId || (['With distributor', 'Submitted', 'Rejected'].includes(e.status) && !e.items.some(i => i.claimId)));
 
 /** Every head office decision on an entry, with the same checks wherever it is taken. */
 export function useDecisions() {
@@ -161,7 +164,17 @@ export function useDecisions() {
         finally { sync(true); }
       })();
     },
-    voidEntry: (e: Entry, reason: string) => live(e) ? notInV1() : status(e, 'Cancelled', 'Void / archive entry', reason, 'Voided. It stays searchable and in the audit log.'),
+    voidEntry: (e: Entry, reason: string) => {
+      if (!live(e)) return status(e, 'Cancelled', 'Void / archive entry', reason, 'Voided. It stays searchable and in the audit log.');
+      if (!guard()) return false;
+      setProblem('');
+      void (async () => {
+        const token = await getAccessToken(); if (!token) return notInV1();
+        try { await apiVoidEntry(e.apiId!, reason, token); a.toast(`${e.id} voided. It is out of every queue and total, and stays readable in search and the audit log.`); }
+        catch (err) { return failed(errorMessage(err)); }
+        finally { sync(true); }
+      })();
+    },
     requestCorrection: (e: Entry, value: string, reason: string) => {
       if (!guard()) return false;
       if (live(e)) return notInV1();
@@ -329,7 +342,7 @@ function SpecialCard({ e, onAct }: { e: Entry; onAct: (kind: 'approve' | 'reject
             <X s={12} w={6} c={T.slate}>Battery {i + 1} · {it.model}{it.fault ? ` · ${it.fault}` : ''}</X>
             <X s={14.5} w={7} f="m" style={{ marginTop: 3 }}>{it.oldSerial || '—'} → {it.code}</X>
             <X s={13.5} w={7} c="#8A5A00" style={{ marginTop: 7 }}>{specialLine(it, e.date) || 'Within the warranty term'}</X>
-            <X s={13} c={T.slate} style={{ marginTop: 3 }}>{it.coverCase ? `Term ended ${dLong(it.coverTermEnd)} · ${specialOutcome(it)}` : 'A normal battery on the same request — it inherits the old end date.'}</X>
+            <X s={13} c={T.slate} style={{ marginTop: 3 }}>{it.coverCase ? specialOutcome(it) : 'A normal battery on the same request — it inherits the old end date.'}</X>
           </View>
           {mine.length ? <View style={{ flexDirection: 'row', gap: 9 }}>{mine.slice(0, 3).map(ph =>
             <Pressable key={ph.key} accessibilityRole="imagebutton" accessibilityLabel={`Open photo: ${ph.tag}`} onPress={() => { Linking.openURL(ph.uri).catch(() => a.toast('The photo could not be opened here.')); }}>
@@ -509,7 +522,7 @@ export function EntryDetail({ id }: { id?: string }) {
     : e.status === 'With distributor' ? <Banner tone="info" icon="people"><B>With the dealer’s distributor.</B> The distributor checks it first; it reaches your queue once they approve it.</Banner>
     : e.status === 'Pending sync' ? <Banner tone="warn" icon="sync"><B>Still on the dealer’s phone.</B> It reaches head office when their phone is back online.</Banner>
     : e.status === 'Corrected' ? <Banner tone="info" icon="pen"><B>Corrected.</B> See the linked entry for the current values. This version stays readable.</Banner>
-    : <Banner tone="info" icon="x"><B>Voided.</B> Removed from live totals, kept in search and the audit log.</Banner>;
+    : <Banner tone="info" icon="x"><B>Voided{e.voidedAt ? ` on ${dShort(e.voidedAt)}, ${tShort(e.voidedAt)}` : ''}.</B> {e.voidReason ? `${e.voidReason}. ` : ''}Removed from live queues and totals, kept in search and the audit log.</Banner>;
   return <Page back title={e.id} sub={`${dealer?.name || e.dealerId} · ${e.type} · ${dLong(e.date)}`}
     actions={<>
       {canEdit && pending && awaitingOldBattery(e) && <Chip tone="warn" icon={e.returnState === 'In transit' ? 'truck' : 'shop'} label={`${whereIsOld(e)} — decide once it arrives`} />}
@@ -552,11 +565,16 @@ export function EntryDetail({ id }: { id?: string }) {
           // "cover ran out on …" comes from. The same sum here keeps the console and the server
           // from disagreeing, and shows the reviewer the remaining cover the dealer already sees.
           const oldMfg = it.oldSerial ? deriveCode(it.oldSerial, state.models.map(m => m.id), anyDigitLengths(state.serialDigitLengths)).mfg : '';
-          const oldTerm = (state.models.find(m => m.id === (it.oldModel || it.model))?.months ?? 24) + (state.graceMonths ?? 2);
-          const derivedExpiry = !cover && oldMfg ? expiryFrom(`${oldMfg}-01`, oldTerm) : '';
-          const expiry = cover?.expiry || derivedExpiry;
-          const daysLeft = expiry ? Math.ceil((Date.parse(expiry) - Date.parse(today())) / 86400000) : null;
-          const [cl, ct] = coverChip(cover?.status || '');
+          const termMonths = state.models.find(m => m.id === (it.oldModel || it.model))?.months ?? 24, grace = state.graceMonths ?? 2;
+          // The old battery's warranty, the one way every screen shows it (warrantyView): the dates the
+          // server judged the request on when it has them, else the record, else the label — and
+          // counted at the request's date, exactly like the card in Correction requests.
+          const dates = it.coverTermEnd && it.coverEnd ? { termEnd: it.coverTermEnd, coverEnd: it.coverEnd, from: 'as judged when the request was made' }
+            : cover ? { termEnd: cover.termEnd, coverEnd: cover.expiry, from: 'from the warranty record' }
+            : oldMfg ? { termEnd: expiryFrom(`${oldMfg}-01`, termMonths), coverEnd: expiryFrom(`${oldMfg}-01`, termMonths + grace), from: `worked out from the label — made ${monthShort(oldMfg)}, ${termMonths} months warranty + ${grace} months extension` }
+            : null;
+          const view = it.oldSerial && dates ? warrantyView({ ...dates, noWarranty: old?.noWarranty }, e.date) : null;
+          const [cl, ct] = view ? view.chip : coverChip(cover?.status || '');
           const mine = photos?.filter(p => (p.itemSeq ?? 0) === i) ?? [];
           const decided = u.status === 'Approved' || u.status === 'Rejected';
           return <Card key={it.id} style={i === focusIdx ? { borderColor: T.steel, borderWidth: 2 } : undefined}>
@@ -570,12 +588,10 @@ export function EntryDetail({ id }: { id?: string }) {
             <Plate style={{ marginBottom: 11 }}><View style={{ flexDirection: a.wide ? 'row' : 'column', gap: 14 }}>
               <View style={{ flex: 1, minWidth: 0 }}>{it.oldSerial ? <><PlateLab>OLD BATTERY OUT</PlateLab><PlateVal>{it.oldSerial}</PlateVal><X s={19} c={T.volt} style={{ textAlign: 'center', marginVertical: 4 }}>↓</X><PlateLab>NEW BATTERY IN</PlateLab><PlateVal color="#7FD3A9">{it.code}</PlateVal></> : <><PlateLab>BATTERY</PlateLab><PlateVal>{it.code}</PlateVal></>}
               {/* the old battery's remaining cover, right where the decision is made */}
-              {it.oldSerial && expiry ? <View style={{ marginTop: 9, paddingTop: 9, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.14)' }}>
-                <PlateLab>{daysLeft !== null && daysLeft < 0 ? 'WARRANTY EXPIRED' : 'WARRANTY LEFT'}</PlateLab>
-                <X s={15} w={7} c={daysLeft !== null && daysLeft < 0 ? '#FFB3A3' : '#7FD3A9'}>
-                  {daysLeft !== null && daysLeft < 0 ? `Expired ${-daysLeft} ${daysLeft === -1 ? 'day' : 'days'} ago · ${dLong(expiry)}` : `${spanLong(span(today(), expiry))} left`}
-                </X>
-                <X s={11.5} c={T.deepText} style={{ marginTop: 2 }}>{`Cover to ${dLong(expiry)} · `}{cover ? 'from the warranty record.' : `worked out from the label — made ${monthShort(oldMfg)}, ${oldTerm} months cover. Not on record.`}</X>
+              {view && dates ? <View style={{ marginTop: 9, paddingTop: 9, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.14)' }}>
+                <PlateLab>{`WARRANTY ON ${dLong(e.date).toUpperCase()}, THE REQUEST DATE`}</PlateLab>
+                <X s={15} w={7} c={view.kind === 'term' ? '#7FD3A9' : view.kind === 'extension' ? '#F5C26B' : '#FFB3A3'}>{view.headline}</X>
+                <X s={11.5} c={T.deepText} style={{ marginTop: 2 }}>{view.detail} · {dates.from}.</X>
               </View> : null}</View>
               {/* the dealer's photo sits in the same card as the numbers it has to be checked
                   against — looking from one to the other was a scroll apart (client, 3 Oct 2026) */}
@@ -679,7 +695,10 @@ export function EntryDetail({ id }: { id?: string }) {
         {linked.length > 0 && <Box title="Linked entries">{<View style={{ paddingHorizontal: 14 }}>{linked.map((x, i) => <Line key={x.id} last={i === linked.length - 1} onPress={() => a.go('entry', x.id)} av={<Avatar n="link" tone="vio" />} title={<Mono>{x.id}</Mono>} sub={x.id === e.linkedTo ? 'Original entry' : 'Corrected copy'} right={<StatusChip status={x.status} />} />)}</View>}</Box>}
         {canEdit && <Card><CardH title="Other actions" />
           {!e.correction || e.correction.status !== 'Pending' ? <Btn kind="ghost" sm icon="pen" label="Ask the dealer for a correction" style={{ alignSelf: 'stretch' }} onPress={() => { setFixValue(''); setAskFix(true); }} /> : null}
-          {e.status !== 'Cancelled' && <Btn kind="ghost" sm icon="alert" label="Void / archive this entry" color={T.terminal} borderColor="#F0C7BC" style={{ alignSelf: 'stretch', marginTop: 9 }} onPress={() => setAct('void')} />}
+          {/* a request whose batteries, warranty or credit are on record cannot be voided — the server
+              refuses it, so the button is not offered (client, 6 Oct 2026) */}
+          {canVoid(e) && <Btn kind="ghost" sm icon="alert" label="Void / archive this entry" color={T.terminal} borderColor="#F0C7BC" style={{ alignSelf: 'stretch', marginTop: 9 }} onPress={() => setAct('void')} />}
+          {e.apiId && e.status !== 'Cancelled' && !canVoid(e) && <Hint icon="alert" style={{ marginTop: 9 }}>Approved — its batteries are on record, so it cannot be voided. Refuse the battery instead.</Hint>}
           <Hint icon="lock" style={{ marginTop: 10 }}>Nobody can permanently delete an entry, a battery or an audit event — including the Main Admin.</Hint>
         </Card>}
       </Stack>
@@ -750,7 +769,7 @@ export function EntryDetail({ id }: { id?: string }) {
     {/* entry-wide review only exists for local demo data — the server has no such thing */}
     {!e.apiId && <ReasonDialog open={act === 'review'} title="Start a review" confirm="Mark under review" suggestions={['Waiting for the old battery to arrive', 'Checking the label photo', 'Calling the dealer']} onClose={() => setAct('')} onConfirm={r => dec.review(e, r)} />}
     <ReasonDialog open={act === 'reject'} title={`Refuse ${e.id}`} confirm="Refuse" kind="danger" suggestions={REJECT_REASONS} onClose={() => setAct('')} onConfirm={r => dec.reject(e, r)} intro="The dealer sees this reason in their app." />
-    <ReasonDialog open={act === 'void'} title="Void / archive this entry" confirm="Void entry" kind="danger" onClose={() => setAct('')} onConfirm={r => dec.voidEntry(e, r)} intro="It leaves live totals and reports, but stays fully readable in search, history and the audit log." />
+    <ReasonDialog open={act === 'void'} title="Void / archive this entry" confirm="Void entry" kind="danger" onClose={() => setAct('')} onConfirm={r => dec.voidEntry(e, r)} intro="It leaves every queue, live total and report, but stays fully readable in search, history and the audit log. The distributor and dealer see it as Voided." />
     <ReasonDialog open={act === 'decline'} title="Decline the correction" confirm="Decline" kind="danger" onClose={() => setAct('')} onConfirm={r => dec.declineCorrection(e, r)} />
     <ReasonDialog open={askFix} title="Ask for a correction" confirm="Add to correction queue" onClose={() => setAskFix(false)} onConfirm={r => { if (fixValue.trim().length < 3) { a.toast('Say what should change.'); return false; } return dec.requestCorrection(e, fixValue.trim(), r); }}>
       <Field label="What should change?" req value={fixValue} onChange={setFixValue} ph="e.g. Serial 26080319 should be 26080318" multiline />

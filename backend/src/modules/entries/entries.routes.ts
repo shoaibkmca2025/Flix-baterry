@@ -54,5 +54,7 @@ export async function registerEntryRoutes(app: FastifyInstance) {
   // a special replacement request (old battery past its term) is decided by head office in Correction requests
   app.post<{ Params: { id: string }; Body: EntryDecisionBody }>('/:id/special/approve', { preHandler: [requireAuth, requirePermission('entries.approve')], schema: { body: EntryDecisionBody } }, controller.specialApprove);
   app.post<{ Params: { id: string }; Body: EntryDecisionBody }>('/:id/special/reject', { preHandler: [requireAuth, requirePermission('entries.reject')], schema: { body: EntryDecisionBody } }, controller.specialReject);
+  // voiding takes a request out of every live queue — the same right as refusing it
+  app.post<{ Params: { id: string }; Body: EntryDecisionBody }>('/:id/void', { preHandler: [requireAuth, requirePermission('entries.reject')], schema: { body: EntryDecisionBody } }, controller.voidEntry);
   app.get<{ Params: { id: string } }>('/:id/photos', { preHandler: [requireAuth, requirePermission('entries.read')] }, controller.listPhotos);
 }

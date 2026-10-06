@@ -111,7 +111,7 @@ export async function listBatteries(dbh: DbOrTx, filter: BatteryListFilter) {
   // replaced battery's code ride along instead of a lookup per row.
   const replaced = alias(batteries, 'replaced');
   const rows = await dbh
-    .select({ battery: batteries, warrantyStart: warrantyChains.warrantyStart, warrantyExpiry: warrantyChains.warrantyExpiry, replacementCount: warrantyChains.replacementCount, replacedFromCode: replaced.batteryCode })
+    .select({ battery: batteries, warrantyStart: warrantyChains.warrantyStart, warrantyExpiry: warrantyChains.warrantyExpiry, termMonths: warrantyChains.termMonths, replacementCount: warrantyChains.replacementCount, replacedFromCode: replaced.batteryCode })
     .from(batteries)
     .leftJoin(warrantyChains, eq(warrantyChains.id, batteries.chainId))
     .leftJoin(replaced, eq(replaced.id, batteries.replacedFromId))
@@ -124,6 +124,7 @@ export async function listBatteries(dbh: DbOrTx, filter: BatteryListFilter) {
     ...r.battery,
     warrantyStart: r.warrantyStart,
     warrantyExpiry: r.warrantyExpiry,
+    termMonths: r.termMonths,
     replacementCount: r.replacementCount,
     replacedFromCode: r.replacedFromCode,
   }));
