@@ -27,6 +27,10 @@ export default defineConfig({
         OTP_DEMO_CODE: process.env.OTP_DEMO_CODE ?? "123456",
         // TEMPORARY: the app shows the OTP in a popup until SMS is wired — remove this line then.
         OTP_SHOW_IN_APP: "true",
+        // The only web addresses allowed to call this API from a browser (backend/src/app.ts). Left
+        // empty, every browser call is refused and both apps show "could not reach the server"
+        // (6 Oct 2026). Add a domain here when the apps move to one.
+        APP_ORIGINS: process.env.APP_ORIGINS ?? "https://felix-admin.shoaibk-mca2024.workers.dev,https://felix-dealer.shoaibk-mca2024.workers.dev",
         ACCESS_TOKEN_TTL_MIN: process.env.ACCESS_TOKEN_TTL_MIN!,
         REFRESH_TOKEN_TTL_DAYS: process.env.REFRESH_TOKEN_TTL_DAYS!,
       },
