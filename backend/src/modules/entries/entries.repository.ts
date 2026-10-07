@@ -52,8 +52,9 @@ export type NewEntryItem = {
   entryId: string;
   seq: number;
   modelId: string;
-  batteryCode: string;
-  batteryCodeEntered: string;
+  // null only on a request head office recorded before the new battery's number was known
+  batteryCode: string | null;
+  batteryCodeEntered: string | null;
   oldBatteryCode: string | null;
   oldBatteryCodeEntered: string | null;
   oldModelId?: string | null;

@@ -231,11 +231,24 @@ describe('create', () => {
       await expect(create(adminCtx, anything())).resolves.toBeTruthy();
     });
 
-    it('still refuses a product that does not exist, and a blank serial', async () => {
+    it('still refuses a product that does not exist', async () => {
       vi.mocked(batteriesRepo.findModelById).mockResolvedValue(undefined as never);
       await expect(create(adminCtx, anything())).rejects.toMatchObject({ code: 'model_unknown' });
+    });
+
+    // Head office records some replacements before the new battery's number is known — the claim
+    // is about the OLD battery that came back (client, 7 Oct 2026).
+    it('records a replacement with no number for the new battery, and stores none', async () => {
       vi.mocked(batteriesRepo.findModelById).mockResolvedValue({ id: 'M5', active: true, warrantyMonths: 24 } as never);
-      await expect(create(adminCtx, anything({ code: '   ' }))).rejects.toMatchObject({ code: 'code_required' });
+      await expect(create(adminCtx, anything({ code: '   ' }))).resolves.toBeTruthy();
+      expect(repo.insertEntryItem).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        batteryCode: null, batteryCodeEntered: null,
+      }));
+    });
+
+    it("a shop is still required to say which battery it gave", async () => {
+      await expect(create(dealerCtx, baseBody({ items: [repItem({ code: '   ' })] } as never)))
+        .rejects.toMatchObject({ code: 'code_required' });
     });
 
     it("a shop's own request is still held to every rule", async () => {
@@ -255,6 +268,19 @@ describe('create', () => {
     await expect(create(dealerCtx, baseBody({ entryDate: '2020-01-01' }))).rejects.toMatchObject({ field: 'entryDate' });
     // head office is not held to the window — it records what it finds
     await expect(create(adminCtx, baseBody({ dealerId: 'dealer-1', entryDate: '2020-01-01' }))).resolves.toBeTruthy();
+  });
+
+  // Recording one without the number is allowed; APPROVING it is not, because approval is what
+  // creates the battery's record and anchors the warranty chain to it (client, 7 Oct 2026).
+  it('a request with no number for the new battery cannot be approved until it has one', async () => {
+    vi.mocked(repo.findEntryById).mockResolvedValue({ id: 'entry-1', ref: 'RP-26-10-0001', status: 'submitted', dealerId: 'dealer-1', entryType: 'replacement', entryDate: '2026-10-07' } as never);
+    vi.mocked(repo.findItemsByEntryId).mockResolvedValue([
+      { id: 'item-1', seq: 0, modelId: 'M5', batteryCode: null, batteryCodeEntered: null, oldBatteryCode: 'M526040001' },
+    ] as never);
+
+    await expect(approve(adminCtx, 'entry-1', 'ok')).rejects.toMatchObject({ code: 'new_battery_unknown', status: 409 });
+    // and it says which battery is missing one, so a multi-battery request can be put right
+    await expect(approve(adminCtx, 'entry-1', 'ok')).rejects.toMatchObject({ details: { items: [0] } });
   });
 
   it('a plain sale is head office’s to record, never a shop’s', async () => {
@@ -561,7 +587,7 @@ describe('list', () => {
 
 describe('replacement decisions wait for the old battery to reach the factory', () => {
   const entry = { id: 'entry-1', ref: 'ENT-26-09-0002', status: 'submitted', dealerId: 'dealer-1', entryType: 'replacement', entryDate: '2026-09-17' };
-  const item = { id: 'item-1', seq: 0, modelId: 'M5', batteryCode: '26090001', oldBatteryCode: '26010099', claimId: null };
+  const item = { id: 'item-1', seq: 0, modelId: 'M5', batteryCode: '26090001', batteryCodeEntered: '26090001', oldBatteryCode: '26010099', claimId: null };
 
   it('approve refuses a replacement while its old battery is still on the way', async () => {
     vi.mocked(repo.findEntryById).mockResolvedValue(entry as never);
@@ -821,7 +847,7 @@ describe('one battery at a time — review and correct', () => {
 
 describe("approving a battery is the verdict, not the refund (client, 2 Oct 2026)", () => {
   const entry = { id: 'entry-1', ref: 'ENT-26-10-0014', entryType: 'replacement', status: 'approved', dealerId: 'dealer-1' };
-  const items = [{ id: 'item-1', entryId: 'entry-1', seq: 0, claimId: 'cl-1', oldBatteryCode: 'M526040001' }];
+  const items = [{ id: 'item-1', entryId: 'entry-1', seq: 0, claimId: 'cl-1', batteryCode: 'M526090001', batteryCodeEntered: '26090001', oldBatteryCode: 'M526040001' }];
   beforeEach(() => {
     vi.mocked(repo.findEntryById).mockResolvedValue(entry as never);
     vi.mocked(repo.findItemsByEntryId).mockResolvedValue(items as never);

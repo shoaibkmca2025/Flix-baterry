@@ -839,7 +839,9 @@ export function NewEntry({ id }: { id?: string }) {
   const adminErrors = (e: Entry): Record<string, string> => {
     const errs: Record<string, string> = {};
     if (!active.some(d => d.id === e.dealerId)) errs.dealerId = 'Choose the distributor this entry belongs to.';
-    e.items.forEach((it, i) => { if (!it.code.trim()) errs[`items.${i}.code`] = 'Enter the battery number.'; });
+    // The new battery's number may not be known yet — head office records some replacements
+    // before it is, where the claim is about the OLD battery that came back (client, 7 Oct 2026).
+    // It is asked for again before the request can be approved.
     return errs;
   };
   const next = () => {
@@ -911,8 +913,11 @@ export function NewEntry({ id }: { id?: string }) {
               {i > 0 && <Btn kind="ghost" sm icon="up" label="Move up" onPress={() => { const items = [...entry.items]; [items[i - 1], items[i]] = [items[i], items[i - 1]]; upd({ items }); }} />}
               {entry.items.length > 1 && <Btn kind="ghost" sm icon="x" label="Remove" color={T.terminal} borderColor="#F0C7BC" onPress={() => upd({ items: entry.items.filter((_, j) => j !== i) })} />}</View>} />
             <Cols>
-              <Field label={`Serial number (${lengthsLabel(newLengths)})`} req mono numeric maxLength={newMax} value={it.code} onChange={v => { const code = v.replace(/\D/g, '').slice(0, newMax); const b = isValidDigits(code, newLengths) ? findBattery(state, code) : undefined; item(i, { code, ...deriveCode(code, modelIds, newLengths), ...(b ? { model: b.model } : {}) }); }} error={k('code')} ph="e.g. 26080311"
-                tail={<CapBtn n="scan" tone="alt" label={`Scan battery ${i + 1}`} onPress={() => setScan(i)} />} hint="Leading zeros are kept exactly as printed." hintIcon="lock" />
+              <Field label={`Serial number (${lengthsLabel(newLengths)})`} mono numeric maxLength={newMax} value={it.code} onChange={v => { const code = v.replace(/\D/g, '').slice(0, newMax); const b = isValidDigits(code, newLengths) ? findBattery(state, code) : undefined; item(i, { code, ...deriveCode(code, modelIds, newLengths), ...(b ? { model: b.model } : {}) }); }} error={k('code')} ph="e.g. 26080311"
+                tail={<CapBtn n="scan" tone="alt" label={`Scan battery ${i + 1}`} onPress={() => setScan(i)} />} hintIcon={it.code.trim() ? 'lock' : 'clock'}
+                hint={it.code.trim()
+                  ? 'Leading zeros are kept exactly as printed.'
+                  : 'Leave this empty if the new battery’s number is not known yet — add it before approving.'} />
             </Cols>
             <PlateModelSelect label="New battery" req value={it.model} error={k('model')} onChange={model => item(i, { model })} />
             {/* The short serial is whatever follows the YYMM — it is read off the code, never

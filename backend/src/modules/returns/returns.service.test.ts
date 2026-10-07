@@ -74,7 +74,7 @@ describe('dispatch — a dealer hands old batteries to the van', () => {
     vi.mocked(repo.insertChallan).mockResolvedValue({ id: 'chl-1', no: 'CHL-26-09-0001', status: 'dispatched' } as never);
     vi.mocked(repo.insertLines).mockImplementation(async (_tx, values) => values.map((v, i) => ({ id: `line-${i}`, stage: 'in_transit', ...v })) as never);
 
-    const result = await dispatch(dealerCtx, { entryIds: ['entry-1'], vehicleNo: 'MH18AB1234' });
+    const result = await dispatch(dealerCtx, { entryIds: ['entry-1'], vehicleNo: 'MH18AB1234', driverName: 'Ravi' });
     expect(result.no).toBe('CHL-26-09-0001');
     expect(result.lines).toHaveLength(1);
     expect(result.lines[0]).toMatchObject({ batteryCode: '26030777', entryItemId: 'item-1', modelId: 'M5' });
@@ -88,32 +88,32 @@ describe('dispatch — a dealer hands old batteries to the van', () => {
     vi.mocked(repo.insertChallan).mockResolvedValue({ id: 'chl-1', no: 'CHL-26-09-0001', status: 'dispatched' } as never);
     vi.mocked(repo.insertLines).mockResolvedValue([] as never);
     vi.mocked(claimsRepo.findClaimById).mockResolvedValue({ id: 'claim-1', status: 'raised' } as never);
-    await dispatch(dealerCtx, { entryIds: ['entry-1'] });
+    await dispatch(dealerCtx, { entryIds: ['entry-1'], vehicleNo: 'MH18 BQ 4471', driverName: 'Ravi' });
     expect(claimsService.dispatch).toHaveBeenCalledWith(dealerCtx, 'claim-1');
     expect(claimsService.receive).not.toHaveBeenCalled();
   });
 
   it('answers 404 (not 403) for another dealer\'s entry', async () => {
     vi.mocked(entriesRepo.findEntriesByIds).mockResolvedValue([{ ...replacement, dealerId: 'dealer-2' }] as never);
-    await expect(dispatch(dealerCtx, { entryIds: ['entry-1'] })).rejects.toMatchObject({ code: 'entry_not_found', status: 404 });
+    await expect(dispatch(dealerCtx, { entryIds: ['entry-1'], vehicleNo: 'MH18 BQ 4471', driverName: 'Ravi' })).rejects.toMatchObject({ code: 'entry_not_found', status: 404 });
   });
 
   it('a voided request has nothing to send back (client, 6 Oct 2026)', async () => {
     vi.mocked(entriesRepo.findEntriesByIds).mockResolvedValue([{ ...replacement, status: 'void' }] as never);
-    await expect(dispatch(dealerCtx, { entryIds: ['entry-1'] })).rejects.toMatchObject({ code: 'nothing_to_dispatch', status: 422 });
+    await expect(dispatch(dealerCtx, { entryIds: ['entry-1'], vehicleNo: 'MH18 BQ 4471', driverName: 'Ravi' })).rejects.toMatchObject({ code: 'nothing_to_dispatch', status: 422 });
     expect(repo.insertChallan).not.toHaveBeenCalled();
   });
 
   it('a special request cannot be dispatched until head office approves it (client, 3 Oct 2026)', async () => {
     vi.mocked(entriesRepo.findEntriesByIds).mockResolvedValue([{ ...replacement, specialStatus: 'pending' }] as never);
-    await expect(dispatch(dealerCtx, { entryIds: ['entry-1'] })).rejects.toMatchObject({ code: 'special_pending', status: 422 });
+    await expect(dispatch(dealerCtx, { entryIds: ['entry-1'], vehicleNo: 'MH18 BQ 4471', driverName: 'Ravi' })).rejects.toMatchObject({ code: 'special_pending', status: 422 });
     expect(repo.insertChallan).not.toHaveBeenCalled();
   });
 
   it("a distributor cannot send a dealer's old battery that has not reached him (client, 3 Oct 2026)", async () => {
     vi.mocked(entriesRepo.findEntriesByIds).mockResolvedValue([{ ...replacement, dealerId: 'dealer-1a' }] as never);
     vi.mocked(entriesRepo.findItemsByEntryIds).mockResolvedValue([item] as never); // no distributorReceivedAt
-    await expect(dispatch(dealerCtx, { entryIds: ['entry-1'] })).rejects.toMatchObject({ code: 'not_arrived', status: 422 });
+    await expect(dispatch(dealerCtx, { entryIds: ['entry-1'], vehicleNo: 'MH18 BQ 4471', driverName: 'Ravi' })).rejects.toMatchObject({ code: 'not_arrived', status: 422 });
     expect(repo.insertChallan).not.toHaveBeenCalled();
   });
 
@@ -123,13 +123,13 @@ describe('dispatch — a dealer hands old batteries to the van', () => {
     vi.mocked(repo.findLinesByEntryItemIds).mockResolvedValue([]);
     vi.mocked(repo.insertChallan).mockResolvedValue({ id: 'chl-1', no: 'CHL-26-10-0001', status: 'dispatched' } as never);
     vi.mocked(repo.insertLines).mockResolvedValue([] as never);
-    await dispatch(dealerCtx, { entryIds: ['entry-1'] });
+    await dispatch(dealerCtx, { entryIds: ['entry-1'], vehicleNo: 'MH18 BQ 4471', driverName: 'Ravi' });
     expect(vi.mocked(repo.insertChallan).mock.calls[0]?.[1]).toMatchObject({ dealerId: 'dealer-1' }); // the challan is the distributor's
   });
 
   it('a dealer cannot dispatch — he hands old batteries to his distributor', async () => {
     vi.mocked(distributorShopIds).mockRejectedValueOnce(new AppError('distributor_only', 403, 'Only a distributor can do this.'));
-    await expect(dispatch({ ...dealerCtx, user: { ...dealerCtx.user!, dealerId: 'dealer-1a' } }, { entryIds: ['entry-1'] })).rejects.toMatchObject({ code: 'distributor_only', status: 403 });
+    await expect(dispatch({ ...dealerCtx, user: { ...dealerCtx.user!, dealerId: 'dealer-1a' } }, { entryIds: ['entry-1'], vehicleNo: 'MH18 BQ 4471', driverName: 'Ravi' })).rejects.toMatchObject({ code: 'distributor_only', status: 403 });
     expect(repo.insertChallan).not.toHaveBeenCalled();
   });
 
@@ -142,7 +142,7 @@ describe('dispatch — a dealer hands old batteries to the van', () => {
     vi.mocked(repo.insertChallan).mockResolvedValue({ id: 'chl-1', no: 'CHL-26-10-0001', status: 'dispatched' } as never);
     vi.mocked(repo.insertLines).mockResolvedValue([] as never);
 
-    await dispatch(dealerCtx, { entryIds: ['entry-1'] });
+    await dispatch(dealerCtx, { entryIds: ['entry-1'], vehicleNo: 'MH18 BQ 4471', driverName: 'Ravi' });
 
     expect(vi.mocked(repo.insertLines).mock.calls[0]?.[1]?.[0]).toMatchObject({ kind: 'sales_return', batteryCode: 'M526100042' });
   });
@@ -154,25 +154,25 @@ describe('dispatch — a dealer hands old batteries to the van', () => {
     vi.mocked(repo.insertChallan).mockResolvedValue({ id: 'chl-1', no: 'CHL-26-10-0001', status: 'dispatched' } as never);
     vi.mocked(repo.insertLines).mockResolvedValue([] as never);
 
-    await dispatch(dealerCtx, { entryIds: ['entry-1'] });
+    await dispatch(dealerCtx, { entryIds: ['entry-1'], vehicleNo: 'MH18 BQ 4471', driverName: 'Ravi' });
 
     expect(vi.mocked(repo.insertLines).mock.calls[0]?.[1]?.[0]).toMatchObject({ kind: 'replacement', batteryCode: item.oldBatteryCode });
   });
 
   it('refuses a sale — there is no battery coming back', async () => {
     vi.mocked(entriesRepo.findEntriesByIds).mockResolvedValue([{ ...replacement, entryType: 'regular_sales' }] as never);
-    await expect(dispatch(dealerCtx, { entryIds: ['entry-1'] })).rejects.toMatchObject({ code: 'nothing_to_dispatch' });
+    await expect(dispatch(dealerCtx, { entryIds: ['entry-1'], vehicleNo: 'MH18 BQ 4471', driverName: 'Ravi' })).rejects.toMatchObject({ code: 'nothing_to_dispatch' });
   });
 
   it('refuses an old battery that is already on a challan', async () => {
     vi.mocked(entriesRepo.findEntriesByIds).mockResolvedValue([replacement] as never);
     vi.mocked(entriesRepo.findItemsByEntryIds).mockResolvedValue([item] as never);
     vi.mocked(repo.findLinesByEntryItemIds).mockResolvedValue([{ entryId: 'entry-1', batteryCode: '26030777' }] as never);
-    await expect(dispatch(dealerCtx, { entryIds: ['entry-1'] })).rejects.toMatchObject({ code: 'already_dispatched', status: 409 });
+    await expect(dispatch(dealerCtx, { entryIds: ['entry-1'], vehicleNo: 'MH18 BQ 4471', driverName: 'Ravi' })).rejects.toMatchObject({ code: 'already_dispatched', status: 409 });
   });
 
   it('is dealer-only', async () => {
-    await expect(dispatch(adminCtx, { entryIds: ['entry-1'] })).rejects.toMatchObject({ code: 'permission_denied' });
+    await expect(dispatch(adminCtx, { entryIds: ['entry-1'], vehicleNo: 'MH18 BQ 4471', driverName: 'Ravi' })).rejects.toMatchObject({ code: 'permission_denied' });
   });
 });
 

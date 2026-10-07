@@ -81,6 +81,10 @@ function D33Dispatch() {
   // at once. The local-only path below is the demo/preview behaviour.
   const dispatch = async () => {
     if (!picked.length) { d.toast('Tick at least one battery to hand over.'); return; }
+    // The van and the driver are what make a challan a document someone can be held to: without
+    // them a load leaves the shop with nothing naming who took it (client, 7 Oct 2026).
+    if (!vehicle.trim()) { d.toast('Enter the van number before sending.'); return; }
+    if (!driver.trim()) { d.toast('Enter the driver’s name before sending.'); return; }
     const token = await getAccessToken();
     // A challan has to reach head office to mean anything — never make one that lives only on this phone.
     if (token) {
@@ -89,7 +93,7 @@ function D33Dispatch() {
       if (unsent.length) { d.toast(`${unsent.join(', ')} ${unsent.length === 1 ? 'is' : 'are'} still saved on this phone. Tap Sync now on Home to send ${unsent.length === 1 ? 'it' : 'them'} first, or untick ${unsent.length === 1 ? 'it' : 'them'}.`); return; }
       setBusy(true);
       try {
-        const result = await createChallan({ entryIds, vehicleNo: vehicle.trim().toUpperCase() || undefined, driverName: driver.trim() || undefined }, token);
+        const result = await createChallan({ entryIds, vehicleNo: vehicle.trim().toUpperCase(), driverName: driver.trim() }, token);
         const refOf = new Map(picked.map(e => [e.apiId as string, e.id]));
         record(toChallan(result, id => refOf.get(id) || id), '');
         sync(true);
@@ -104,7 +108,7 @@ function D33Dispatch() {
     record(c, ' (preview)');
   };
   return <Screen tab="truck" top={<AppBar title="Old batteries to send back" back="d07" right={<Chip tone="warn" label={`${rows.length} waiting`} />} />}
-    footer={rows.length ? <Btn kind="primary" big icon="truck" label={busy ? 'Sending…' : `Dispatch ${count} ${count === 1 ? 'battery' : 'batteries'} to company`} disabled={!count || busy} onPress={dispatch} /> : undefined}>
+    footer={rows.length ? <Btn kind="primary" big icon="truck" label={busy ? 'Sending…' : `Dispatch ${count} ${count === 1 ? 'battery' : 'batteries'} to company`} disabled={!count || busy || !vehicle.trim() || !driver.trim()} onPress={dispatch} /> : undefined}>
     <Banner tone="info" icon="truck" style={{ marginBottom: 13 }}>When the company van comes, tick the batteries you are handing over and tap the button. The challan is made for you — no paper list to write.</Banner>
     {held.length > 0 && <Banner tone="warn" icon="alert" style={{ marginBottom: 13 }}><B>{held.length} special {held.length === 1 ? 'request' : 'requests'} waiting for head office.</B> {held.map(e => e.id).join(', ')} — cannot be sent yet.</Banner>}
     {/* One challan, two sections (client, 3 Oct 2026). The van takes both, but a man counting
@@ -132,8 +136,8 @@ function D33Dispatch() {
     <Hint icon="lock" style={{ marginTop: 11 }}>The company decides each warranty claim only after it opens and checks that battery. Sending them back is what closes the claim.</Hint>
     {rows.length > 0 && <><SecT title="Pickup details" />
       <View style={{ flexDirection: 'row', gap: 9 }}>
-        <Field style={{ flex: 1 }} label="Van number" value={vehicle} onChange={setVehicle} ph="MH18 BQ 4471" caps />
-        <Field style={{ flex: 1 }} label="Driver name" value={driver} onChange={setDriver} ph="Driver" />
+        <Field style={{ flex: 1 }} label="Van number" req value={vehicle} onChange={setVehicle} ph="MH18 BQ 4471" caps />
+        <Field style={{ flex: 1 }} label="Driver name" req value={driver} onChange={setDriver} ph="Driver" />
       </View></>}
     <SecT title="Already sent" />
     <Card style={{ flexDirection: 'row', gap: 11, alignItems: 'center' }} label="Past dispatches" onPress={() => d.go('d35')}>

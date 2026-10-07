@@ -6,8 +6,11 @@ const reason = z.string().trim().min(5, 'Give a short reason (at least 5 charact
 // those entries goes on the challan (the app shows one old battery per entry today).
 export const ChallanCreateBody = z.object({
   entryIds: z.array(z.string().uuid()).min(1, 'Tick at least one battery to hand over.'),
-  vehicleNo: z.string().trim().max(20).optional(),
-  driverName: z.string().trim().max(80).optional(),
+  // The van and the driver are what make a challan a document someone can be held to: a load
+  // left the shop with nothing naming who took it (client, 7 Oct 2026). Required of the
+  // distributor who dispatches — the only caller this endpoint has.
+  vehicleNo: z.string().trim().min(1, 'Enter the van number.').max(20),
+  driverName: z.string().trim().min(1, "Enter the driver's name.").max(80),
 });
 export type ChallanCreateBody = z.infer<typeof ChallanCreateBody>;
 

@@ -103,11 +103,15 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
   const codeLengths: readonly number[] = input.entryType === 'sales_return' ? lengths : NEW_BATTERY_DIGIT_LENGTHS;
   const badNewFormat = input.entryType === 'sales_return' ? badFormat : `A new battery has ${lengthsSentence(NEW_BATTERY_DIGIT_LENGTHS)} that starts with the YYMM it was made.`;
   const derivedItems = input.items.map((item, i) => {
+    // Head office may not have the new battery's number yet — a special case it records by hand,
+    // where the claim is about the OLD battery that came back (client, 7 Oct 2026). It is still
+    // required before the request can be approved; see assertNewBatteryKnown.
+    if (!byAdmin && !item.code.trim()) throw new AppError('code_required', 422, 'Enter the battery number — without it the battery can never be found again.', { field: `items.${i}.code` });
     const newDerived = deriveCode(item.code, modelIds, codeLengths);
     // head office may enter a form deriveCode cannot read; keep what was typed, normalised
     if (byAdmin && !newDerived.valid) newDerived.normalised = item.code.trim().toUpperCase().replace(/\s/g, '');
+    const known = Boolean(item.code.trim());
     if (!byAdmin && !newDerived.valid) throw new AppError('format_mismatch', 422, badNewFormat, { field: `items.${i}.code` });
-    if (!item.code.trim()) throw new AppError('code_required', 422, 'Enter the battery number — without it the battery can never be found again.', { field: `items.${i}.code` });
     const oldDerived = item.oldCode ? deriveCode(item.oldCode, modelIds, lengths) : null;
     if (!byAdmin && item.oldCode && !oldDerived!.valid) throw new AppError('format_mismatch', 422, badFormat, { field: `items.${i}.oldCode` });
     // the old battery's product: what the dealer chose, else what its label prefix says, else like-for-like
@@ -115,7 +119,7 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
     const oldModelId = item.oldCode ? (item.oldModelId ?? oldDerived?.modelId ?? item.modelId) : null;
     // A battery is identified by product + digits together, so two batteries only clash when
     // BOTH match — 'M1000 26090001' and 'S1000 26090001' are different batteries.
-    const batteryCode = fullCode(modelId, newDerived.normalised);
+    const batteryCode = known ? fullCode(modelId, newDerived.normalised) : null;
     const oldBatteryCode = oldDerived ? fullCode(oldModelId!, oldDerived.normalised) : null;
     if (!byAdmin && oldBatteryCode && oldBatteryCode === batteryCode) throw new AppError('old_equals_new', 422, 'Old and new batteries must be different.', { field: `items.${i}.oldCode` });
     return { ...item, modelId, newDerived, oldDerived, oldModelId, batteryCode, oldBatteryCode };
@@ -176,7 +180,7 @@ export async function create(ctx: Ctx, input: EntryCreateBody) {
         seq: i,
         modelId: item.modelId,
         batteryCode: item.batteryCode,
-        batteryCodeEntered: item.code,
+        batteryCodeEntered: item.code.trim() || null,
         oldBatteryCode: item.oldBatteryCode,
         oldBatteryCodeEntered: item.oldCode ?? null,
         oldModelId: item.oldModelId,
@@ -219,6 +223,9 @@ async function oldBatteryCover(oldBatteryCode: string, oldModelId: string, onDat
  */
 async function recordWithoutWarranty(tx: Tx, ctx: Ctx, entry: { id: string; ref: string; dealerId: string; entryDate: string }) {
   for (const item of await repo.findItemsByEntryId(tx, entry.id)) {
+    // Nothing to put on record without a number — head office may not have one yet, and an
+    // invented code would be a battery nobody could ever find (client, 7 Oct 2026).
+    if (!item.batteryCode || !item.batteryCodeEntered) continue;
     if (item.batteryId || await batteriesRepo.findBatteryByCode(tx, item.batteryCode)) continue;
     const derived = readStored(digitsOfFull(item.batteryCode, item.modelId));
     const battery = await batteriesRepo.insertBattery(tx, {
@@ -246,7 +253,7 @@ function assertSpecialDecided(entry: { specialStatus: string | null }) {
   }
 }
 
-async function approveReplacementItem(tx: Tx, ctx: Ctx, entry: { id: string; dealerId: string; entryDate: string; specialStatus?: string | null }, item: Awaited<ReturnType<typeof repo.findItemsByEntryId>>[number]) {
+async function approveReplacementItem(tx: Tx, ctx: Ctx, entry: { id: string; dealerId: string; entryDate: string; specialStatus?: string | null }, item: ItemWithBattery) {
   if (!item.oldBatteryCode) throw new AppError('old_serial_required', 422, 'Old battery code is required for a replacement.', { field: `items.${item.seq}.oldBatteryCode` });
 
   let old = await batteriesRepo.findBatteryByCode(tx, item.oldBatteryCode);
@@ -319,7 +326,7 @@ async function putOldBatteryOnRecord(
   tx: Tx,
   ctx: Ctx,
   entry: { id: string; dealerId: string },
-  item: Awaited<ReturnType<typeof repo.findItemsByEntryId>>[number],
+  item: ItemWithBattery,
   existing: Awaited<ReturnType<typeof batteriesRepo.findBatteryByCode>>,
 ) {
   const modelId = item.oldModelId ?? item.modelId;
@@ -348,7 +355,7 @@ async function putOldBatteryOnRecord(
   return batteriesRepo.updateBatteryChainId(tx, battery.id, chain.id);
 }
 
-async function approveRegularSaleItem(tx: Tx, ctx: Ctx, entry: { id: string; dealerId: string; entryDate: string }, item: Awaited<ReturnType<typeof repo.findItemsByEntryId>>[number]) {
+async function approveRegularSaleItem(tx: Tx, ctx: Ctx, entry: { id: string; dealerId: string; entryDate: string }, item: ItemWithBattery) {
   const existing = await batteriesRepo.findBatteryByCode(tx, item.batteryCode);
   if (existing) throw new AppError('duplicate_serial', 409, 'This battery code is already registered.', { field: `items.${item.seq}.batteryCode` });
 
@@ -380,7 +387,7 @@ async function approveRegularSaleItem(tx: Tx, ctx: Ctx, entry: { id: string; dea
   return { battery: updated, chain };
 }
 
-async function approveSalesReturnItem(tx: Tx, ctx: Ctx, entry: { id: string; dealerId: string }, item: Awaited<ReturnType<typeof repo.findItemsByEntryId>>[number]) {
+async function approveSalesReturnItem(tx: Tx, ctx: Ctx, entry: { id: string; dealerId: string }, item: ItemWithBattery) {
   const existing = await batteriesRepo.findBatteryByCode(tx, item.batteryCode);
   let battery;
   if (existing) {
@@ -425,11 +432,12 @@ export async function approve(ctx: Ctx, entryId: string, reason: string) {
   // Head office decides a replacement only once the old battery is physically at the factory
   // (client rule, 25 Sep 2026): they verify it offline, then approve or refuse.
   if (entry.entryType !== 'regular_sales') await assertBatteriesArrived(entry.entryType, items);
+  assertNewBatteryKnown(items);
   return approveItems(ctx, entry, items, reason);
 }
 
 /** The entry approval itself — stock, chains, claims for every battery on it. Callers check arrival first. */
-async function approveItems(ctx: Ctx, entry: NonNullable<Awaited<ReturnType<typeof repo.findEntryById>>>, items: Awaited<ReturnType<typeof repo.findItemsByEntryId>>, reason: string) {
+async function approveItems(ctx: Ctx, entry: NonNullable<Awaited<ReturnType<typeof repo.findEntryById>>>, items: ItemWithBattery[], reason: string) {
   const entryId = entry.id;
 
   return withTransaction(async (tx) => {
@@ -456,9 +464,36 @@ const ARRIVED_CLAIM = new Set(['received', 'checked']);
  * 3 Oct 2026). Either way it reaches the factory on a challan line, and that line's stage is
  * what says it is here.
  */
+type EntryItem = Awaited<ReturnType<typeof repo.findItemsByEntryId>>[number];
+type ItemWithBattery = EntryItem & { batteryCode: string; batteryCodeEntered: string };
+
+/**
+ * Nothing is approved until the new battery has a number.
+ *
+ * Head office may RECORD a replacement before it knows one — a special case it handles by hand,
+ * where the claim is really about the old battery that came back (client, 7 Oct 2026). But
+ * approval is what creates the new battery's record and anchors the warranty chain to it, and
+ * neither can be done without a number: there would be nothing to find the battery by later, and
+ * nothing for the old one to point at.
+ *
+ * So the request waits. Head office fills the number in from "Correct this battery" — the same
+ * dialog that already fixes a mistyped one — and approves it then.
+ */
+function assertNewBatteryKnown(items: EntryItem[]): asserts items is ItemWithBattery[] {
+  const missing = items.filter((it) => !it.batteryCode || !it.batteryCodeEntered);
+  if (missing.length) {
+    throw new AppError(
+      'new_battery_unknown',
+      409,
+      'This request has no number for the new battery yet. Add it with “Correct this battery”, then approve.',
+      { details: { items: missing.map((it) => it.seq) } },
+    );
+  }
+}
+
 async function assertBatteriesArrived(
   entryType: 'replacement' | 'sales_return' | 'regular_sales',
-  items: { id: string; seq: number; batteryCode: string; oldBatteryCode: string | null; claimId?: string | null }[],
+  items: { id: string; seq: number; batteryCode: string | null; oldBatteryCode: string | null; claimId?: string | null }[],
 ) {
   const sr = entryType === 'sales_return';
   const withOld = items.filter((it) => (sr ? it.batteryCode : it.oldBatteryCode));
@@ -502,6 +537,7 @@ export async function settle(ctx: Ctx, entryId: string, input: EntrySettleBody) 
   const target = input.itemId ? items.filter((it) => it.id === input.itemId) : items;
   if (input.itemId && !target.length) throw new AppError('item_not_found', 404, 'That battery is not on this request.');
   await assertBatteriesArrived(entry.entryType, target);
+  assertNewBatteryKnown(target);
 
   if (entry.status === 'submitted') {
     // Refusing the only battery (or all of them) refuses the request itself, as before. A
@@ -511,6 +547,9 @@ export async function settle(ctx: Ctx, entryId: string, input: EntrySettleBody) 
       const r = await reject(ctx, entryId, input.reason);
       return { entry: r, creditNotes: [] };
     }
+    // approving the whole request here, so every battery on it needs its number — not just the
+    // one being settled
+    assertNewBatteryKnown(items);
     await approveItems(ctx, entry, items, input.itemId ? `Each battery decided on its own at the factory. ${input.reason}` : input.reason);
   }
 
@@ -825,8 +864,14 @@ export async function correctItem(ctx: Ctx, entryId: string, itemId: string, inp
   const enteredCode = input.code ?? item.batteryCodeEntered;
   const enteredOld = input.oldCode ?? item.oldBatteryCodeEntered;
 
-  const newDerived = deriveCode(enteredCode, modelIds, codeLengths);
-  if (!newDerived.valid) {
+  /*
+   * A request head office recorded without the new battery's number is corrected here to ADD it
+   * — that is how it becomes approvable (client, 7 Oct 2026). Until someone does, a correction
+   * to the old battery or the model is allowed to leave the new one unknown, rather than being
+   * refused for a number nobody has yet.
+   */
+  const newDerived = enteredCode ? deriveCode(enteredCode, modelIds, codeLengths) : null;
+  if (enteredCode && !newDerived!.valid) {
     const says = entry.entryType === 'sales_return'
       ? `Use ${lengthsSentence(lengths)} that starts with the YYMM it was made.`
       : `A new battery has ${lengthsSentence(NEW_BATTERY_DIGIT_LENGTHS)} that starts with the YYMM it was made.`;
@@ -841,7 +886,7 @@ export async function correctItem(ctx: Ctx, entryId: string, itemId: string, inp
   // model from a list and sends the digits on their own, and if the stored "as entered" value
   // happens to carry a model prefix, deriving from it would quietly undo that choice. The old
   // battery's model has always been read this way round; the new one's now matches.
-  const modelId = input.modelId ?? newDerived.modelId ?? item.modelId;
+  const modelId = input.modelId ?? newDerived?.modelId ?? item.modelId;
   const oldModelId = enteredOld ? (input.oldModelId ?? oldDerived?.modelId ?? item.oldModelId ?? modelId) : null;
   for (const [field, id] of [['modelId', modelId], ['oldModelId', oldModelId]] as const) {
     if (!id) continue;
@@ -850,12 +895,12 @@ export async function correctItem(ctx: Ctx, entryId: string, itemId: string, inp
     if (!model.active && field === 'modelId') throw new AppError('model_inactive', 422, `${id} is no longer sold.`, { field });
   }
 
-  const batteryCode = fullCode(modelId, newDerived.normalised);
+  const batteryCode = newDerived ? fullCode(modelId, newDerived.normalised) : null;
   const oldBatteryCode = oldDerived ? fullCode(oldModelId!, oldDerived.normalised) : null;
   if (oldBatteryCode && oldBatteryCode === batteryCode) {
     throw new AppError('old_equals_new', 422, 'Old and new batteries must be different.', { field: 'oldCode' });
   }
-  if (siblings.some((s) => s.id !== item.id && s.batteryCode === batteryCode)) {
+  if (batteryCode && siblings.some((s) => s.id !== item.id && s.batteryCode === batteryCode)) {
     throw new AppError('duplicate_serial', 422, 'Another battery on this request already has that number.', { field: 'code' });
   }
 

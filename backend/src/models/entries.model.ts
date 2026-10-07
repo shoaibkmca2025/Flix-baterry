@@ -83,8 +83,11 @@ export const entryItems = pgTable(
     modelId: text('model_id')
       .notNull()
       .references(() => batteryModels.id),
-    batteryCode: text('battery_code').notNull(), // normalised
-    batteryCodeEntered: text('battery_code_entered').notNull(),
+    // Optional only for a request head office recorded itself, before the new battery's number
+    // was known (client, 7 Oct 2026). A shop's request always carries one, and the number is
+    // required before the request can be approved — see assertNewBatteryKnown.
+    batteryCode: text('battery_code'), // normalised
+    batteryCodeEntered: text('battery_code_entered'),
     oldBatteryCode: text('old_battery_code'), // normalised; required for 'replacement', null for 'sales_return'
     oldBatteryCodeEntered: text('old_battery_code_entered'),
     // the OLD battery's (plate, model) when it is not on record yet — that is what its warranty

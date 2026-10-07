@@ -22,7 +22,9 @@ const isoDate = z.string()
 
 export const EntryItemInput = z.object({
   modelId: z.string().trim().min(1, 'Choose a model.'),
-  code: z.string().trim().min(1, 'Enter the battery code.'),
+  // Head office may record a replacement before the new battery's number is known (client,
+  // 7 Oct 2026); a shop's request is still required to carry one, in the service.
+  code: z.string().trim().default(''),
   oldCode: z.string().trim().optional(), // required for 'replacement', checked in the service (matches d11/d13's per-type fields)
   oldModelId: z.string().trim().min(1).optional(), // the old battery's plate+model when it is not on record; defaults to modelId
   faultCode: z.string().trim().optional(),

@@ -63,7 +63,7 @@ export async function dispatch(ctx: Ctx, input: ChallanCreateBody) {
   // Which battery travels: a replacement sends its OLD one back, a sales return sends the battery
   // itself — the same one that will come home working.
   const kindOf = (entryId: string): 'replacement' | 'sales_return' => (byId.get(entryId)?.entryType === 'sales_return' ? 'sales_return' : 'replacement');
-  const travellingCode = (it: { entryId: string; oldBatteryCode: string | null; batteryCode: string }) =>
+  const travellingCode = (it: { entryId: string; oldBatteryCode: string | null; batteryCode: string | null }) =>
     kindOf(it.entryId) === 'sales_return' ? it.batteryCode : it.oldBatteryCode;
   const items = (await entriesRepo.findItemsByEntryIds(db, ids)).filter((it) => !!travellingCode(it));
   if (!items.length) throw new AppError('nothing_to_dispatch', 422, 'None of these entries has a battery to send back.');
