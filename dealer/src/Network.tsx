@@ -34,7 +34,7 @@ export function D40() {
   const load = useCallback(async () => {
     const token = await getAccessToken();
     if (!token) { setRows([]); return; }
-    try { setRows((await listMyDealers(token)).items); } catch (e) { setRows([]); d.toast(errorMessage(e)); }
+    try { setRows((await listMyDealers(token)).items); } catch (e) { setRows([]); d.toast(errorMessage(e), 'bad'); }
   }, []);
   useEffect(() => { load(); }, [load]);
   const cityOf = (id: string) => cities.find(c => c.id === id)?.name || '';
@@ -48,7 +48,7 @@ export function D40() {
       await setMyDealerStatus(ask.id, suspending ? 'suspended' : 'active', why.trim(), token);
       d.toast(suspending ? `${ask.name} is suspended and signed out.` : `${ask.name} can sign in again.`);
       setAsk(null); setWhy(''); load();
-    } catch (e) { d.toast(errorMessage(e)); } finally { setBusy(false); }
+    } catch (e) { d.toast(errorMessage(e), 'bad'); } finally { setBusy(false); }
   };
   const active = rows?.filter(r => r.status === 'active').length ?? 0;
   return <Screen top={<AppBar title="My dealers" back="d07" />} overlay={<Sheet open={!!ask} title={suspending ? `Suspend ${ask?.name ?? ''}` : `Re-activate ${ask?.name ?? ''}`} onClose={() => setAsk(null)}>
@@ -95,7 +95,7 @@ export function D41() {
       d.back('d40');
     } catch (ex) {
       if (ex instanceof ApiError && ex.field) setErr(x => ({ ...x, [ex.field!]: ex.message }));
-      d.toast(errorMessage(ex));
+      d.toast(errorMessage(ex), 'bad');
     } finally { setBusy(false); }
   };
   return <Screen top={<AppBar title="Add a dealer" back="d40" />} overlay={<Sheet open={!!pick} title={pick?.title || ''} onClose={() => setPick(null)}>
@@ -184,7 +184,7 @@ export function D43({ p }: { p?: string }) {
       await distributorDecide(e.apiId, ask, why.trim(), token);
       d.toast(ask === 'approve' ? `${e.id} approved and sent to head office.` : `${e.id} refused. The dealer sees your reason.`);
       setAsk(null); setWhy(''); await sync(true); d.back('d42');
-    } catch (ex) { d.toast(errorMessage(ex)); } finally { setBusy(false); }
+    } catch (ex) { d.toast(errorMessage(ex), 'bad'); } finally { setBusy(false); }
   };
   const open = (uri: string) => { Linking.openURL(uri).catch(() => d.toast('The photo could not be opened here.')); };
   const reasons = ask === 'approve' ? ['Battery checked, old battery received', 'Photos and serials match'] : ['Physical damage — not covered', 'Serial does not match the battery', 'Old battery not handed over'];
@@ -220,7 +220,7 @@ export function D43({ p }: { p?: string }) {
         {it.coverCase ? <Banner tone="warn" icon="clock" style={{ marginTop: 9 }}><B>{specialLine(it, e.date)}.</B> {specialOutcome(it)}</Banner> : null}
         {distributorStage(e, it).key === 'awaiting' && e.apiId && <Btn kind="blue" sm icon="box" label="Mark arrived" style={{ marginTop: 9, alignSelf: 'flex-start' }} onPress={async () => {
           const token = await getAccessToken(); if (!token) { d.toast('Your sign-in has ended. Sign in again.'); return; }
-          try { await markArrived(e.apiId!, token, it.id); d.toast(e.special === 'Pending' ? 'Marked arrived. You can send it once head office approves the special request.' : 'Marked arrived. It is now ready to send from Send back.'); await sync(true); } catch (ex) { d.toast(errorMessage(ex)); }
+          try { await markArrived(e.apiId!, token, it.id); d.toast(e.special === 'Pending' ? 'Marked arrived. You can send it once head office approves the special request.' : 'Marked arrived. It is now ready to send from Send back.'); await sync(true); } catch (ex) { d.toast(errorMessage(ex), 'bad'); }
         }} />}
         <X s={12} w={7} c={T.slate} style={{ marginTop: 11, marginBottom: 7 }}>PHOTOS</X>
         {photos === null ? <X s={13} c={T.slate}>Loading photos…</X>
@@ -281,7 +281,7 @@ export function D44({ p }: { p?: string }) {
     const token = await getAccessToken(); if (!token) { d.toast('Your sign-in has ended. Sign in again.'); return; }
     setBusy(itemId);
     try { await markArrived(e.apiId, token, itemId); d.toast(e.special === 'Pending' ? 'Marked arrived. You can send it once head office approves the special request.' : 'Marked arrived. It is now ready to send from Send back.'); await sync(true); }
-    catch (ex) { d.toast(errorMessage(ex)); } finally { setBusy(''); }
+    catch (ex) { d.toast(errorMessage(ex), 'bad'); } finally { setBusy(''); }
   };
   const FILTERS: [string, string, (k: DistributorStage['key']) => boolean][] = [
     ['all', `All ${rows.length}`, () => true], ['requested', `To approve ${c.requested}`, k => k === 'requested'], ['awaiting', `To receive ${c.awaiting}`, k => k === 'awaiting'],

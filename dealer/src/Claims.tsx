@@ -70,6 +70,7 @@ function D33Dispatch() {
     && (!e.returnState || e.returnState === 'At dealer') && (e.dealerId === dealerId || e.items.some(i => i.oldSerial && i.arrivedAtDistributor)));
   const [off, setOff] = useState<string[]>([]), [vehicle, setVehicle] = useState(''), [driver, setDriver] = useState(''), [busy, setBusy] = useState(false);
   const picked = rows.filter(e => !off.includes(e.id));
+  const [pickupErrs, setPickupErrs] = useState<Record<string, string>>({});
   const count = picked.reduce((t, e) => t + e.items.filter(i => i.oldSerial).length, 0);
   const past = state.challans.filter(c => c.dealerId === dealerId);
   const open = past.filter(c => challanStatus(c, state).status !== 'Closed').length;
@@ -80,11 +81,25 @@ function D33Dispatch() {
   // Signed in for real: the server writes the challan and numbers it, so head office sees it
   // at once. The local-only path below is the demo/preview behaviour.
   const dispatch = async () => {
-    if (!picked.length) { d.toast('Tick at least one battery to hand over.'); return; }
-    // The van and the driver are what make a challan a document someone can be held to: without
-    // them a load leaves the shop with nothing naming who took it (client, 7 Oct 2026).
-    if (!vehicle.trim()) { d.toast('Enter the van number before sending.'); return; }
-    if (!driver.trim()) { d.toast('Enter the driver’s name before sending.'); return; }
+    if (!picked.length) { d.toast('Tick at least one battery to hand over.', 'bad'); return; }
+    /*
+     * The van and the driver are what make a challan a document someone can be held to: without
+     * them a load leaves the shop with nothing naming who took it (client, 7 Oct 2026).
+     *
+     * The message names the field and the field is marked, rather than a line that only says
+     * something is missing — Apple's guidance is to show when a command cannot be carried out
+     * AND help people understand why (patterns/feedback.md).
+     */
+    const missing: Record<string, string> = {};
+    if (!vehicle.trim()) missing.vehicle = 'Enter the van number.';
+    if (!driver.trim()) missing.driver = "Enter the driver's name.";
+    setPickupErrs(missing);
+    if (Object.keys(missing).length) {
+      d.toast(Object.keys(missing).length === 2
+        ? 'Add the van number and the driver’s name before sending.'
+        : missing.vehicle ? 'Add the van number before sending.' : 'Add the driver’s name before sending.', 'bad');
+      return;
+    }
     const token = await getAccessToken();
     // A challan has to reach head office to mean anything — never make one that lives only on this phone.
     if (token) {
@@ -98,7 +113,7 @@ function D33Dispatch() {
         record(toChallan(result, id => refOf.get(id) || id), '');
         sync(true);
       } catch (err) {
-        d.toast(errorMessage(err));
+        d.toast(errorMessage(err), 'bad');
       } finally { setBusy(false); }
       return;
     }
@@ -108,7 +123,7 @@ function D33Dispatch() {
     record(c, ' (preview)');
   };
   return <Screen tab="truck" top={<AppBar title="Old batteries to send back" back="d07" right={<Chip tone="warn" label={`${rows.length} waiting`} />} />}
-    footer={rows.length ? <Btn kind="primary" big icon="truck" label={busy ? 'Sending…' : `Dispatch ${count} ${count === 1 ? 'battery' : 'batteries'} to company`} disabled={!count || busy || !vehicle.trim() || !driver.trim()} onPress={dispatch} /> : undefined}>
+    footer={rows.length ? <Btn kind="primary" big icon="truck" label={busy ? 'Sending…' : `Dispatch ${count} ${count === 1 ? 'battery' : 'batteries'} to company`} disabled={!count || busy} onPress={dispatch} /> : undefined}>
     <Banner tone="info" icon="truck" style={{ marginBottom: 13 }}>When the company van comes, tick the batteries you are handing over and tap the button. The challan is made for you — no paper list to write.</Banner>
     {held.length > 0 && <Banner tone="warn" icon="alert" style={{ marginBottom: 13 }}><B>{held.length} special {held.length === 1 ? 'request' : 'requests'} waiting for head office.</B> {held.map(e => e.id).join(', ')} — cannot be sent yet.</Banner>}
     {/* One challan, two sections (client, 3 Oct 2026). The van takes both, but a man counting
@@ -136,8 +151,10 @@ function D33Dispatch() {
     <Hint icon="lock" style={{ marginTop: 11 }}>The company decides each warranty claim only after it opens and checks that battery. Sending them back is what closes the claim.</Hint>
     {rows.length > 0 && <><SecT title="Pickup details" />
       <View style={{ flexDirection: 'row', gap: 9 }}>
-        <Field style={{ flex: 1 }} label="Van number" req value={vehicle} onChange={setVehicle} ph="MH18 BQ 4471" caps />
-        <Field style={{ flex: 1 }} label="Driver name" req value={driver} onChange={setDriver} ph="Driver" />
+        <Field style={{ flex: 1 }} label="Van number" req value={vehicle} error={pickupErrs.vehicle}
+          onChange={v => { setVehicle(v); setPickupErrs(e => ({ ...e, vehicle: '' })); }} ph="MH18 BQ 4471" caps />
+        <Field style={{ flex: 1 }} label="Driver name" req value={driver} error={pickupErrs.driver}
+          onChange={v => { setDriver(v); setPickupErrs(e => ({ ...e, driver: '' })); }} ph="Driver" />
       </View></>}
     <SecT title="Already sent" />
     <Card style={{ flexDirection: 'row', gap: 11, alignItems: 'center' }} label="Past dispatches" onPress={() => d.go('d35')}>

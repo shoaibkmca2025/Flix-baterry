@@ -9,8 +9,11 @@ export const ChallanCreateBody = z.object({
   // The van and the driver are what make a challan a document someone can be held to: a load
   // left the shop with nothing naming who took it (client, 7 Oct 2026). Required of the
   // distributor who dispatches — the only caller this endpoint has.
-  vehicleNo: z.string().trim().min(1, 'Enter the van number.').max(20),
-  driverName: z.string().trim().min(1, "Enter the driver's name.").max(80),
+  // `required_error` matters as much as the min(1) message: a field the app leaves out entirely
+  // answered with zod's bare default, "Required", which named nothing and reached the gate as a
+  // toast saying exactly that (client, 7 Oct 2026).
+  vehicleNo: z.string({ required_error: 'Enter the van number.' }).trim().min(1, 'Enter the van number.').max(20),
+  driverName: z.string({ required_error: "Enter the driver's name." }).trim().min(1, "Enter the driver's name.").max(80),
 });
 export type ChallanCreateBody = z.infer<typeof ChallanCreateBody>;
 

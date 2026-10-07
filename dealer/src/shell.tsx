@@ -12,7 +12,13 @@ export type Flow = { entry: Entry; cur: number; scanned: Record<string, boolean>
 export type DealerCtx = {
   route: Route; framed: boolean;
   go: (id: string, p?: string) => void; back: (to: string, p?: string) => void; tab: (id: string) => void;
-  toast: (m: string) => void;
+  /**
+   * A line at the bottom of the screen. `tone` decides whether it reads as something that went
+   * through or something that did not: every message wore a green tick, so a refusal looked like
+   * a success and the only way to tell was to read it (client, 7 Oct 2026). Apple's guidance is
+   * that feedback should not depend on one channel alone — colour, icon and words should agree.
+   */
+  toast: (m: string, tone?: 'ok' | 'bad') => void;
   flow: Flow | null; setFlow: React.Dispatch<React.SetStateAction<Flow | null>>;
   signIn: (session: Session) => void; signOut: () => void;
   recent: string[]; addRecent: (code: string) => void;

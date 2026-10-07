@@ -33,10 +33,11 @@ export function DealerApp({ signedIn, onSignedIn, onSignOut }: { signedIn: boole
   const [history, setHistory] = useState<Route[]>([]);
   const [flow, setFlow] = useState<Flow | null>(null);
   const [toastMsg, setToastMsg] = useState('');
+  const [toastTone, setToastTone] = useState<'ok' | 'bad'>('ok');
   const [recent, setRecent] = useState<string[]>([]);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const toast = useCallback((m: string) => { setToastMsg(m); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToastMsg(''), 10_000); }, []); // 10s (client, 2 Oct 2026)
+  const toast = useCallback((m: string, tone: 'ok' | 'bad' = 'ok') => { setToastTone(tone); setToastMsg(m); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToastMsg(''), 10_000); }, []); // 10s (client, 2 Oct 2026)
   const go = (id: string, p?: string) => { setHistory(h => [...h, route]); setRoute({ id, p }); setToastMsg(''); };
   /**
    * Back goes to the screen you came from — one step, every time.
@@ -84,7 +85,8 @@ export function DealerApp({ signedIn, onSignedIn, onSignOut }: { signedIn: boole
     {!!toastMsg && <View pointerEvents="box-none" style={{ position: 'absolute', left: 15, right: 15, bottom: 150, zIndex: 50 }}>
       <View accessibilityRole="alert" pointerEvents="box-none" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: T.ink, paddingVertical: 13, paddingLeft: 15, paddingRight: 6, borderRadius: 11, shadowColor: '#000', shadowOpacity: 0.6, shadowRadius: 30, shadowOffset: { width: 0, height: 12 }, elevation: 12 }}>
         <View pointerEvents="none" style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <Ic n="check" size={19} color="#5BD65B" /><X s={13.5} c={T.white} style={{ flex: 1 }}>{toastMsg}</X></View>
+          {/* icon, colour and words all say the same thing — a refusal must not wear a tick */}
+          <Ic n={toastTone === 'bad' ? 'alert' : 'check'} size={19} color={toastTone === 'bad' ? '#FF8A73' : '#5BD65B'} /><X s={13.5} c={T.white} style={{ flex: 1 }}>{toastMsg}</X></View>
         <Pressable accessibilityRole="button" accessibilityLabel="Dismiss this message" hitSlop={10} onPress={() => setToastMsg('')}
           style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}><Ic n="x" size={16} color="#8B97A6" /></Pressable>
       </View>
